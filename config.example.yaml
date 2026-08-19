@@ -1,0 +1,25 @@
+build_id: dev
+log_level: info
+
+quic:
+  listen_address: 127.0.0.1:4242
+  shard_address: 127.0.0.1:4242
+
+world:
+  tick_interval: 50ms
+
+# Leave these empty to run without the Docker-managed development services.
+nats:
+  url: ""
+
+postgres:
+  dsn: ""
+
+valkey:
+  address: ""
+  password: ""
+  db: 0
+
+otel:
+  endpoint: ""
+  insecure: true

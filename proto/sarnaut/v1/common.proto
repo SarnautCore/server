@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package sarnaut.v1;
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+
+enum ProtocolVersion {
+  PROTOCOL_VERSION_UNSPECIFIED = 0;
+  PROTOCOL_VERSION_1 = 1;
+}

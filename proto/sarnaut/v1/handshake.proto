@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package sarnaut.v1;
+
+import "sarnaut/v1/common.proto";
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+
+message ClientHello {
+  ProtocolVersion protocol_version = 1;
+  string build_id = 2;
+}
+
+message ServerHello {
+  ProtocolVersion protocol_version = 1;
+  string build_id = 2;
+}
