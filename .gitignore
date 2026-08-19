@@ -1,0 +1,38 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Test binaries and coverage
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directory (pre-modules vendoring)
+vendor/
+
+# Build and tooling caches
+.gocache/
+.golangci-cache/
+
+# Env and local config
+.env
+.env.local
+*.local.yaml
+*.local.yml
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
