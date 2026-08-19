@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check generated protobuf code
+        run: |
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/protoc.zip" \
+            https://github.com/protocolbuffers/protobuf/releases/download/v35.1/protoc-35.1-linux-x86_64.zip
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          export PATH="$RUNNER_TEMP/protoc/bin:$(go env GOPATH)/bin:$PATH"
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go generate ./proto
+          git diff --exit-code -- gen
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build ./cmd/...
