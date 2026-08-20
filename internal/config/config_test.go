@@ -13,7 +13,7 @@ import (
 
 func TestLoadAppliesYAMLThenEnvironmentOverrides(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	contents := []byte("build_id: yaml-build\nworld:\n  tick_interval: 75ms\n  snapshot_interval: 100ms\ncontent:\n  pack_path: fixture-pack\n")
+	contents := []byte("build_id: yaml-build\nworld:\n  tick_interval: 75ms\n  snapshot_interval: 100ms\ncontent:\n  pack_path: fixture-pack\n  skip_unsupported_quests: true\n")
 	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		t.Fatalf("write test config: %v", err)
 	}
@@ -35,6 +35,9 @@ func TestLoadAppliesYAMLThenEnvironmentOverrides(t *testing.T) {
 	}
 	if got.Content.PackPath != "fixture-pack" {
 		t.Errorf("Content.PackPath = %q, want fixture-pack", got.Content.PackPath)
+	}
+	if !got.Content.SkipUnsupportedQuests {
+		t.Error("Content.SkipUnsupportedQuests = false, want the YAML value true")
 	}
 	if got.ServiceName != "shard" {
 		t.Errorf("ServiceName = %q, want %q", got.ServiceName, "shard")
@@ -133,6 +136,7 @@ func TestLoadReadsTheContentPackFromTheEnvironment(t *testing.T) {
 	t.Setenv("SARNAUT_CONFIG", "")
 	t.Setenv("SARNAUT_CONTENT_PACK", filepath.Join("packs", "classic", "demo"))
 	t.Setenv("SARNAUT_CONTENT_ALLOW_EXTRA", "true")
+	t.Setenv("SARNAUT_CONTENT_SKIP_UNSUPPORTED_QUESTS", "true")
 
 	got, err := config.Load("shard")
 	if err != nil {
@@ -143,6 +147,9 @@ func TestLoadReadsTheContentPackFromTheEnvironment(t *testing.T) {
 	}
 	if !got.Content.AllowExtra {
 		t.Error("Content.AllowExtra = false, want true")
+	}
+	if !got.Content.SkipUnsupportedQuests {
+		t.Error("Content.SkipUnsupportedQuests = false, want true")
 	}
 }
 
@@ -171,6 +178,9 @@ func TestDefaultsCarryNoPrivatePath(t *testing.T) {
 	}
 	if got.Content.AllowExtra {
 		t.Error("Content.AllowExtra defaults to true, want false")
+	}
+	if got.Content.SkipUnsupportedQuests {
+		t.Error("Content.SkipUnsupportedQuests defaults to true, want false")
 	}
 }
 

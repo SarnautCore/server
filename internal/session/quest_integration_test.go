@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -35,7 +36,8 @@ const (
 
 var questCharacter = uuid.MustParse("019200f0-0000-7000-8000-0000000d0001")
 
-// TestQuestSliceOverQUIC is the whole server-side M2 chain through the wire:
+// TestQuestSliceOverQUIC is the whole server-side M2 chain through the wire,
+// loaded from a mixed pack under the unsupported-quest opt-in:
 // enter, interact with a quest giver, accept, kill the objective mob, loot it,
 // turn in, and read the rewards.
 //
@@ -49,6 +51,9 @@ func TestQuestSliceOverQUIC(t *testing.T) {
 
 	fixture := newQuestFixture(t)
 	defer fixture.stop()
+	if fixture.skippedQuests != 1 {
+		t.Fatalf("skipped quests = %d, want the mixed pack's one unsupported definition", fixture.skippedQuests)
+	}
 
 	player := fixture.connect(t)
 	giver := findEntityInSnapshots(t, fixture.ctx, player, questGiverMob)
@@ -208,19 +213,26 @@ func TestQuestSliceOverQUIC(t *testing.T) {
 // kill fan-out, which is the one piece of wiring that has to exist for a kill to
 // reach both a corpse and a counter.
 type questFixture struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	address    string
-	zoneID     string
-	repository store.Repository
-	serve      chan error
-	listener   transport.Listener
+	ctx           context.Context
+	cancel        context.CancelFunc
+	address       string
+	zoneID        string
+	repository    store.Repository
+	skippedQuests int
+	serve         chan error
+	listener      transport.Listener
 }
 
 func newQuestFixture(t *testing.T) *questFixture {
 	t.Helper()
 
-	content := loadFixturePack(t)
+	content, err := pack.Load(
+		filepath.Join("..", "..", "testdata", "packs", "demo-quest-unsupported"),
+		pack.Options{},
+	)
+	if err != nil {
+		t.Fatalf("pack.Load() error = %v", err)
+	}
 	anchor, ok := placementOf(content, questTargetID)
 	if !ok {
 		t.Fatalf("the fixture pack has no placement for %q", questTargetID)
@@ -258,7 +270,10 @@ func newQuestFixture(t *testing.T) *questFixture {
 	lootModule := loot.New(slog.New(slog.DiscardHandler), zone, lootRules, bags, loot.Options{
 		WorldSeed: "quest-slice-test",
 	})
-	catalog, err := quests.CatalogFromPack(content)
+	catalog, err := quests.CatalogFromPack(content, quests.CatalogOptions{
+		SkipUnsupportedQuests: true,
+		Logger:                slog.New(slog.DiscardHandler),
+	})
 	if err != nil {
 		t.Fatalf("quests.CatalogFromPack() error = %v", err)
 	}
@@ -310,13 +325,14 @@ func newQuestFixture(t *testing.T) *questFixture {
 	go func() { serve <- server.Serve(ctx, listener) }()
 
 	return &questFixture{
-		ctx:        ctx,
-		cancel:     cancel,
-		address:    listener.Addr().String(),
-		zoneID:     zone.ID(),
-		repository: repository,
-		serve:      serve,
-		listener:   listener,
+		ctx:           ctx,
+		cancel:        cancel,
+		address:       listener.Addr().String(),
+		zoneID:        zone.ID(),
+		repository:    repository,
+		skippedQuests: len(catalog.SkippedUnsupportedQuests()),
+		serve:         serve,
+		listener:      listener,
 	}
 }
 

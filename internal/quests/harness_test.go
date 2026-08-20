@@ -74,7 +74,7 @@ func newFixture(t *testing.T, level uint32, inventory []store.InventoryItem) *fi
 	if err != nil {
 		t.Fatalf("pack.Load() error = %v", err)
 	}
-	catalog, err := quests.CatalogFromPack(content)
+	catalog, err := quests.CatalogFromPack(content, quests.CatalogOptions{})
 	if err != nil {
 		t.Fatalf("CatalogFromPack() error = %v", err)
 	}
