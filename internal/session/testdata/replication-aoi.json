@@ -1,0 +1,42 @@
+{
+  "schema": "sarnaut.replication-aoi-report.v1",
+  "captured_at": "2026-08-20",
+  "host": {
+    "goos": "windows",
+    "goarch": "amd64",
+    "go_version": "go1.26.7",
+    "num_cpu": 32
+  },
+  "zone": {
+    "entity_count": 288,
+    "interested_entities": 32,
+    "player_count": 1,
+    "npc_count": 287,
+    "subscriber_count": 1,
+    "interest_radius_m": 48,
+    "tick_interval_ms": 33.333333,
+    "snapshot_interval_ms": 66.666666
+  },
+  "snapshot": {
+    "encoded_bytes_per_publish": 3528,
+    "bytes_per_second": 52920.000529200006,
+    "chunk_count": 4,
+    "largest_chunk_bytes": 1024
+  },
+  "step": {
+    "samples": 300,
+    "window_steps": 2000,
+    "p50_ns": 1308,
+    "p99_ns": 1768,
+    "max_ns": 2045
+  },
+  "reduction_vs_pre_change_baseline": {
+    "baseline_bytes_per_second": 118605.00118605001,
+    "bytes_per_second": 52920.000529200006,
+    "bytes_per_second_percent": 44.61869229796383,
+    "baseline_step_p99_ns": 2003,
+    "step_p99_ns": 1768,
+    "step_p99_percent": 88.26759860209685
+  },
+  "methodology": "One subscriber at the origin and 287 NPCs placed on the pre-change baseline's line. encoded_bytes_per_publish is the sum of proto.Size over every chunked ServerMessage for one steady-state snapshot; bytes_per_second scales it by 1000/snapshot_interval_ms. Reliable spawn/despawn events are excluded. Step percentiles are per-step nanoseconds over 300 samples of 2000 consecutive Zone.Step calls."
+}

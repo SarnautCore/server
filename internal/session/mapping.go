@@ -44,29 +44,11 @@ func abilityRequestFromProto(use *sarnautv1.AbilityUse, clientSeq uint64) combat
 func snapshotToProto(snapshot world.Snapshot) (*sarnautv1.SnapshotBatch, error) {
 	entities := make([]*sarnautv1.EntitySnapshot, 0, len(snapshot.Entities))
 	for _, view := range snapshot.Entities {
-		kind, err := entityKindToProto(view.Kind)
+		entity, err := entitySnapshotToProto(view)
 		if err != nil {
-			return nil, fmt.Errorf("entity %d: %w", view.EntityID, err)
+			return nil, err
 		}
-		animation, err := animationStateToProto(view.Animation)
-		if err != nil {
-			return nil, fmt.Errorf("entity %d: %w", view.EntityID, err)
-		}
-		entities = append(entities, &sarnautv1.EntitySnapshot{
-			EntityId:       view.EntityID,
-			Kind:           kind,
-			Position:       vec3ToProto(view.Position),
-			Heading:        view.Heading,
-			Velocity:       vec3ToProto(view.Velocity),
-			AnimationState: animation,
-			ContentId:      view.ContentID,
-			NameKey:        view.NameKey,
-			Level:          view.Level,
-			Faction:        view.Faction,
-			Health:         view.Health,
-			MaxHealth:      view.MaxHealth,
-			Alive:          view.Alive,
-		})
+		entities = append(entities, entity)
 	}
 	// ChunkCount 1 says "this is the whole tick". splitSnapshot overwrites it
 	// when a datagram cannot hold the batch; on the reliable fallback it stands,
@@ -76,6 +58,32 @@ func snapshotToProto(snapshot world.Snapshot) (*sarnautv1.SnapshotBatch, error) 
 		ServerTick: snapshot.ServerTick,
 		Entities:   entities,
 		ChunkCount: 1,
+	}, nil
+}
+
+func entitySnapshotToProto(view world.EntitySnapshot) (*sarnautv1.EntitySnapshot, error) {
+	kind, err := entityKindToProto(view.Kind)
+	if err != nil {
+		return nil, fmt.Errorf("entity %d: %w", view.EntityID, err)
+	}
+	animation, err := animationStateToProto(view.Animation)
+	if err != nil {
+		return nil, fmt.Errorf("entity %d: %w", view.EntityID, err)
+	}
+	return &sarnautv1.EntitySnapshot{
+		EntityId:       view.EntityID,
+		Kind:           kind,
+		Position:       vec3ToProto(view.Position),
+		Heading:        view.Heading,
+		Velocity:       vec3ToProto(view.Velocity),
+		AnimationState: animation,
+		ContentId:      view.ContentID,
+		NameKey:        view.NameKey,
+		Level:          view.Level,
+		Faction:        view.Faction,
+		Health:         view.Health,
+		MaxHealth:      view.MaxHealth,
+		Alive:          view.Alive,
 	}, nil
 }
 

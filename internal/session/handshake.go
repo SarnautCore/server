@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -629,7 +630,7 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	// not return until it has read all of them: the deferred teardown must not
 	// run while a sender still holds the sink (ADR 0026). The buffer is sized to
 	// the maximum so none of them blocks on a send after the first error.
-	results := make(chan error, 6)
+	results := make(chan error, 7)
 	running := 5
 	go func() { results <- sender.run(sessionCtx) }()
 	go func() { results <- events.run(sessionCtx) }()
@@ -647,7 +648,8 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		)
 	}()
 	if reader.datagrams {
-		running = 6
+		running = 7
+		go func() { results <- sender.runTransitions(sessionCtx) }()
 		go func() { results <- reader.readUnreliable(sessionCtx) }()
 	}
 	// The whole quest log goes out once the readers are running, so a client
@@ -868,10 +870,16 @@ func (server Server) exchangeHello(connection transport.Connection) error {
 }
 
 type snapshotSender struct {
-	connection transport.Connection
-	writer     *reliableWriter
-	queue      chan world.Snapshot
-	span       trace.Span
+	connection     transport.Connection
+	writer         *reliableWriter
+	snapshotWake   chan struct{}
+	transitionWake chan struct{}
+	span           trace.Span
+
+	pendingMu          sync.Mutex
+	pendingSnapshot    world.Snapshot
+	hasPendingSnapshot bool
+	pendingTransitions []world.Snapshot
 
 	// oversized counts entities dropped because one entity's own envelope did
 	// not fit a datagram. It is a counter rather than an error because the
@@ -886,29 +894,43 @@ func newSnapshotSender(
 	span trace.Span,
 ) *snapshotSender {
 	return &snapshotSender{
-		connection: connection,
-		writer:     writer,
-		queue:      make(chan world.Snapshot, 1),
-		span:       span,
+		connection:     connection,
+		writer:         writer,
+		snapshotWake:   make(chan struct{}, 1),
+		transitionWake: make(chan struct{}, 1),
+		span:           span,
 	}
 }
 
-// OfferSnapshot takes the newest view. The queue is one deep and
-// latest-wins: a session that cannot keep up wants the current world, not a
-// backlog of stale ones.
+// OfferSnapshot takes the newest view. Snapshot state is latest-wins: a
+// session that cannot keep up wants the current world, not a backlog of stale
+// positions. Interest transitions are different. They travel reliably and
+// remain queued in publish order even when the snapshots around them coalesce.
 func (sender *snapshotSender) OfferSnapshot(snapshot world.Snapshot) {
+	hasTransitions := len(snapshot.Spawns) > 0 || len(snapshot.Despawns) > 0
+	sender.pendingMu.Lock()
+	if hasTransitions {
+		sender.pendingTransitions = append(sender.pendingTransitions, world.Snapshot{
+			ServerTick: snapshot.ServerTick,
+			Spawns:     snapshot.Spawns,
+			Despawns:   snapshot.Despawns,
+		})
+	}
+	snapshot.Spawns = nil
+	snapshot.Despawns = nil
+	sender.pendingSnapshot = snapshot
+	sender.hasPendingSnapshot = true
+	sender.pendingMu.Unlock()
+
 	select {
-	case sender.queue <- snapshot:
-		return
+	case sender.snapshotWake <- struct{}{}:
 	default:
 	}
-	select {
-	case <-sender.queue:
-	default:
-	}
-	select {
-	case sender.queue <- snapshot:
-	default:
+	if hasTransitions {
+		select {
+		case sender.transitionWake <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -917,12 +939,63 @@ func (sender *snapshotSender) run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case snapshot := <-sender.queue:
-			if err := sender.send(snapshot); err != nil {
+		case <-sender.snapshotWake:
+			snapshot, ok := sender.takePendingSnapshot()
+			if !ok {
+				continue
+			}
+			// On the reliable fallback both payload families share one
+			// carrier, so write interest changes before the snapshot that
+			// reflects them. Datagram sessions use runTransitions instead;
+			// keeping it separate prevents a stalled stream from stopping
+			// the lossy snapshot channel.
+			if !sender.connection.SupportsUnreliable() {
+				for _, update := range sender.takePendingTransitions() {
+					if err := sender.sendTransitions(update); err != nil {
+						return err
+					}
+				}
+			}
+			if err := sender.sendSnapshot(snapshot); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+func (sender *snapshotSender) runTransitions(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-sender.transitionWake:
+			for _, update := range sender.takePendingTransitions() {
+				if err := sender.sendTransitions(update); err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
+
+func (sender *snapshotSender) takePendingSnapshot() (world.Snapshot, bool) {
+	sender.pendingMu.Lock()
+	defer sender.pendingMu.Unlock()
+	if !sender.hasPendingSnapshot {
+		return world.Snapshot{}, false
+	}
+	snapshot := sender.pendingSnapshot
+	sender.pendingSnapshot = world.Snapshot{}
+	sender.hasPendingSnapshot = false
+	return snapshot, true
+}
+
+func (sender *snapshotSender) takePendingTransitions() []world.Snapshot {
+	sender.pendingMu.Lock()
+	defer sender.pendingMu.Unlock()
+	transitions := sender.pendingTransitions
+	sender.pendingTransitions = nil
+	return transitions
 }
 
 // send maps one snapshot onto the wire and puts it out.
@@ -932,6 +1005,41 @@ func (sender *snapshotSender) run(ctx context.Context) error {
 // construction: no two sessions can be handed the same mutable message,
 // because the message does not exist until one of them is being served.
 func (sender *snapshotSender) send(snapshot world.Snapshot) error {
+	if err := sender.sendTransitions(snapshot); err != nil {
+		return err
+	}
+	return sender.sendSnapshot(snapshot)
+}
+
+func (sender *snapshotSender) sendTransitions(snapshot world.Snapshot) error {
+	for _, spawn := range snapshot.Spawns {
+		entity, err := entitySnapshotToProto(spawn)
+		if err != nil {
+			return fmt.Errorf("map spawn: %w", err)
+		}
+		if err := sender.writer.write(&sarnautv1.ServerMessage{
+			ServerTick: snapshot.ServerTick,
+			Payload: &sarnautv1.ServerMessage_SpawnEvent{
+				SpawnEvent: &sarnautv1.SpawnEvent{Entity: entity},
+			},
+		}); err != nil {
+			return fmt.Errorf("write spawn event: %w", err)
+		}
+	}
+	for _, entityID := range snapshot.Despawns {
+		if err := sender.writer.write(&sarnautv1.ServerMessage{
+			ServerTick: snapshot.ServerTick,
+			Payload: &sarnautv1.ServerMessage_DespawnEvent{
+				DespawnEvent: &sarnautv1.DespawnEvent{EntityId: entityID},
+			},
+		}); err != nil {
+			return fmt.Errorf("write despawn event: %w", err)
+		}
+	}
+	return nil
+}
+
+func (sender *snapshotSender) sendSnapshot(snapshot world.Snapshot) error {
 	batch, err := snapshotToProto(snapshot)
 	if err != nil {
 		return fmt.Errorf("map snapshot: %w", err)

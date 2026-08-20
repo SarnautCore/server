@@ -43,9 +43,15 @@ type Zone struct {
 	registry   *registry
 	wheel      timerWheel
 	systems    []System
-	sessions   map[uint64]SnapshotSink
+	sessions   map[uint64]*snapshotSubscription
 	serverTick uint64
 }
+
+// ReplicationInterestRadiusMetres is the distance around a subscribed player
+// whose replicated entities belong in that player's snapshot. It extends one
+// grid cell beyond the combat skeleton's 40 m leash, so an NPC is visible
+// before it can enter the farthest server-driven engagement range.
+const ReplicationInterestRadiusMetres float32 = 48
 
 // NewZone constructs an empty zone.
 func NewZone(config ZoneConfig) (*Zone, error) {
@@ -64,7 +70,7 @@ func NewZone(config ZoneConfig) (*Zone, error) {
 	return &Zone{
 		config:   config,
 		registry: newRegistry(),
-		sessions: make(map[uint64]SnapshotSink),
+		sessions: make(map[uint64]*snapshotSubscription),
 	}, nil
 }
 
@@ -224,7 +230,7 @@ func (zone *Zone) Subscribe(entityID uint64, sink SnapshotSink) error {
 		return fmt.Errorf("subscribe entity %d: %w", entityID, ErrUnknownEntity)
 	}
 	current.Replicated = true
-	zone.sessions[entityID] = sink
+	zone.sessions[entityID] = &snapshotSubscription{sink: sink}
 	return nil
 }
 
@@ -283,29 +289,86 @@ func (zone *Zone) Step() {
 // PublishSnapshot sends the newest view to every subscriber.
 func (zone *Zone) PublishSnapshot() {
 	zone.mu.Lock()
-	snapshot := Snapshot{ServerTick: zone.serverTick, Entities: zone.viewsLocked()}
-	sinks := make([]SnapshotSink, 0, len(zone.sessions))
-	for _, sink := range zone.sessions {
-		sinks = append(sinks, sink)
+	deliveries := make([]snapshotDelivery, 0, len(zone.sessions))
+	for entityID, subscription := range zone.sessions {
+		subscriber := zone.registry.get(entityID)
+		if subscriber == nil {
+			continue
+		}
+		views := zone.interestedEntitiesLocked(subscriber.position)
+		spawns, despawns, current := interestDelta(subscription.interested, views)
+		subscription.interested = current
+		deliveries = append(deliveries, snapshotDelivery{
+			sink: subscription.sink,
+			snapshot: Snapshot{
+				ServerTick: zone.serverTick,
+				Entities:   views,
+				Spawns:     spawns,
+				Despawns:   despawns,
+			},
+		})
 	}
 	zone.mu.Unlock()
 
-	for _, sink := range sinks {
-		sink.OfferSnapshot(snapshot)
+	for _, delivery := range deliveries {
+		delivery.sink.OfferSnapshot(delivery.snapshot)
 	}
 }
 
-func (zone *Zone) viewsLocked() []EntitySnapshot {
-	// TODO(SAR-19): narrow all-entities interest to a spatial query per
-	// subscriber. The query exists now (registry.within); what is missing is
-	// the delta protocol that makes a shrinking interest set expressible, and
-	// sending a subscriber a smaller set without it would look like despawns.
-	views := make([]EntitySnapshot, 0, len(zone.registry.ordered))
-	zone.registry.each(func(entity *Entity) bool {
+type snapshotDelivery struct {
+	sink     SnapshotSink
+	snapshot Snapshot
+}
+
+type snapshotSubscription struct {
+	sink       SnapshotSink
+	interested []uint64
+}
+
+func (zone *Zone) interestedEntitiesLocked(centre Vec3) []EntitySnapshot {
+	views := make([]EntitySnapshot, 0)
+	zone.registry.within(centre, ReplicationInterestRadiusMetres, EntityKindUnspecified, func(entity *Entity) bool {
 		if entity.Replicated {
 			views = append(views, viewOf(entity))
 		}
 		return true
 	})
 	return views
+}
+
+// interestDelta compares two ascending interest sets. A view that was absent
+// from the previous publish is a spawn; an id missing from the new view is a
+// despawn. Keeping the sets ordered makes event order deterministic and avoids
+// a map allocation per subscriber per publish.
+func interestDelta(previous []uint64, views []EntitySnapshot) (
+	spawns []EntitySnapshot,
+	despawns []uint64,
+	current []uint64,
+) {
+	current = make([]uint64, len(views))
+	for index, view := range views {
+		current[index] = view.EntityID
+	}
+
+	left, right := 0, 0
+	for left < len(previous) && right < len(views) {
+		switch {
+		case previous[left] < views[right].EntityID:
+			despawns = append(despawns, previous[left])
+			left++
+		case previous[left] > views[right].EntityID:
+			spawns = append(spawns, views[right])
+			right++
+		default:
+			left++
+			right++
+		}
+	}
+	for ; left < len(previous); left++ {
+		despawns = append(despawns, previous[left])
+	}
+	for ; right < len(views); right++ {
+		spawns = append(spawns, views[right])
+	}
+	return spawns, despawns, current
 }

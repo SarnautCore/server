@@ -613,6 +613,8 @@ type ServerMessage struct {
 	//	*ServerMessage_InventoryUpdate
 	//	*ServerMessage_QuestStateUpdate
 	//	*ServerMessage_Error
+	//	*ServerMessage_SpawnEvent
+	//	*ServerMessage_DespawnEvent
 	Payload       isServerMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -734,6 +736,24 @@ func (x *ServerMessage) GetError() *Error {
 	return nil
 }
 
+func (x *ServerMessage) GetSpawnEvent() *SpawnEvent {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_SpawnEvent); ok {
+			return x.SpawnEvent
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetDespawnEvent() *DespawnEvent {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_DespawnEvent); ok {
+			return x.DespawnEvent
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Payload interface {
 	isServerMessage_Payload()
 }
@@ -770,6 +790,14 @@ type ServerMessage_Error struct {
 	Error *Error `protobuf:"bytes,17,opt,name=error,proto3,oneof"`
 }
 
+type ServerMessage_SpawnEvent struct {
+	SpawnEvent *SpawnEvent `protobuf:"bytes,18,opt,name=spawn_event,json=spawnEvent,proto3,oneof"`
+}
+
+type ServerMessage_DespawnEvent struct {
+	DespawnEvent *DespawnEvent `protobuf:"bytes,19,opt,name=despawn_event,json=despawnEvent,proto3,oneof"`
+}
+
 func (*ServerMessage_SnapshotBatch) isServerMessage_Payload() {}
 
 func (*ServerMessage_CombatEvent) isServerMessage_Payload() {}
@@ -785,6 +813,10 @@ func (*ServerMessage_InventoryUpdate) isServerMessage_Payload() {}
 func (*ServerMessage_QuestStateUpdate) isServerMessage_Payload() {}
 
 func (*ServerMessage_Error) isServerMessage_Payload() {}
+
+func (*ServerMessage_SpawnEvent) isServerMessage_Payload() {}
+
+func (*ServerMessage_DespawnEvent) isServerMessage_Payload() {}
 
 // Error is a typed refusal, never a bare string. It always travels on the
 // reliable channel.
@@ -840,6 +872,100 @@ func (x *Error) GetDetail() string {
 	return ""
 }
 
+// SpawnEvent announces that one entity entered this session's replication
+// interest set. It travels reliably, unlike the lossy snapshots that carry
+// the entity's subsequent latest-value state.
+type SpawnEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entity        *EntitySnapshot        `protobuf:"bytes,1,opt,name=entity,proto3" json:"entity,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpawnEvent) Reset() {
+	*x = SpawnEvent{}
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpawnEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpawnEvent) ProtoMessage() {}
+
+func (x *SpawnEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpawnEvent.ProtoReflect.Descriptor instead.
+func (*SpawnEvent) Descriptor() ([]byte, []int) {
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SpawnEvent) GetEntity() *EntitySnapshot {
+	if x != nil {
+		return x.Entity
+	}
+	return nil
+}
+
+// DespawnEvent announces that one entity left this session's replication
+// interest set. A missing snapshot entry cannot substitute for this event:
+// the snapshot may simply have been dropped or stalled.
+type DespawnEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EntityId      uint64                 `protobuf:"varint,1,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DespawnEvent) Reset() {
+	*x = DespawnEvent{}
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DespawnEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DespawnEvent) ProtoMessage() {}
+
+func (x *DespawnEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DespawnEvent.ProtoReflect.Descriptor instead.
+func (*DespawnEvent) Descriptor() ([]byte, []int) {
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DespawnEvent) GetEntityId() uint64 {
+	if x != nil {
+		return x.EntityId
+	}
+	return 0
+}
+
 // AbilityUse activates the caster's ability against one target. caster_id is
 // advisory and ignored: the server derives the actor from the session
 // (session.md rule 5.2.6). Shape fixed by mechanics/combat.md section 4.
@@ -860,7 +986,7 @@ type AbilityUse struct {
 
 func (x *AbilityUse) Reset() {
 	*x = AbilityUse{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[3]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -872,7 +998,7 @@ func (x *AbilityUse) String() string {
 func (*AbilityUse) ProtoMessage() {}
 
 func (x *AbilityUse) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[3]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -885,7 +1011,7 @@ func (x *AbilityUse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbilityUse.ProtoReflect.Descriptor instead.
 func (*AbilityUse) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{3}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *AbilityUse) GetCasterId() uint64 {
@@ -927,7 +1053,7 @@ type Interact struct {
 
 func (x *Interact) Reset() {
 	*x = Interact{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[4]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -939,7 +1065,7 @@ func (x *Interact) String() string {
 func (*Interact) ProtoMessage() {}
 
 func (x *Interact) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[4]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -952,7 +1078,7 @@ func (x *Interact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Interact.ProtoReflect.Descriptor instead.
 func (*Interact) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{4}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Interact) GetTargetEntityId() uint64 {
@@ -973,7 +1099,7 @@ type LootTake struct {
 
 func (x *LootTake) Reset() {
 	*x = LootTake{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[5]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -985,7 +1111,7 @@ func (x *LootTake) String() string {
 func (*LootTake) ProtoMessage() {}
 
 func (x *LootTake) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[5]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -998,7 +1124,7 @@ func (x *LootTake) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LootTake.ProtoReflect.Descriptor instead.
 func (*LootTake) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{5}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *LootTake) GetCorpseEntityId() uint64 {
@@ -1018,7 +1144,7 @@ type QuestAccept struct {
 
 func (x *QuestAccept) Reset() {
 	*x = QuestAccept{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[6]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1030,7 +1156,7 @@ func (x *QuestAccept) String() string {
 func (*QuestAccept) ProtoMessage() {}
 
 func (x *QuestAccept) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[6]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1043,7 +1169,7 @@ func (x *QuestAccept) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestAccept.ProtoReflect.Descriptor instead.
 func (*QuestAccept) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{6}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *QuestAccept) GetQuestId() string {
@@ -1070,7 +1196,7 @@ type QuestTurnIn struct {
 
 func (x *QuestTurnIn) Reset() {
 	*x = QuestTurnIn{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[7]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1082,7 +1208,7 @@ func (x *QuestTurnIn) String() string {
 func (*QuestTurnIn) ProtoMessage() {}
 
 func (x *QuestTurnIn) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[7]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1095,7 +1221,7 @@ func (x *QuestTurnIn) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestTurnIn.ProtoReflect.Descriptor instead.
 func (*QuestTurnIn) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{7}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *QuestTurnIn) GetQuestId() string {
@@ -1124,7 +1250,7 @@ type QuestAbandon struct {
 
 func (x *QuestAbandon) Reset() {
 	*x = QuestAbandon{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[8]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1136,7 +1262,7 @@ func (x *QuestAbandon) String() string {
 func (*QuestAbandon) ProtoMessage() {}
 
 func (x *QuestAbandon) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[8]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1149,7 +1275,7 @@ func (x *QuestAbandon) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestAbandon.ProtoReflect.Descriptor instead.
 func (*QuestAbandon) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{8}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *QuestAbandon) GetQuestId() string {
@@ -1170,7 +1296,7 @@ type Logout struct {
 
 func (x *Logout) Reset() {
 	*x = Logout{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[9]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1182,7 +1308,7 @@ func (x *Logout) String() string {
 func (*Logout) ProtoMessage() {}
 
 func (x *Logout) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[9]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1195,7 +1321,7 @@ func (x *Logout) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Logout.ProtoReflect.Descriptor instead.
 func (*Logout) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{9}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{11}
 }
 
 // CombatEvent reports one resolved or refused ability use
@@ -1223,7 +1349,7 @@ type CombatEvent struct {
 
 func (x *CombatEvent) Reset() {
 	*x = CombatEvent{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[10]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1235,7 +1361,7 @@ func (x *CombatEvent) String() string {
 func (*CombatEvent) ProtoMessage() {}
 
 func (x *CombatEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[10]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1248,7 +1374,7 @@ func (x *CombatEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CombatEvent.ProtoReflect.Descriptor instead.
 func (*CombatEvent) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{10}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CombatEvent) GetCasterId() uint64 {
@@ -1325,7 +1451,7 @@ type DeathEvent struct {
 
 func (x *DeathEvent) Reset() {
 	*x = DeathEvent{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[11]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1337,7 +1463,7 @@ func (x *DeathEvent) String() string {
 func (*DeathEvent) ProtoMessage() {}
 
 func (x *DeathEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[11]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1350,7 +1476,7 @@ func (x *DeathEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeathEvent.ProtoReflect.Descriptor instead.
 func (*DeathEvent) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{11}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DeathEvent) GetVictimEntityId() uint64 {
@@ -1394,7 +1520,7 @@ type LootItem struct {
 
 func (x *LootItem) Reset() {
 	*x = LootItem{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[12]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1406,7 +1532,7 @@ func (x *LootItem) String() string {
 func (*LootItem) ProtoMessage() {}
 
 func (x *LootItem) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[12]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1419,7 +1545,7 @@ func (x *LootItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LootItem.ProtoReflect.Descriptor instead.
 func (*LootItem) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{12}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *LootItem) GetItemId() string {
@@ -1452,7 +1578,7 @@ type LootOffer struct {
 
 func (x *LootOffer) Reset() {
 	*x = LootOffer{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[13]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1464,7 +1590,7 @@ func (x *LootOffer) String() string {
 func (*LootOffer) ProtoMessage() {}
 
 func (x *LootOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[13]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1477,7 +1603,7 @@ func (x *LootOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LootOffer.ProtoReflect.Descriptor instead.
 func (*LootOffer) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{13}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *LootOffer) GetCorpseEntityId() uint64 {
@@ -1520,7 +1646,7 @@ type LootResult struct {
 
 func (x *LootResult) Reset() {
 	*x = LootResult{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[14]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1532,7 +1658,7 @@ func (x *LootResult) String() string {
 func (*LootResult) ProtoMessage() {}
 
 func (x *LootResult) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[14]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1545,7 +1671,7 @@ func (x *LootResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LootResult.ProtoReflect.Descriptor instead.
 func (*LootResult) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{14}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *LootResult) GetCorpseEntityId() uint64 {
@@ -1589,7 +1715,7 @@ type InventorySlot struct {
 
 func (x *InventorySlot) Reset() {
 	*x = InventorySlot{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[15]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1601,7 +1727,7 @@ func (x *InventorySlot) String() string {
 func (*InventorySlot) ProtoMessage() {}
 
 func (x *InventorySlot) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[15]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1614,7 +1740,7 @@ func (x *InventorySlot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InventorySlot.ProtoReflect.Descriptor instead.
 func (*InventorySlot) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{15}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *InventorySlot) GetSlot() int32 {
@@ -1654,7 +1780,7 @@ type InventoryUpdate struct {
 
 func (x *InventoryUpdate) Reset() {
 	*x = InventoryUpdate{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[16]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1666,7 +1792,7 @@ func (x *InventoryUpdate) String() string {
 func (*InventoryUpdate) ProtoMessage() {}
 
 func (x *InventoryUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[16]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1679,7 +1805,7 @@ func (x *InventoryUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InventoryUpdate.ProtoReflect.Descriptor instead.
 func (*InventoryUpdate) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{16}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *InventoryUpdate) GetSlots() []*InventorySlot {
@@ -1716,7 +1842,7 @@ type QuestObjectiveProgress struct {
 
 func (x *QuestObjectiveProgress) Reset() {
 	*x = QuestObjectiveProgress{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1728,7 +1854,7 @@ func (x *QuestObjectiveProgress) String() string {
 func (*QuestObjectiveProgress) ProtoMessage() {}
 
 func (x *QuestObjectiveProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1741,7 +1867,7 @@ func (x *QuestObjectiveProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestObjectiveProgress.ProtoReflect.Descriptor instead.
 func (*QuestObjectiveProgress) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{17}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *QuestObjectiveProgress) GetIndex() uint32 {
@@ -1811,7 +1937,7 @@ type QuestStateUpdate struct {
 
 func (x *QuestStateUpdate) Reset() {
 	*x = QuestStateUpdate{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[18]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1823,7 +1949,7 @@ func (x *QuestStateUpdate) String() string {
 func (*QuestStateUpdate) ProtoMessage() {}
 
 func (x *QuestStateUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[18]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1836,7 +1962,7 @@ func (x *QuestStateUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestStateUpdate.ProtoReflect.Descriptor instead.
 func (*QuestStateUpdate) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{18}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *QuestStateUpdate) GetQuestId() string {
@@ -1915,7 +2041,7 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\rquest_turn_in\x18\x0f \x01(\v2\x17.sarnaut.v1.QuestTurnInH\x00R\vquestTurnIn\x12?\n" +
 	"\rquest_abandon\x18\x10 \x01(\v2\x18.sarnaut.v1.QuestAbandonH\x00R\fquestAbandon\x12,\n" +
 	"\x06logout\x18\x11 \x01(\v2\x12.sarnaut.v1.LogoutH\x00R\x06logoutB\t\n" +
-	"\apayload\"\xae\x04\n" +
+	"\apayload\"\xaa\x05\n" +
 	"\rServerMessage\x12\x1f\n" +
 	"\vserver_tick\x18\x01 \x01(\x04R\n" +
 	"serverTick\x12B\n" +
@@ -1930,11 +2056,19 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"lootResult\x12H\n" +
 	"\x10inventory_update\x18\x0f \x01(\v2\x1b.sarnaut.v1.InventoryUpdateH\x00R\x0finventoryUpdate\x12L\n" +
 	"\x12quest_state_update\x18\x10 \x01(\v2\x1c.sarnaut.v1.QuestStateUpdateH\x00R\x10questStateUpdate\x12)\n" +
-	"\x05error\x18\x11 \x01(\v2\x11.sarnaut.v1.ErrorH\x00R\x05errorB\t\n" +
+	"\x05error\x18\x11 \x01(\v2\x11.sarnaut.v1.ErrorH\x00R\x05error\x129\n" +
+	"\vspawn_event\x18\x12 \x01(\v2\x16.sarnaut.v1.SpawnEventH\x00R\n" +
+	"spawnEvent\x12?\n" +
+	"\rdespawn_event\x18\x13 \x01(\v2\x18.sarnaut.v1.DespawnEventH\x00R\fdespawnEventB\t\n" +
 	"\apayload\"J\n" +
 	"\x05Error\x12)\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x15.sarnaut.v1.ErrorCodeR\x04code\x12\x16\n" +
-	"\x06detail\x18\x02 \x01(\tR\x06detail\"\x86\x01\n" +
+	"\x06detail\x18\x02 \x01(\tR\x06detail\"@\n" +
+	"\n" +
+	"SpawnEvent\x122\n" +
+	"\x06entity\x18\x01 \x01(\v2\x1a.sarnaut.v1.EntitySnapshotR\x06entity\"+\n" +
+	"\fDespawnEvent\x12\x1b\n" +
+	"\tentity_id\x18\x01 \x01(\x04R\bentityId\"\x86\x01\n" +
 	"\n" +
 	"AbilityUse\x12\x1b\n" +
 	"\tcaster_id\x18\x01 \x01(\x04R\bcasterId\x12\x1b\n" +
@@ -2078,7 +2212,7 @@ func file_sarnaut_v1_envelope_proto_rawDescGZIP() []byte {
 }
 
 var file_sarnaut_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_sarnaut_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_sarnaut_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_sarnaut_v1_envelope_proto_goTypes = []any{
 	(ErrorCode)(0),                 // 0: sarnaut.v1.ErrorCode
 	(AbilityRejection)(0),          // 1: sarnaut.v1.AbilityRejection
@@ -2088,57 +2222,63 @@ var file_sarnaut_v1_envelope_proto_goTypes = []any{
 	(*ClientMessage)(nil),          // 5: sarnaut.v1.ClientMessage
 	(*ServerMessage)(nil),          // 6: sarnaut.v1.ServerMessage
 	(*Error)(nil),                  // 7: sarnaut.v1.Error
-	(*AbilityUse)(nil),             // 8: sarnaut.v1.AbilityUse
-	(*Interact)(nil),               // 9: sarnaut.v1.Interact
-	(*LootTake)(nil),               // 10: sarnaut.v1.LootTake
-	(*QuestAccept)(nil),            // 11: sarnaut.v1.QuestAccept
-	(*QuestTurnIn)(nil),            // 12: sarnaut.v1.QuestTurnIn
-	(*QuestAbandon)(nil),           // 13: sarnaut.v1.QuestAbandon
-	(*Logout)(nil),                 // 14: sarnaut.v1.Logout
-	(*CombatEvent)(nil),            // 15: sarnaut.v1.CombatEvent
-	(*DeathEvent)(nil),             // 16: sarnaut.v1.DeathEvent
-	(*LootItem)(nil),               // 17: sarnaut.v1.LootItem
-	(*LootOffer)(nil),              // 18: sarnaut.v1.LootOffer
-	(*LootResult)(nil),             // 19: sarnaut.v1.LootResult
-	(*InventorySlot)(nil),          // 20: sarnaut.v1.InventorySlot
-	(*InventoryUpdate)(nil),        // 21: sarnaut.v1.InventoryUpdate
-	(*QuestObjectiveProgress)(nil), // 22: sarnaut.v1.QuestObjectiveProgress
-	(*QuestStateUpdate)(nil),       // 23: sarnaut.v1.QuestStateUpdate
-	(*ClientMoveIntent)(nil),       // 24: sarnaut.v1.ClientMoveIntent
-	(*SnapshotBatch)(nil),          // 25: sarnaut.v1.SnapshotBatch
+	(*SpawnEvent)(nil),             // 8: sarnaut.v1.SpawnEvent
+	(*DespawnEvent)(nil),           // 9: sarnaut.v1.DespawnEvent
+	(*AbilityUse)(nil),             // 10: sarnaut.v1.AbilityUse
+	(*Interact)(nil),               // 11: sarnaut.v1.Interact
+	(*LootTake)(nil),               // 12: sarnaut.v1.LootTake
+	(*QuestAccept)(nil),            // 13: sarnaut.v1.QuestAccept
+	(*QuestTurnIn)(nil),            // 14: sarnaut.v1.QuestTurnIn
+	(*QuestAbandon)(nil),           // 15: sarnaut.v1.QuestAbandon
+	(*Logout)(nil),                 // 16: sarnaut.v1.Logout
+	(*CombatEvent)(nil),            // 17: sarnaut.v1.CombatEvent
+	(*DeathEvent)(nil),             // 18: sarnaut.v1.DeathEvent
+	(*LootItem)(nil),               // 19: sarnaut.v1.LootItem
+	(*LootOffer)(nil),              // 20: sarnaut.v1.LootOffer
+	(*LootResult)(nil),             // 21: sarnaut.v1.LootResult
+	(*InventorySlot)(nil),          // 22: sarnaut.v1.InventorySlot
+	(*InventoryUpdate)(nil),        // 23: sarnaut.v1.InventoryUpdate
+	(*QuestObjectiveProgress)(nil), // 24: sarnaut.v1.QuestObjectiveProgress
+	(*QuestStateUpdate)(nil),       // 25: sarnaut.v1.QuestStateUpdate
+	(*ClientMoveIntent)(nil),       // 26: sarnaut.v1.ClientMoveIntent
+	(*SnapshotBatch)(nil),          // 27: sarnaut.v1.SnapshotBatch
+	(*EntitySnapshot)(nil),         // 28: sarnaut.v1.EntitySnapshot
 }
 var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
-	24, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
-	8,  // 1: sarnaut.v1.ClientMessage.ability_use:type_name -> sarnaut.v1.AbilityUse
-	9,  // 2: sarnaut.v1.ClientMessage.interact:type_name -> sarnaut.v1.Interact
-	10, // 3: sarnaut.v1.ClientMessage.loot_take:type_name -> sarnaut.v1.LootTake
-	11, // 4: sarnaut.v1.ClientMessage.quest_accept:type_name -> sarnaut.v1.QuestAccept
-	12, // 5: sarnaut.v1.ClientMessage.quest_turn_in:type_name -> sarnaut.v1.QuestTurnIn
-	13, // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
-	14, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
-	25, // 8: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
-	15, // 9: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
-	16, // 10: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
-	18, // 11: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
-	19, // 12: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
-	21, // 13: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
-	23, // 14: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
+	26, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
+	10, // 1: sarnaut.v1.ClientMessage.ability_use:type_name -> sarnaut.v1.AbilityUse
+	11, // 2: sarnaut.v1.ClientMessage.interact:type_name -> sarnaut.v1.Interact
+	12, // 3: sarnaut.v1.ClientMessage.loot_take:type_name -> sarnaut.v1.LootTake
+	13, // 4: sarnaut.v1.ClientMessage.quest_accept:type_name -> sarnaut.v1.QuestAccept
+	14, // 5: sarnaut.v1.ClientMessage.quest_turn_in:type_name -> sarnaut.v1.QuestTurnIn
+	15, // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
+	16, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
+	27, // 8: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
+	17, // 9: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
+	18, // 10: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
+	20, // 11: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
+	21, // 12: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
+	23, // 13: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
+	25, // 14: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
 	7,  // 15: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
-	0,  // 16: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
-	1,  // 17: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
-	17, // 18: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
-	2,  // 19: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
-	17, // 20: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
-	20, // 21: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
-	3,  // 22: sarnaut.v1.QuestStateUpdate.state:type_name -> sarnaut.v1.QuestState
-	22, // 23: sarnaut.v1.QuestStateUpdate.objectives:type_name -> sarnaut.v1.QuestObjectiveProgress
-	4,  // 24: sarnaut.v1.QuestStateUpdate.refusal:type_name -> sarnaut.v1.QuestRefusal
-	17, // 25: sarnaut.v1.QuestStateUpdate.items:type_name -> sarnaut.v1.LootItem
-	26, // [26:26] is the sub-list for method output_type
-	26, // [26:26] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	8,  // 16: sarnaut.v1.ServerMessage.spawn_event:type_name -> sarnaut.v1.SpawnEvent
+	9,  // 17: sarnaut.v1.ServerMessage.despawn_event:type_name -> sarnaut.v1.DespawnEvent
+	0,  // 18: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
+	28, // 19: sarnaut.v1.SpawnEvent.entity:type_name -> sarnaut.v1.EntitySnapshot
+	1,  // 20: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
+	19, // 21: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
+	2,  // 22: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
+	19, // 23: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
+	22, // 24: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
+	3,  // 25: sarnaut.v1.QuestStateUpdate.state:type_name -> sarnaut.v1.QuestState
+	24, // 26: sarnaut.v1.QuestStateUpdate.objectives:type_name -> sarnaut.v1.QuestObjectiveProgress
+	4,  // 27: sarnaut.v1.QuestStateUpdate.refusal:type_name -> sarnaut.v1.QuestRefusal
+	19, // 28: sarnaut.v1.QuestStateUpdate.items:type_name -> sarnaut.v1.LootItem
+	29, // [29:29] is the sub-list for method output_type
+	29, // [29:29] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_v1_envelope_proto_init() }
@@ -2167,6 +2307,8 @@ func file_sarnaut_v1_envelope_proto_init() {
 		(*ServerMessage_InventoryUpdate)(nil),
 		(*ServerMessage_QuestStateUpdate)(nil),
 		(*ServerMessage_Error)(nil),
+		(*ServerMessage_SpawnEvent)(nil),
+		(*ServerMessage_DespawnEvent)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2174,7 +2316,7 @@ func file_sarnaut_v1_envelope_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_v1_envelope_proto_rawDesc), len(file_sarnaut_v1_envelope_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
