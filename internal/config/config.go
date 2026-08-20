@@ -37,6 +37,12 @@ type WorldConfig struct {
 	TickInterval     time.Duration
 	SnapshotInterval time.Duration
 	MaxMoveSpeed     float32
+	// SpawnSeed pins the zone spawn stream that draws mob levels and respawn
+	// delays (mechanics/combat.md rules 5.1.5 and 5.9.6). It has a fixed
+	// default rather than a clock-derived one so that two runs of the same
+	// build over the same pack produce the same zone, which is what makes the
+	// slice driver and the acceptance tests reproducible.
+	SpawnSeed uint64
 }
 
 // ContentConfig points the shard at one compiled runtime pack. There is no
@@ -95,6 +101,7 @@ type fileConfig struct {
 		TickInterval     *string  `yaml:"tick_interval"`
 		SnapshotInterval *string  `yaml:"snapshot_interval"`
 		MaxMoveSpeed     *float32 `yaml:"max_move_speed"`
+		SpawnSeed        *uint64  `yaml:"spawn_seed"`
 	} `yaml:"world"`
 	Content struct {
 		PackPath   *string `yaml:"pack_path"`
@@ -262,6 +269,9 @@ func applyFileValues(configuration *Config, values fileConfig) error {
 	if values.World.MaxMoveSpeed != nil {
 		configuration.World.MaxMoveSpeed = *values.World.MaxMoveSpeed
 	}
+	if values.World.SpawnSeed != nil {
+		configuration.World.SpawnSeed = *values.World.SpawnSeed
+	}
 	if values.Persistence.SaveQueueSize != nil {
 		configuration.Persistence.SaveQueueSize = *values.Persistence.SaveQueueSize
 	}
@@ -309,6 +319,13 @@ func applyEnvironment(configuration *Config) error {
 			return fmt.Errorf("parse SARNAUT_WORLD_SNAPSHOT_INTERVAL: %w", err)
 		}
 		configuration.World.SnapshotInterval = duration
+	}
+	if value := os.Getenv("SARNAUT_WORLD_SPAWN_SEED"); value != "" {
+		seed, err := strconv.ParseUint(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_WORLD_SPAWN_SEED: %w", err)
+		}
+		configuration.World.SpawnSeed = seed
 	}
 	if value := os.Getenv("SARNAUT_WORLD_MAX_MOVE_SPEED"); value != "" {
 		speed, err := strconv.ParseFloat(value, 32)

@@ -1,0 +1,18 @@
+# Zone.Step() cost at a full InstLeague1 entity count.
+#
+# Each sample times a window of consecutive Zone.Step() calls and divides, because
+# the Windows monotonic clock rounds one step to zero. Rewrite with:
+#   SARNAUT_WRITE_STEP_REPORT=1 go test ./internal/world -run '^$' \
+#     -bench BenchmarkZoneStep -benchtime 200000x
+benchmark=BenchmarkZoneStep
+entities=288
+window_steps=500
+samples=400
+p50_ns=1990
+p99_ns=4021
+max_ns=4054
+goos=windows
+goarch=amd64
+go_version=go1.26.7
+num_cpu=32
+captured_at=2026-08-20

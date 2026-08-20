@@ -7,9 +7,44 @@ linters:
   default: standard
   enable:
     - bodyclose
+    - depguard
     - errorlint
     - misspell
     - noctx
+  settings:
+    depguard:
+      rules:
+        # ADR 0028: the world sim owns domain types and protobuf stops at the
+        # session layer. Prose already said so once and did not hold, so it is
+        # a lint rule now. `internal/world/boundary_test.go` asserts the same
+        # thing, for a checkout with no linter installed.
+        world-owns-domain-types:
+          files:
+            - "**/internal/world/*.go"
+          deny:
+            - pkg: github.com/SarnautCore/server/gen
+              desc: >-
+                ADR 0028 keeps generated protobuf out of internal/world. Map at
+                the boundary in internal/session/mapping.go instead.
+        # Combat hands off to loot and to quests through events, not through
+        # imports (mechanics/combat.md rules 5.9.3 and 5.9.4). The packages do
+        # not exist yet; the rule is here before the first one lands rather
+        # than after the first shortcut.
+        combat-hands-off-by-event:
+          files:
+            - "**/internal/combat/*.go"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal/quests
+              desc: >-
+                Kill credit reaches quests as the MobKilled event of
+                mechanics/combat.md rule 5.9.3, never as a call.
+            - pkg: github.com/SarnautCore/server/internal/inventory
+              desc: >-
+                Combat does not touch inventories. Loot owns that handoff.
+            - pkg: github.com/SarnautCore/server/internal/loot
+              desc: >-
+                The corpse is the handoff (mechanics/combat.md rule 5.9.4).
+                Loot reads combat's events; combat does not call loot.
 
 formatters:
   enable:

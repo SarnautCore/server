@@ -2,7 +2,7 @@
   "schema_version": 1,
   "ruleset": "classic",
   "zone": "paper-harbor",
-  "pack_id": "b2fa8016f2d8be24a116db81d6c093f254cc3b36b4e0e337872866de28a293dc",
+  "pack_id": "93d786dce705d20cf806d26e1f059577da8b5638b6a15786187dd46f4f25a527",
   "builder": {
     "name": "sarnaut-pack",
     "version": "0.1.0"
@@ -15,12 +15,36 @@
   "keep_extra": false,
   "tables": [
     {
+      "name": "abilities",
+      "file": "tables/abilities.sptbl",
+      "row_type": "ROW_TYPE_ABILITY",
+      "rows": 1,
+      "bytes": 156,
+      "blake3": "05cd9b4a07d9d5ca1f75804a84404d2482d539928b40ba2a856c48ebadb7412e"
+    },
+    {
+      "name": "factions",
+      "file": "tables/factions.sptbl",
+      "row_type": "ROW_TYPE_FACTION",
+      "rows": 3,
+      "bytes": 455,
+      "blake3": "b811634f29df64de7e5cf00e213aaf4c005f7aa45d8fabbc9d12d622943b62dc"
+    },
+    {
+      "name": "mobs",
+      "file": "tables/mobs.sptbl",
+      "row_type": "ROW_TYPE_MOB",
+      "rows": 2,
+      "bytes": 408,
+      "blake3": "abe04dcb1ebce4d59df9ef9370cd5c0d5f31bbe5329f06a8bb5a64a553d6c532"
+    },
+    {
       "name": "placements",
       "file": "tables/placements.sptbl",
       "row_type": "ROW_TYPE_PLACEMENT",
-      "rows": 3,
-      "bytes": 437,
-      "blake3": "31af18bd36534397091e8f9648ffab2d9496d4ea23765b76f1dd3df8cb60dbca"
+      "rows": 6,
+      "bytes": 777,
+      "blake3": "28ac71f92910d1bec3d967f2f5711c958b165f8331009376eac99e61549fae27"
     },
     {
       "name": "spawn-tables",
@@ -35,8 +59,8 @@
       "file": "tables/zone.sptbl",
       "row_type": "ROW_TYPE_ZONE",
       "rows": 1,
-      "bytes": 119,
-      "blake3": "67b83e7ef59ec1756ea3d212b54412cff749cc038ef2c3d888ca0478b638fa32"
+      "bytes": 114,
+      "blake3": "4044407ae415f11c3b40918b895c9f9c40e29c5a9670820fe6f30eb0f92c833d"
     }
   ]
 }

@@ -2,11 +2,13 @@ package session_test
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 	"testing"
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/transport"
@@ -18,6 +20,10 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 
 	content := loadFixturePack(t)
 	spawns := content.NPCSpawns()
+	rules, err := combat.RulesFromPack(content)
+	if err != nil {
+		t.Fatalf("RulesFromPack() error = %v", err)
+	}
 	zone, err := world.NewZone(world.ZoneConfig{
 		ID:               "FixtureZone",
 		TickInterval:     5 * time.Millisecond,
@@ -32,12 +38,9 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewZone() error = %v", err)
 	}
-	for _, spawn := range spawns {
-		zone.SpawnNPC(world.Vec3{
-			X: spawn.Position.X,
-			Y: spawn.Position.Y,
-			Z: spawn.Position.Z,
-		}, spawn.Heading)
+	combatModule := combat.New(slog.New(slog.DiscardHandler), zone, rules, combat.Options{})
+	if err := combatModule.Populate(spawns); err != nil {
+		t.Fatalf("Populate() error = %v", err)
 	}
 
 	// Generous, because this test now runs a whole session — join, replicate,
@@ -45,6 +48,7 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	go zone.Run(ctx)
+	go combatModule.Run(ctx)
 
 	serverTLS, err := transport.NewDevServerTLSConfig()
 	if err != nil {
@@ -59,7 +63,7 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "shard-test",
-		Zones:           map[string]*world.Zone{zone.ID(): zone},
+		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
 	}
 	serveErrors := make(chan error, 1)
 	go func() { serveErrors <- server.Serve(ctx, listener) }()

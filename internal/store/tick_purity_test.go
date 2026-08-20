@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/world"
 	"github.com/google/uuid"
@@ -122,7 +121,12 @@ func TestZoneTickPerformsNoRepositoryCalls(t *testing.T) {
 		t.Fatalf("create zone: %v", err)
 	}
 
-	zone.SpawnNPC(world.Vec3{X: 10, Y: 10}, 0)
+	zone.SpawnNPC(world.NPCSpec{
+		ContentID: "mob.fixture.tick-purity",
+		Level:     1,
+		MaxHealth: 100,
+		Position:  world.Vec3{X: 10, Y: 10},
+	})
 	entityID, _ := zone.Join()
 	sink := &countingSink{}
 	if err := zone.Subscribe(entityID, sink); err != nil {
@@ -139,11 +143,10 @@ func TestZoneTickPerformsNoRepositoryCalls(t *testing.T) {
 	// Drive real work through the tick: movement integration and snapshot
 	// publication, which are the two bodies ADR 0031 §7 names.
 	for sequence := uint64(1); sequence <= 50; sequence++ {
-		intent := &sarnautv1.ClientMoveIntent{
-			Seq:       sequence,
-			Input:     &sarnautv1.Vec3{X: 1, Y: 0},
-			Heading:   0,
-			DtSeconds: 0.033,
+		intent := world.MoveIntent{
+			Seq:      sequence,
+			Input:    world.Vec3{X: 1},
+			Duration: 33 * time.Millisecond,
 		}
 		if err := zone.ApplyMoveIntent(entityID, intent); err != nil {
 			t.Fatalf("apply move intent %d: %v", sequence, err)
@@ -167,7 +170,7 @@ type countingSink struct {
 	count atomic.Int64
 }
 
-func (sink *countingSink) OfferSnapshot(*sarnautv1.SnapshotBatch) {
+func (sink *countingSink) OfferSnapshot(world.Snapshot) {
 	sink.count.Add(1)
 }
 

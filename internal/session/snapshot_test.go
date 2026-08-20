@@ -8,16 +8,17 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/transport"
+	"github.com/SarnautCore/server/internal/world"
 )
 
 func TestSnapshotSenderFallsBackToReliableStream(t *testing.T) {
 	connection := &stubConnection{}
 	sender := newSnapshotSender(connection, newReliableWriter(connection))
-	want := &sarnautv1.SnapshotBatch{
+	want := world.Snapshot{
 		ServerTick: 7,
-		Entities: []*sarnautv1.EntitySnapshot{{
-			EntityId: 11,
-			Kind:     sarnautv1.EntityKind_ENTITY_KIND_NPC,
+		Entities: []world.EntitySnapshot{{
+			EntityID: 11,
+			Kind:     world.EntityKindNPC,
 			Alive:    true,
 		}},
 	}
@@ -44,14 +45,13 @@ func TestSnapshotSenderFallsBackToReliableStream(t *testing.T) {
 func TestSnapshotSenderSplitsDatagramsBelowPacketLimit(t *testing.T) {
 	connection := &stubConnection{unreliable: true}
 	sender := newSnapshotSender(connection, newReliableWriter(connection))
-	snapshot := &sarnautv1.SnapshotBatch{ServerTick: 9}
+	snapshot := world.Snapshot{ServerTick: 9}
 	for id := uint64(1); id <= 200; id++ {
-		snapshot.Entities = append(snapshot.Entities, &sarnautv1.EntitySnapshot{
-			EntityId:  id,
-			Kind:      sarnautv1.EntityKind_ENTITY_KIND_NPC,
-			Position:  &sarnautv1.Vec3{X: float32(id), Y: 2, Z: 3},
-			Velocity:  &sarnautv1.Vec3{},
-			ContentId: "mob.fixture.critter",
+		snapshot.Entities = append(snapshot.Entities, world.EntitySnapshot{
+			EntityID:  id,
+			Kind:      world.EntityKindNPC,
+			Position:  world.Vec3{X: float32(id), Y: 2, Z: 3},
+			ContentID: "mob.fixture.critter",
 			Level:     2,
 			Health:    100,
 			MaxHealth: 100,

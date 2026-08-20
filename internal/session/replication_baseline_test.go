@@ -1,4 +1,4 @@
-package world
+package session
 
 import (
 	"encoding/json"
@@ -10,12 +10,18 @@ import (
 	"testing"
 	"time"
 
-	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/world"
 	"google.golang.org/protobuf/proto"
 )
 
 // The replication baseline is the frozen "before" measurement that the M2
-// replication-hardening work compares against. It is captured on the tree that
+// replication-hardening work compares against.
+//
+// It lives in `internal/session` rather than in `internal/world` because it
+// measures the encoded size of a snapshot, and after ADR 0028 the encoding
+// happens here: the simulation deals in domain values and knows nothing about
+// protobuf. The number it records was captured on the pre-ADR-0026 tree and is
+// not re-measured. It is captured on the tree that
 // still has the positionally typed wire format and the pre-ADR-0026
 // EntitySnapshot, so the cost of the wire envelope and of the content and
 // combat fields is measurable rather than asserted.
@@ -116,7 +122,7 @@ func TestCaptureReplicationBaseline(t *testing.T) {
 	tickIntervalMS, snapshotIntervalMS := 33.333333, 66.666666
 	tickInterval := time.Duration(tickIntervalMS * float64(time.Millisecond))
 	snapshotInterval := time.Duration(snapshotIntervalMS * float64(time.Millisecond))
-	zone, err := NewZone(ZoneConfig{
+	zone, err := world.NewZone(world.ZoneConfig{
 		ID:               "BaselineZone",
 		TickInterval:     tickInterval,
 		SnapshotInterval: snapshotInterval,
@@ -128,30 +134,36 @@ func TestCaptureReplicationBaseline(t *testing.T) {
 
 	playerID, _ := zone.Join()
 	for index := 0; index < baselineEntityCount-1; index++ {
-		zone.SpawnNPC(Vec3{X: float32(index) * 1.5, Y: float32(index) * 0.5, Z: 0}, float32(index)*0.01)
+		zone.SpawnNPC(world.NPCSpec{
+			ContentID: "mob.fixture.baseline",
+			Level:     1,
+			MaxHealth: 100,
+			Position:  world.Vec3{X: float32(index) * 1.5, Y: float32(index) * 0.5},
+			Heading:   float32(index) * 0.01,
+		})
 	}
 
 	sink := new(sizingSink)
 	if err := zone.Subscribe(playerID, sink); err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
-	zone.publishSnapshot()
+	zone.PublishSnapshot()
 	if sink.batches != 1 {
 		t.Fatalf("captured %d batches, want 1", sink.batches)
 	}
 
 	durations := make([]time.Duration, 0, baselineStepSamples)
 	for sample := 0; sample < baselineStepSamples; sample++ {
-		if err := zone.ApplyMoveIntent(playerID, &sarnautv1.ClientMoveIntent{
-			Seq:       uint64(sample) + 1,
-			Input:     &sarnautv1.Vec3{X: 1},
-			DtSeconds: 0.2,
+		if err := zone.ApplyMoveIntent(playerID, world.MoveIntent{
+			Seq:      uint64(sample) + 1,
+			Input:    world.Vec3{X: 1},
+			Duration: 200 * time.Millisecond,
 		}); err != nil {
 			t.Fatalf("ApplyMoveIntent() error = %v", err)
 		}
 		started := time.Now()
 		for step := 0; step < baselineStepWindow; step++ {
-			zone.step()
+			zone.Step()
 		}
 		durations = append(durations, time.Since(started)/baselineStepWindow)
 	}
@@ -247,7 +259,11 @@ type sizingSink struct {
 	lastSize int
 }
 
-func (sink *sizingSink) OfferSnapshot(batch *sarnautv1.SnapshotBatch) {
+func (sink *sizingSink) OfferSnapshot(snapshot world.Snapshot) {
 	sink.batches++
+	batch, err := snapshotToProto(snapshot)
+	if err != nil {
+		panic(err)
+	}
 	sink.lastSize = proto.Size(batch)
 }

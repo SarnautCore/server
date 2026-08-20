@@ -70,6 +70,13 @@ message AbilityUse {
   uint64 caster_id = 1;
   uint64 target_id = 2;
   uint64 client_tick = 3;
+
+  // Canonical id of the ability, resolved against the runtime pack both peers
+  // agreed on in the handshake (ADR 0029). combat.md section 4 omits it
+  // because M2's worked example has exactly one ability; carrying it is what
+  // lets a second ability be pure content rather than a wire change.
+  // Empty selects the caster's first known ability.
+  string ability_id = 4;
 }
 
 // Interact is the generic "use the thing I am looking at" verb: quest starters
@@ -106,17 +113,67 @@ message QuestAbandon {
 // to ADR 0026). It carries no fields: the actor is the session.
 message Logout {}
 
-// CombatEvent, DeathEvent, LootOffer, LootResult, InventoryUpdate and
-// QuestStateUpdate are declared here so the envelope holds the complete M2 case
-// list from the first commit. Their fields land with the task that implements
-// the matching mechanics spec; adding fields to them is additive and does not
-// bump ProtocolVersion.
+// LootOffer, LootResult, InventoryUpdate and QuestStateUpdate are declared
+// here so the envelope holds the complete M2 case list from the first commit.
+// Their fields land with the task that implements the matching mechanics spec;
+// adding fields to them is additive and does not bump ProtocolVersion.
 
-// TODO(m2-combat): fields per mechanics/combat.md sections 5.5 and 5.6.
-message CombatEvent {}
+// AbilityRejection names why an ability use resolved to nothing.
+//
+// It is not an ErrorCode. An ErrorCode is a protocol violation and closes the
+// connection; casting at a target that walked out of range is ordinary play
+// and must leave the session running (mechanics/combat.md rules 5.2 to 5.4).
+enum AbilityRejection {
+  ABILITY_REJECTION_UNSPECIFIED = 0;
+  // The ability resolved and did damage.
+  ABILITY_REJECTION_NONE = 1;
+  // rule 5.2.2: target_id is zero or names no entity in the caster's zone.
+  ABILITY_REJECTION_NO_TARGET = 2;
+  // rules 5.2.3 and 5.2.5: not a combatant, the caster itself, a returning
+  // mob, or a faction that is not hostile to the caster.
+  ABILITY_REJECTION_INVALID_TARGET = 3;
+  // rule 5.2.4.
+  ABILITY_REJECTION_TARGET_DEAD = 4;
+  // rule 5.3.2.
+  ABILITY_REJECTION_OUT_OF_RANGE = 5;
+  // rule 5.4.1, and the per-ability cooldown the pack may carry.
+  ABILITY_REJECTION_ON_COOLDOWN = 6;
+  // The caster does not know the ability, or the pack does not carry it.
+  ABILITY_REJECTION_UNKNOWN_ABILITY = 7;
+}
 
-// TODO(m2-combat): fields per mechanics/combat.md rule 5.9.
-message DeathEvent {}
+// CombatEvent reports one resolved or refused ability use
+// (mechanics/combat.md sections 5.5 and 5.6). It always travels on the
+// reliable channel.
+message CombatEvent {
+  uint64 caster_id = 1;
+  uint64 target_id = 2;
+  string ability_id = 3;
+  // Damage dealt after mitigation, rule 5.5.5. Zero on a rejection.
+  int32 damage = 4;
+  // The target's health after rule 5.6.1, so a client that dropped a snapshot
+  // datagram still draws the right health bar.
+  int32 target_health = 5;
+  int32 target_max_health = 6;
+  // True on the use that brought target_health to zero.
+  bool killing_blow = 7;
+  // ABILITY_REJECTION_NONE on a use that resolved. Anything else means no
+  // world state changed and no cooldown was consumed (rule 6.2).
+  AbilityRejection rejection = 8;
+}
+
+// DeathEvent is the client projection of the server-internal MobKilled event
+// (mechanics/combat.md rule 5.9.3). victim_content_id is deliberately absent:
+// it is content identity the client has no business inferring kill credit
+// from.
+message DeathEvent {
+  uint64 victim_entity_id = 1;
+  // The entity credited with the killing blow, rule 5.9.2.
+  uint64 killer_entity_id = 2;
+  uint32 victim_level = 3;
+  // Server tick at which the corpse disappears, rule 5.9.4.
+  uint64 corpse_despawn_tick = 4;
+}
 
 // TODO(m2-loot): fields per mechanics/loot.md rule 5.6.
 message LootOffer {}

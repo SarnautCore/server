@@ -19,6 +19,25 @@ cargo run -p sarnaut-pack -- build --fixture `
   --src ..\data-schemas\demo --out ..\server\testdata\packs\demo
 ```
 
+## demo-extended
+
+The same dataset with `data-schemas/demo/overlays/m2-combat-extended` layered
+on: a second ability and a second mob, and nothing else.
+
+It exists to hold one claim honest. `mechanics/combat.md` says every combat
+rule is content — the ability's range, damage and cooldown; the mob's level,
+health multiplier, aggro radius, leash radius and respawn window — and the way
+to prove that is to add some and change no Go. `internal/combat` runs its whole
+kill loop against this pack as well as against `demo`, and a different number
+comes out of every one of those fields.
+
+```powershell
+cargo run -p sarnaut-pack -- build --fixture `
+  --src ..\data-schemas\demo `
+  --overlay ..\data-schemas\demo\overlays\m2-combat-extended `
+  --out ..\server\testdata\packs\demo-extended
+```
+
 `internal/pack` pins the resulting `pack_id`, so a rebuild that changes the
 bytes fails the test suite until the pin is updated deliberately.
 

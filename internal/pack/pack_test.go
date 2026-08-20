@@ -9,12 +9,13 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fixturePackID pins the digest of the vendored golden fixture. A silent change
 // to the pack format, to the compiler, or to the demo dataset fails this test
 // rather than surfacing as a mismatched handshake at connect time.
-const fixturePackID = "b2fa8016f2d8be24a116db81d6c093f254cc3b36b4e0e337872866de28a293dc"
+const fixturePackID = "93d786dce705d20cf806d26e1f059577da8b5638b6a15786187dd46f4f25a527"
 
 // fixtureDirectory is the vendored pack every server test shares. It is
 // compiled from `data-schemas/demo`, which is invented content, so no
@@ -53,28 +54,125 @@ func TestNPCSpawnsResolveThroughTablesAndSkipInertPlacements(t *testing.T) {
 	}
 
 	spawns := loaded.NPCSpawns()
-	if len(spawns) != 2 {
-		t.Fatalf("NPCSpawns() returned %d spawns, want 2", len(spawns))
-	}
-	// One placement names a spawn table and the other names a mob directly;
-	// both must land on the same mob id.
-	for _, spawn := range spawns {
-		if spawn.MobID != "mob.paper-harbor.copper-sparrow" {
-			t.Errorf("spawn %q resolved to %q", spawn.PlacementID, spawn.MobID)
-		}
-		// The third placement is authored `time-never` and must not appear.
+	byPlacement := make(map[string]NPCSpawn, len(spawns))
+	for index, spawn := range spawns {
+		byPlacement[spawn.PlacementID] = spawn
+		// The `time-never` placement is authored and inert; it must not appear.
 		if strings.HasSuffix(spawn.PlacementID, ".3") {
 			t.Errorf("NPCSpawns() included the inert placement %q", spawn.PlacementID)
 		}
+		if index > 0 && spawns[index-1].PlacementID > spawn.PlacementID {
+			t.Error("NPCSpawns() is not sorted by placement id")
+		}
+		if _, ok := loaded.Mob(spawn.MobID); !ok {
+			t.Errorf("spawn %q resolves to mob %q, which the pack does not describe",
+				spawn.PlacementID, spawn.MobID)
+		}
 	}
-	if spawns[0].PlacementID > spawns[1].PlacementID {
-		t.Error("NPCSpawns() is not sorted by placement id")
+
+	// One placement names a spawn table and the rest name mobs directly. Both
+	// paths have to land on a mob the pack can describe.
+	throughTable, ok := byPlacement["spawn.paper-harbor.placement.tide-steps.1"]
+	if !ok {
+		t.Fatal("the placement that resolves through a spawn table is missing")
 	}
-	if spawns[0].Heading == 0 && spawns[1].Heading == 0 {
-		t.Error("no spawn carried an authored heading")
+	if throughTable.MobID != "mob.paper-harbor.copper-sparrow" {
+		t.Errorf("table placement resolved to %q", throughTable.MobID)
 	}
-	if spawns[0].Position == (Vec3{}) {
-		t.Error("the first spawn has no position")
+	if throughTable.Position == (Vec3{}) {
+		t.Error("the table placement has no position")
+	}
+	if throughTable.Heading == 0 {
+		t.Error("the table placement lost its authored heading")
+	}
+
+	// The respawn window is a property of the spawn slot, not of the mob.
+	target, ok := byPlacement["placement.paper-harbor.tide-crab-1"]
+	if !ok {
+		t.Fatal("the M2 combat target placement is missing")
+	}
+	if target.RespawnMin != 10*time.Second || target.RespawnMax != 14*time.Second {
+		t.Errorf("respawn window = [%v, %v], want [10s, 14s]", target.RespawnMin, target.RespawnMax)
+	}
+}
+
+// TestCombatTablesCarryTheRulesTheSpecReads is the pack-side half of the
+// promise that combat rules are content: if these fields do not survive the
+// compile, nothing downstream can read them and every one of them becomes a Go
+// constant by default.
+func TestCombatTablesCarryTheRulesTheSpecReads(t *testing.T) {
+	t.Parallel()
+
+	loaded, err := Load(fixtureDirectory, Options{})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	ability, ok := loaded.Ability("ability.melee.harbor-cleave")
+	if !ok {
+		t.Fatal("the fixture ability is missing from the pack")
+	}
+	if ability.RangeM != 10 {
+		t.Errorf("range_m = %v, want 10", ability.RangeM)
+	}
+	if !ability.TriggersGCD {
+		t.Error("triggers_gcd = false, want true")
+	}
+	if len(ability.Effects) != 1 || ability.Effects[0].Kind != "damage" {
+		t.Fatalf("effects = %+v, want one damage effect", ability.Effects)
+	}
+	if ability.Effects[0].Amount != 18 || ability.Effects[0].AttackPowerCoeff != 0.5 {
+		t.Errorf("effect = %+v, want amount 18 and coefficient 0.5", ability.Effects[0])
+	}
+
+	wild, ok := loaded.Faction("faction.wild")
+	if !ok {
+		t.Fatal("the hostile faction is missing from the pack")
+	}
+	if !wild.Attackable {
+		t.Error("faction.wild is not attackable; nothing in M2 could be killed")
+	}
+	if got := wild.StanceTowards("faction.league"); got != StanceHostile {
+		t.Errorf("faction.wild towards faction.league = %q, want %q", got, StanceHostile)
+	}
+	league, ok := loaded.Faction("faction.league")
+	if !ok {
+		t.Fatal("the player faction is missing from the pack")
+	}
+	if league.Attackable || league.StanceTowards("faction.league") != StanceFriendly {
+		t.Errorf("faction.league = %+v, want unattackable and friendly to itself", league)
+	}
+
+	// The worked example in mechanics/combat.md section 6.1 assumes a level 2
+	// mob with no hp_mod. The fixture has to actually say that.
+	mob, ok := loaded.Mob("mob.paper-harbor.tide-crab")
+	if !ok {
+		t.Fatal("the M2 target mob is missing from the pack")
+	}
+	if mob.LevelMin != 2 || mob.LevelMax != 2 {
+		t.Errorf("level range = [%d, %d], want [2, 2]", mob.LevelMin, mob.LevelMax)
+	}
+	if mob.HPMod != 1 {
+		t.Errorf("hp_mod = %v, want 1", mob.HPMod)
+	}
+	if mob.FactionID != "faction.wild" {
+		t.Errorf("faction = %q, want faction.wild", mob.FactionID)
+	}
+	if mob.AggroRadiusM != 12 || mob.LeashRadiusM != 40 {
+		t.Errorf("aggro/leash = %v/%v, want 12/40", mob.AggroRadiusM, mob.LeashRadiusM)
+	}
+	if mob.WalkSpeed != 2 {
+		t.Errorf("walk_speed = %v, want 2", mob.WalkSpeed)
+	}
+
+	// A second mob with different numbers, so that a reader which pinned one
+	// mob's values fails here.
+	sparrow, ok := loaded.Mob("mob.paper-harbor.copper-sparrow")
+	if !ok {
+		t.Fatal("the second fixture mob is missing from the pack")
+	}
+	if sparrow.AggroRadiusM == mob.AggroRadiusM || sparrow.HPMod == mob.HPMod {
+		t.Errorf("the two fixture mobs do not differ: %+v and %+v", sparrow, mob)
 	}
 }
 

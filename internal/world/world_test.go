@@ -1,166 +1,216 @@
 package world_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
-	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/world"
 )
 
-func TestZoneClampsMovementAndKeepsFlatGround(t *testing.T) {
+func newTestZone(t *testing.T, spawn world.Vec3) *world.Zone {
+	t.Helper()
 	zone, err := world.NewZone(world.ZoneConfig{
 		ID:               "fixture",
 		TickInterval:     5 * time.Millisecond,
 		SnapshotInterval: 10 * time.Millisecond,
 		MaxMoveSpeed:     4,
-		PlayerSpawn:      world.Vec3{Z: 9},
+		PlayerSpawn:      spawn,
 	})
 	if err != nil {
 		t.Fatalf("NewZone() error = %v", err)
 	}
+	return zone
+}
+
+func TestZoneClampsMovementAndKeepsFlatGround(t *testing.T) {
+	t.Parallel()
+
+	zone := newTestZone(t, world.Vec3{Z: 9})
 	entityID, _ := zone.Join()
-	sink := &captureSink{snapshots: make(chan *sarnautv1.SnapshotBatch, 4)}
+	sink := new(captureSink)
 	if err := zone.Subscribe(entityID, sink); err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
-	if err := zone.ApplyMoveIntent(entityID, &sarnautv1.ClientMoveIntent{
-		Seq:       1,
-		Input:     &sarnautv1.Vec3{X: 3, Y: 4, Z: 100},
-		DtSeconds: 1,
+	// The input is over unit length on the ground plane and has a wild Z. The
+	// first is clamped to the configured speed; the second is ignored, because
+	// nothing resolves terrain height yet.
+	if err := zone.ApplyMoveIntent(entityID, world.MoveIntent{
+		Seq:      1,
+		Input:    world.Vec3{X: 3, Y: 4, Z: 100},
+		Duration: time.Second,
 	}); err != nil {
 		t.Fatalf("ApplyMoveIntent() error = %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go zone.Run(ctx)
+	for step := 0; step < 10; step++ {
+		zone.Step()
+	}
+	zone.PublishSnapshot()
 
-	deadline := time.After(time.Second)
-	for {
-		select {
-		case snapshot := <-sink.snapshots:
-			for _, entity := range snapshot.GetEntities() {
-				if entity.GetEntityId() != entityID || entity.GetPosition().GetX() == 0 {
-					continue
-				}
-				if entity.GetPosition().GetZ() != 9 {
-					t.Errorf("position.z = %v, want 9", entity.GetPosition().GetZ())
-				}
-				if speed := entity.GetVelocity().GetX()*entity.GetVelocity().GetX() + entity.GetVelocity().GetY()*entity.GetVelocity().GetY(); speed > 16.001 {
-					t.Errorf("velocity squared = %v, want <= 16", speed)
-				}
-				return
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for movement snapshot")
-		}
+	view, ok := sink.find(entityID)
+	if !ok {
+		t.Fatal("the moving player is not in the snapshot")
+	}
+	if view.Position.X <= 0 {
+		t.Errorf("position.x = %v, want the player to have moved", view.Position.X)
+	}
+	if view.Position.Z != 9 {
+		t.Errorf("position.z = %v, want the spawn height 9", view.Position.Z)
+	}
+	speed := view.Velocity.X*view.Velocity.X + view.Velocity.Y*view.Velocity.Y
+	if speed > 16.001 {
+		t.Errorf("velocity squared = %v, want <= 16", speed)
 	}
 }
 
-type captureSink struct {
-	snapshots chan *sarnautv1.SnapshotBatch
-}
+func TestZoneRejectsNonFiniteAndStaleIntents(t *testing.T) {
+	t.Parallel()
 
-func (sink *captureSink) OfferSnapshot(snapshot *sarnautv1.SnapshotBatch) {
-	select {
-	case sink.snapshots <- snapshot:
-	default:
+	zone := newTestZone(t, world.Vec3{})
+	entityID, _ := zone.Join()
+
+	infinity := float32(1)
+	for i := 0; i < 40; i++ {
+		infinity *= 1e10
+	}
+	if err := zone.ApplyMoveIntent(entityID, world.MoveIntent{
+		Seq:   1,
+		Input: world.Vec3{X: infinity},
+	}); err == nil {
+		t.Error("ApplyMoveIntent() accepted a non-finite input")
+	}
+	if err := zone.ApplyMoveIntent(entityID, world.MoveIntent{
+		Seq:      5,
+		Input:    world.Vec3{X: 1},
+		Duration: 100 * time.Millisecond,
+	}); err != nil {
+		t.Fatalf("ApplyMoveIntent() error = %v", err)
+	}
+	// Older sequence numbers are discarded rather than rewinding the player.
+	if err := zone.ApplyMoveIntent(entityID, world.MoveIntent{
+		Seq:      4,
+		Input:    world.Vec3{X: -1},
+		Duration: 100 * time.Millisecond,
+	}); err != nil {
+		t.Fatalf("ApplyMoveIntent() error = %v", err)
+	}
+
+	zone.Step()
+	sink := new(captureSink)
+	if err := zone.Subscribe(entityID, sink); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	zone.PublishSnapshot()
+	view, ok := sink.find(entityID)
+	if !ok {
+		t.Fatal("the player is not in the snapshot")
+	}
+	if view.Position.X <= 0 {
+		t.Errorf("position.x = %v, want the newer intent to have won", view.Position.X)
+	}
+
+	if err := zone.ApplyMoveIntent(9999, world.MoveIntent{Seq: 1}); err == nil {
+		t.Error("ApplyMoveIntent() accepted an unknown entity")
 	}
 }
 
-func TestPublishSnapshotGivesEverySinkItsOwnBatch(t *testing.T) {
-	zone, err := world.NewZone(world.ZoneConfig{
-		ID:               "fixture",
-		TickInterval:     2 * time.Millisecond,
-		SnapshotInterval: 4 * time.Millisecond,
-		MaxMoveSpeed:     4,
-	})
-	if err != nil {
-		t.Fatalf("NewZone() error = %v", err)
-	}
-	zone.SpawnNPC(world.Vec3{X: 1, Y: 2}, 0.5)
-	zone.SpawnNPC(world.Vec3{X: 3, Y: 4}, 1.5)
+func TestJoinedPlayerIsNotReplicatedUntilSubscribe(t *testing.T) {
+	t.Parallel()
 
-	// A sink that rewrites what it was handed. Sharing one batch across sinks
-	// is race-free only while nobody does this, which is a property of today's
-	// callers rather than of the interface (ADR 0026).
-	rewriting := &mutatingSink{sentinel: 1234, received: make(chan *sarnautv1.SnapshotBatch, 8)}
-	observing := &recordingSink{received: make(chan *sarnautv1.SnapshotBatch, 8)}
-	for _, sink := range []world.SnapshotSink{rewriting, observing} {
+	zone := newTestZone(t, world.Vec3{})
+	watcherID, _ := zone.Join()
+	watcher := new(captureSink)
+	if err := zone.Subscribe(watcherID, watcher); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	// A second player joins but never subscribes. Until it does, it has no
+	// combat identity, and publishing it would be a lie the client has to
+	// correct one snapshot later.
+	pendingID, _ := zone.Join()
+	zone.PublishSnapshot()
+	if _, ok := watcher.find(pendingID); ok {
+		t.Error("an unsubscribed player is being replicated")
+	}
+
+	if err := zone.Subscribe(pendingID, new(captureSink)); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	zone.PublishSnapshot()
+	if _, ok := watcher.find(pendingID); !ok {
+		t.Error("a subscribed player is not being replicated")
+	}
+}
+
+func TestPublishSnapshotGivesEverySinkTheSameValue(t *testing.T) {
+	t.Parallel()
+
+	zone := newTestZone(t, world.Vec3{})
+	zone.SpawnNPC(world.NPCSpec{ContentID: "mob.fixture.one", Position: world.Vec3{X: 1, Y: 2}, Heading: 0.5})
+	zone.SpawnNPC(world.NPCSpec{ContentID: "mob.fixture.two", Position: world.Vec3{X: 3, Y: 4}, Heading: 1.5})
+
+	// ADR 0026's shared-batch hazard is retired by construction here: the
+	// boundary type is an immutable value, so a sink that wanted to rewrite
+	// what it was handed has nothing to rewrite. The protobuf tree, which is
+	// mutable, is built per session in `internal/session`.
+	first, second := new(captureSink), new(captureSink)
+	for _, sink := range []world.SnapshotSink{first, second} {
 		entityID, _ := zone.Join()
 		if err := zone.Subscribe(entityID, sink); err != nil {
 			t.Fatalf("Subscribe() error = %v", err)
 		}
 	}
+	zone.PublishSnapshot()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go zone.Run(ctx)
-
-	deadline := time.After(3 * time.Second)
-	byTick := make(map[uint64]*sarnautv1.SnapshotBatch)
-	for {
-		var mine, theirs *sarnautv1.SnapshotBatch
-		select {
-		case batch := <-rewriting.received:
-			byTick[batch.GetServerTick()] = batch
-			continue
-		case batch := <-observing.received:
-			mine = byTick[batch.GetServerTick()]
-			theirs = batch
-			if mine == nil {
-				continue
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for both sinks to observe the same tick")
+	if first.snapshot.ServerTick != second.snapshot.ServerTick {
+		t.Fatalf("server ticks = %d and %d, want one publish to be one tick",
+			first.snapshot.ServerTick, second.snapshot.ServerTick)
+	}
+	if len(first.snapshot.Entities) != len(second.snapshot.Entities) {
+		t.Fatalf("entity counts = %d and %d", len(first.snapshot.Entities), len(second.snapshot.Entities))
+	}
+	for index := range first.snapshot.Entities {
+		if first.snapshot.Entities[index] != second.snapshot.Entities[index] {
+			t.Fatalf("entity %d differs between sinks", index)
 		}
-
-		if mine == theirs {
-			t.Fatal("both sinks received the same *SnapshotBatch pointer")
-		}
-		// The rewriting sink appended one entity to its own batch. The other
-		// sink's batch is unchanged, which is the whole point.
-		if len(mine.GetEntities()) != len(theirs.GetEntities())+1 {
-			t.Fatalf("entity counts = %d and %d, want the rewritten batch to hold exactly one more",
-				len(mine.GetEntities()), len(theirs.GetEntities()))
-		}
-		for index := range theirs.GetEntities() {
-			if mine.GetEntities()[index] == theirs.GetEntities()[index] {
-				t.Fatalf("entity %d is the same *EntitySnapshot pointer in both batches", index)
-			}
-			if got := theirs.GetEntities()[index].GetHealth(); got == rewriting.sentinel {
-				t.Fatalf("entity %d observed the other sink's rewrite", index)
-			}
-		}
-		return
 	}
 }
 
-type recordingSink struct {
-	received chan *sarnautv1.SnapshotBatch
-}
+func TestSnapshotEntitiesAreInAscendingIDOrder(t *testing.T) {
+	t.Parallel()
 
-func (sink *recordingSink) OfferSnapshot(snapshot *sarnautv1.SnapshotBatch) {
-	select {
-	case sink.received <- snapshot:
-	default:
+	zone := newTestZone(t, world.Vec3{})
+	for index := 0; index < 40; index++ {
+		zone.SpawnNPC(world.NPCSpec{Position: world.Vec3{X: float32(40 - index)}})
+	}
+	entityID, _ := zone.Join()
+	sink := new(captureSink)
+	if err := zone.Subscribe(entityID, sink); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	zone.PublishSnapshot()
+
+	var previous uint64
+	for _, view := range sink.snapshot.Entities {
+		if view.EntityID <= previous {
+			t.Fatalf("entity id %d follows %d; ascending order is what rule 5.7.3 tie-breaks on",
+				view.EntityID, previous)
+		}
+		previous = view.EntityID
 	}
 }
 
-type mutatingSink struct {
-	sentinel int32
-	received chan *sarnautv1.SnapshotBatch
+type captureSink struct {
+	snapshot world.Snapshot
 }
 
-func (sink *mutatingSink) OfferSnapshot(snapshot *sarnautv1.SnapshotBatch) {
-	for _, entity := range snapshot.GetEntities() {
-		entity.Health = sink.sentinel
+func (sink *captureSink) OfferSnapshot(snapshot world.Snapshot) { sink.snapshot = snapshot }
+
+func (sink *captureSink) find(entityID uint64) (world.EntitySnapshot, bool) {
+	for _, view := range sink.snapshot.Entities {
+		if view.EntityID == entityID {
+			return view, true
+		}
 	}
-	snapshot.Entities = append(snapshot.Entities, &sarnautv1.EntitySnapshot{EntityId: 999})
-	select {
-	case sink.received <- snapshot:
-	default:
-	}
+	return world.EntitySnapshot{}, false
 }
