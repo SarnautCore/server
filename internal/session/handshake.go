@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
@@ -19,6 +20,15 @@ var tracer = otel.Tracer("github.com/SarnautCore/server/internal/session")
 type Client struct {
 	ProtocolVersion sarnautv1.ProtocolVersion
 	BuildID         string
+
+	// PackID is the runtime pack digest this peer loaded (ADR 0029). Empty
+	// means unverified, which the shard accepts only while it carries no pack
+	// of its own.
+	PackID string
+
+	// Ticket is the opaque single-use shard ticket presented on
+	// EnterZoneRequest (ADR 0030). Empty until the auth service exists.
+	Ticket string
 }
 
 // Handshake sends a client hello and waits for the shard hello.
@@ -33,6 +43,7 @@ func (client Client) Handshake(
 	hello := &sarnautv1.ClientHello{
 		ProtocolVersion: client.ProtocolVersion,
 		BuildId:         client.BuildID,
+		PackId:          client.PackID,
 	}
 	if err := transport.WriteMessage(connection, hello); err != nil {
 		return nil, fmt.Errorf("write client hello: %w", err)
@@ -49,6 +60,13 @@ func (client Client) Handshake(
 			client.ProtocolVersion,
 		)
 	}
+	if client.PackID != "" && response.GetPackId() != client.PackID {
+		return nil, fmt.Errorf(
+			"server content pack %q does not match client pack %q",
+			response.GetPackId(),
+			client.PackID,
+		)
+	}
 
 	return response, nil
 }
@@ -58,7 +76,8 @@ func (client Client) EnterZone(
 	connection transport.Connection,
 	zoneID string,
 ) (*sarnautv1.EnterZoneResponse, error) {
-	if err := transport.WriteMessage(connection, &sarnautv1.EnterZoneRequest{ZoneId: zoneID}); err != nil {
+	request := &sarnautv1.EnterZoneRequest{ZoneId: zoneID, Ticket: client.Ticket}
+	if err := transport.WriteMessage(connection, request); err != nil {
 		return nil, fmt.Errorf("write enter zone request: %w", err)
 	}
 	response := new(sarnautv1.EnterZoneResponse)
@@ -72,14 +91,19 @@ func (client Client) EnterZone(
 }
 
 // SendMoveIntent sends movement as a QUIC datagram when both peers support it.
+// The datagram carries a whole ClientMessage, not a bare intent (ADR 0026).
 func (client Client) SendMoveIntent(
 	connection transport.Connection,
 	intent *sarnautv1.ClientMoveIntent,
 ) error {
-	if !connection.SupportsUnreliable() {
-		return transport.WriteMessage(connection, intent)
+	envelope := &sarnautv1.ClientMessage{
+		ClientSeq: intent.GetSeq(),
+		Payload:   &sarnautv1.ClientMessage_MoveIntent{MoveIntent: intent},
 	}
-	payload, err := transport.MarshalUnreliable(intent)
+	if !connection.SupportsUnreliable() {
+		return transport.WriteMessage(connection, envelope)
+	}
+	payload, err := transport.MarshalUnreliable(envelope)
 	if err != nil {
 		return fmt.Errorf("marshal move intent: %w", err)
 	}
@@ -89,33 +113,99 @@ func (client Client) SendMoveIntent(
 	return nil
 }
 
-// ReadSnapshot receives one snapshot batch from a datagram or stream fallback.
+// SendCommand writes one client verb on the reliable channel. Everything except
+// movement travels here, combat included.
+func (client Client) SendCommand(
+	connection transport.Connection,
+	message *sarnautv1.ClientMessage,
+) error {
+	if err := transport.WriteMessage(connection, message); err != nil {
+		return fmt.Errorf("write client command: %w", err)
+	}
+	return nil
+}
+
+// Logout asks for a clean exit so the shard's save checkpoint runs ahead of the
+// disconnect rather than racing it.
+func (client Client) Logout(connection transport.Connection) error {
+	return client.SendCommand(connection, &sarnautv1.ClientMessage{
+		Payload: &sarnautv1.ClientMessage_Logout{Logout: new(sarnautv1.Logout)},
+	})
+}
+
+// ReadServerMessage receives one server envelope from the carrier this
+// connection negotiated.
+func (client Client) ReadServerMessage(
+	ctx context.Context,
+	connection transport.Connection,
+) (*sarnautv1.ServerMessage, error) {
+	message := new(sarnautv1.ServerMessage)
+	if !connection.SupportsUnreliable() {
+		if err := transport.ReadMessage(connection, message); err != nil {
+			return nil, fmt.Errorf("read server message: %w", err)
+		}
+		return message, nil
+	}
+	payload, err := connection.ReceiveUnreliable(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("receive server message: %w", err)
+	}
+	if err := transport.UnmarshalUnreliable(payload, message); err != nil {
+		return nil, fmt.Errorf("decode server message: %w", err)
+	}
+	return message, nil
+}
+
+// ReadReliableMessage receives one server envelope from the ordered stream,
+// whatever the connection negotiated. Errors and events always arrive here.
+func (client Client) ReadReliableMessage(
+	connection transport.Connection,
+) (*sarnautv1.ServerMessage, error) {
+	message := new(sarnautv1.ServerMessage)
+	if err := transport.ReadMessage(connection, message); err != nil {
+		return nil, fmt.Errorf("read server message: %w", err)
+	}
+	return message, nil
+}
+
+// ReadSnapshot receives server envelopes until one carries a snapshot batch. A
+// typed refusal is returned as an error; any other case is skipped, because a
+// snapshot reader is not the place to handle combat.
 func (client Client) ReadSnapshot(
 	ctx context.Context,
 	connection transport.Connection,
 ) (*sarnautv1.SnapshotBatch, error) {
-	result := new(sarnautv1.SnapshotBatch)
-	if !connection.SupportsUnreliable() {
-		if err := transport.ReadMessage(connection, result); err != nil {
-			return nil, fmt.Errorf("read snapshot: %w", err)
+	for {
+		message, err := client.ReadServerMessage(ctx, connection)
+		if err != nil {
+			return nil, err
 		}
-		return result, nil
+		switch payload := message.GetPayload().(type) {
+		case *sarnautv1.ServerMessage_SnapshotBatch:
+			return payload.SnapshotBatch, nil
+		case *sarnautv1.ServerMessage_Error:
+			return nil, &ProtocolViolation{
+				Code:   payload.Error.GetCode(),
+				Detail: payload.Error.GetDetail(),
+			}
+		default:
+			continue
+		}
 	}
-	payload, err := connection.ReceiveUnreliable(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("receive snapshot: %w", err)
-	}
-	if err := transport.UnmarshalUnreliable(payload, result); err != nil {
-		return nil, fmt.Errorf("decode snapshot: %w", err)
-	}
-	return result, nil
 }
 
 // Server accepts sessions and binds admitted players to configured zones.
 type Server struct {
 	ProtocolVersion sarnautv1.ProtocolVersion
 	BuildID         string
-	Zones           map[string]*world.Zone
+
+	// PackID is the runtime pack digest this shard loaded (ADR 0029). While it
+	// is empty the shard makes no content-identity claim and gates nothing.
+	// TODO(m2-pack-v0): populate from config and honour
+	// content.allow_unverified_pack.
+	PackID string
+
+	Zones map[string]*world.Zone
 }
 
 // Serve handles connections until the context ends or the listener fails.
@@ -139,8 +229,13 @@ func (server Server) Serve(ctx context.Context, listener transport.Listener) err
 	}
 }
 
+// handle admits one session and then supervises it. It owns no I/O loop of its
+// own: the reliable reader, the optional datagram reader and the snapshot
+// sender each run as a goroutine, and handle returns only once every one of
+// them has stopped, so the deferred Zone.Leave cannot run while a sink is still
+// in use (ADR 0026).
 func (server Server) handle(ctx context.Context, connection transport.Connection) error {
-	_, span := tracer.Start(ctx, "session.server")
+	ctx, span := tracer.Start(ctx, "session.server")
 	defer span.End()
 	span.SetAttributes(attribute.String("network.peer.address", connection.RemoteAddr().String()))
 
@@ -155,6 +250,9 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if !ok {
 		return fmt.Errorf("zone %q is not hosted by this shard", request.GetZoneId())
 	}
+	// TODO(m2-auth): redeem request.GetTicket() over NATS before the entity is
+	// created, and derive account_id and character_id from the reply
+	// (ADR 0030, protocol/session.md rule 5.2).
 
 	entityID, spawn := zone.Join()
 	defer zone.Leave(entityID)
@@ -171,27 +269,50 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		return fmt.Errorf("write enter zone response: %w", err)
 	}
 
-	sender := newSnapshotSender(connection)
+	writer := newReliableWriter(connection)
+	sender := newSnapshotSender(connection, writer)
 	if err := zone.Subscribe(entityID, sender); err != nil {
 		return err
 	}
-	sendErrors := make(chan error, 1)
-	go func() { sendErrors <- sender.run(ctx) }()
 
-	for {
-		intent, err := receiveMoveIntent(ctx, connection)
-		if err != nil {
-			return err
-		}
-		if err := zone.ApplyMoveIntent(entityID, intent); err != nil {
-			span.RecordError(err)
-		}
-		select {
-		case err := <-sendErrors:
-			return err
-		default:
-		}
+	sessionCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// stream.Read does not observe a context, so cancellation alone cannot
+	// unblock the reliable reader. Closing the connection can.
+	go func() {
+		<-sessionCtx.Done()
+		_ = connection.Close()
+	}()
+
+	reader := &commandReader{
+		connection: connection,
+		writer:     writer,
+		zone:       zone,
+		entityID:   entityID,
+		datagrams:  connection.SupportsUnreliable(),
+		span:       span,
 	}
+	results := make(chan error, 3)
+	running := 2
+	go func() { results <- sender.run(sessionCtx) }()
+	go func() { results <- reader.readReliable(sessionCtx) }()
+	if reader.datagrams {
+		running = 3
+		go func() { results <- reader.readUnreliable(sessionCtx) }()
+	}
+
+	first := <-results
+	cancel()
+	_ = connection.Close()
+	for pending := 1; pending < running; pending++ {
+		<-results
+	}
+
+	if errors.Is(first, ErrClientLogout) {
+		span.AddEvent("session.logout")
+		return nil
+	}
+	return first
 }
 
 func (server Server) exchangeHello(connection transport.Connection) error {
@@ -209,42 +330,49 @@ func (server Server) exchangeHello(connection transport.Connection) error {
 	response := &sarnautv1.ServerHello{
 		ProtocolVersion: server.ProtocolVersion,
 		BuildId:         server.BuildID,
+		PackId:          server.PackID,
 	}
 	if err := transport.WriteMessage(connection, response); err != nil {
 		return fmt.Errorf("write server hello: %w", err)
 	}
-	return nil
-}
-
-func receiveMoveIntent(
-	ctx context.Context,
-	connection transport.Connection,
-) (*sarnautv1.ClientMoveIntent, error) {
-	result := new(sarnautv1.ClientMoveIntent)
-	if !connection.SupportsUnreliable() {
-		if err := transport.ReadMessage(connection, result); err != nil {
-			return nil, fmt.Errorf("read move intent: %w", err)
+	// The pack check runs after the version check and after the shard has
+	// written its own hello, so the client can display both digests rather than
+	// guessing why the connection went away (ADR 0027).
+	if server.PackID != "" && hello.GetPackId() != server.PackID {
+		detail := fmt.Sprintf(
+			"client content pack %q does not match shard pack %q",
+			hello.GetPackId(),
+			server.PackID,
+		)
+		refusal := &sarnautv1.ServerMessage{
+			Payload: &sarnautv1.ServerMessage_Error{
+				Error: &sarnautv1.Error{
+					Code:   sarnautv1.ErrorCode_ERROR_CODE_PACK_MISMATCH,
+					Detail: detail,
+				},
+			},
 		}
-		return result, nil
+		if err := transport.WriteMessage(connection, refusal); err != nil {
+			return fmt.Errorf("write pack mismatch: %w", err)
+		}
+		return &ProtocolViolation{
+			Code:   sarnautv1.ErrorCode_ERROR_CODE_PACK_MISMATCH,
+			Detail: detail,
+		}
 	}
-	payload, err := connection.ReceiveUnreliable(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("receive move intent: %w", err)
-	}
-	if err := transport.UnmarshalUnreliable(payload, result); err != nil {
-		return nil, fmt.Errorf("decode move intent: %w", err)
-	}
-	return result, nil
+	return nil
 }
 
 type snapshotSender struct {
 	connection transport.Connection
+	writer     *reliableWriter
 	queue      chan *sarnautv1.SnapshotBatch
 }
 
-func newSnapshotSender(connection transport.Connection) *snapshotSender {
+func newSnapshotSender(connection transport.Connection, writer *reliableWriter) *snapshotSender {
 	return &snapshotSender{
 		connection: connection,
+		writer:     writer,
 		queue:      make(chan *sarnautv1.SnapshotBatch, 1),
 	}
 }
@@ -280,7 +408,7 @@ func (sender *snapshotSender) run(ctx context.Context) error {
 
 func (sender *snapshotSender) send(snapshot *sarnautv1.SnapshotBatch) error {
 	if !sender.connection.SupportsUnreliable() {
-		if err := transport.WriteMessage(sender.connection, snapshot); err != nil {
+		if err := sender.writer.write(snapshotMessage(snapshot)); err != nil {
 			return fmt.Errorf("write snapshot fallback: %w", err)
 		}
 		return nil
@@ -297,25 +425,40 @@ func (sender *snapshotSender) send(snapshot *sarnautv1.SnapshotBatch) error {
 	return nil
 }
 
-func splitSnapshot(snapshot *sarnautv1.SnapshotBatch) []*sarnautv1.SnapshotBatch {
-	current := &sarnautv1.SnapshotBatch{ServerTick: snapshot.GetServerTick()}
-	result := make([]*sarnautv1.SnapshotBatch, 0, 1)
+func snapshotMessage(batch *sarnautv1.SnapshotBatch) *sarnautv1.ServerMessage {
+	return &sarnautv1.ServerMessage{
+		ServerTick: batch.GetServerTick(),
+		Payload:    &sarnautv1.ServerMessage_SnapshotBatch{SnapshotBatch: batch},
+	}
+}
+
+// splitSnapshot chunks a batch so that each datagram stays under the packet
+// limit. The measurement is of the encoded ServerMessage, not of the bare
+// batch: a datagram carries an envelope, so measuring the payload alone
+// produces datagrams over the cap by exactly the envelope overhead
+// (protocol/session.md rule 5.5.7).
+func splitSnapshot(snapshot *sarnautv1.SnapshotBatch) []*sarnautv1.ServerMessage {
+	tick := snapshot.GetServerTick()
+	current := &sarnautv1.SnapshotBatch{ServerTick: tick}
+	envelope := snapshotMessage(current)
+	result := make([]*sarnautv1.ServerMessage, 0, 1)
 	for _, entity := range snapshot.GetEntities() {
 		current.Entities = append(current.Entities, entity)
-		if proto.Size(current) <= transport.MaxUnreliableMessageSize {
+		if proto.Size(envelope) <= transport.MaxUnreliableMessageSize {
 			continue
 		}
 		current.Entities = current.Entities[:len(current.Entities)-1]
 		if len(current.Entities) > 0 {
-			result = append(result, current)
+			result = append(result, envelope)
 		}
 		current = &sarnautv1.SnapshotBatch{
-			ServerTick: snapshot.GetServerTick(),
+			ServerTick: tick,
 			Entities:   []*sarnautv1.EntitySnapshot{entity},
 		}
+		envelope = snapshotMessage(current)
 	}
 	if len(current.Entities) > 0 || len(result) == 0 {
-		result = append(result, current)
+		result = append(result, envelope)
 	}
 	return result
 }

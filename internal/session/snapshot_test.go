@@ -12,37 +12,50 @@ import (
 
 func TestSnapshotSenderFallsBackToReliableStream(t *testing.T) {
 	connection := &stubConnection{}
-	sender := newSnapshotSender(connection)
+	sender := newSnapshotSender(connection, newReliableWriter(connection))
 	want := &sarnautv1.SnapshotBatch{
 		ServerTick: 7,
 		Entities: []*sarnautv1.EntitySnapshot{{
 			EntityId: 11,
 			Kind:     sarnautv1.EntityKind_ENTITY_KIND_NPC,
+			Alive:    true,
 		}},
 	}
 	if err := sender.send(want); err != nil {
 		t.Fatalf("send() error = %v", err)
 	}
 
-	got := new(sarnautv1.SnapshotBatch)
+	got := new(sarnautv1.ServerMessage)
 	if err := transport.ReadMessage(&connection.Buffer, got); err != nil {
 		t.Fatalf("ReadMessage() error = %v", err)
 	}
-	if got.GetServerTick() != 7 || len(got.GetEntities()) != 1 || got.GetEntities()[0].GetEntityId() != 11 {
-		t.Fatalf("fallback snapshot = %v, want tick 7 and entity 11", got)
+	if got.GetServerTick() != 7 {
+		t.Errorf("envelope server_tick = %d, want 7", got.GetServerTick())
+	}
+	batch := got.GetSnapshotBatch()
+	if batch == nil {
+		t.Fatalf("server message = %v, want a snapshot_batch case", got)
+	}
+	if batch.GetServerTick() != 7 || len(batch.GetEntities()) != 1 || batch.GetEntities()[0].GetEntityId() != 11 {
+		t.Fatalf("fallback snapshot = %v, want tick 7 and entity 11", batch)
 	}
 }
 
 func TestSnapshotSenderSplitsDatagramsBelowPacketLimit(t *testing.T) {
 	connection := &stubConnection{unreliable: true}
-	sender := newSnapshotSender(connection)
+	sender := newSnapshotSender(connection, newReliableWriter(connection))
 	snapshot := &sarnautv1.SnapshotBatch{ServerTick: 9}
 	for id := uint64(1); id <= 200; id++ {
 		snapshot.Entities = append(snapshot.Entities, &sarnautv1.EntitySnapshot{
-			EntityId: id,
-			Kind:     sarnautv1.EntityKind_ENTITY_KIND_NPC,
-			Position: &sarnautv1.Vec3{X: float32(id), Y: 2, Z: 3},
-			Velocity: &sarnautv1.Vec3{},
+			EntityId:  id,
+			Kind:      sarnautv1.EntityKind_ENTITY_KIND_NPC,
+			Position:  &sarnautv1.Vec3{X: float32(id), Y: 2, Z: 3},
+			Velocity:  &sarnautv1.Vec3{},
+			ContentId: "mob.fixture.critter",
+			Level:     2,
+			Health:    100,
+			MaxHealth: 100,
+			Alive:     true,
 		})
 	}
 	if err := sender.send(snapshot); err != nil {
@@ -56,12 +69,16 @@ func TestSnapshotSenderSplitsDatagramsBelowPacketLimit(t *testing.T) {
 		if len(payload) > transport.MaxUnreliableMessageSize {
 			t.Errorf("datagram size = %d, want <= %d", len(payload), transport.MaxUnreliableMessageSize)
 		}
-		batch := new(sarnautv1.SnapshotBatch)
-		if err := transport.UnmarshalUnreliable(payload, batch); err != nil {
+		message := new(sarnautv1.ServerMessage)
+		if err := transport.UnmarshalUnreliable(payload, message); err != nil {
 			t.Fatalf("UnmarshalUnreliable() error = %v", err)
 		}
-		if batch.GetServerTick() != 9 {
-			t.Errorf("server tick = %d, want 9", batch.GetServerTick())
+		batch := message.GetSnapshotBatch()
+		if batch == nil {
+			t.Fatalf("datagram = %v, want a snapshot_batch case", message)
+		}
+		if batch.GetServerTick() != 9 || message.GetServerTick() != 9 {
+			t.Errorf("server tick = %d/%d, want 9", message.GetServerTick(), batch.GetServerTick())
 		}
 		entityCount += len(batch.GetEntities())
 	}
