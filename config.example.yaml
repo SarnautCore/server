@@ -11,11 +11,15 @@ world:
   snapshot_interval: 66.666666ms
   max_move_speed: 7
 
-# Runtime-only source. Keep the private data repository separate from this repo.
+# The compiled runtime pack this shard serves: a directory holding manifest.json
+# and tables/, produced by `sarnaut-pack build`. There is no default and no
+# fallback; SARNAUT_CONTENT_PACK overrides this value. Packs built from the
+# private data repository are private artifacts and are never committed here.
 content:
-  root_path: E:\SarnautCore\data
-  ruleset: classic
-  zone_slug: inst-league1
+  pack_path: ""
+  # Refuse packs built with --keep-extra unless this is true. Those carry
+  # verbatim MY.GAMES attribute names, so keep it off outside mapping work.
+  allow_extra: false
 
 # Leave these empty to run without the Docker-managed development services.
 nats:

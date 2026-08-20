@@ -1,0 +1,4 @@
+# Compiled pack tables are binary and their bytes are hashed into pack_id. Any
+# line-ending translation would break the digest the shard verifies at startup.
+*.sptbl binary
+testdata/packs/**/manifest.json text eol=lf

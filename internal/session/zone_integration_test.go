@@ -2,13 +2,12 @@ package session_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
-	"github.com/SarnautCore/server/internal/content"
+	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
@@ -17,12 +16,18 @@ import (
 func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T) {
 	t.Parallel()
 
-	spawns := loadFixtureSpawns(t)
+	content := loadFixturePack(t)
+	spawns := content.NPCSpawns()
 	zone, err := world.NewZone(world.ZoneConfig{
 		ID:               "FixtureZone",
 		TickInterval:     5 * time.Millisecond,
 		SnapshotInterval: 10 * time.Millisecond,
 		MaxMoveSpeed:     6,
+		PlayerSpawn: world.Vec3{
+			X: content.Zone().PlayerSpawn.X,
+			Y: content.Zone().PlayerSpawn.Y,
+			Z: content.Zone().PlayerSpawn.Z,
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewZone() error = %v", err)
@@ -75,6 +80,13 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	if err != nil {
 		t.Fatalf("EnterZone() error = %v", err)
 	}
+	// The pack, not the composition root, decides where a player starts.
+	if entered.GetSpawnPosition().GetX() != content.Zone().PlayerSpawn.X {
+		t.Errorf(
+			"EnterZone() spawn x = %v, want the pack's player spawn %v",
+			entered.GetSpawnPosition().GetX(), content.Zone().PlayerSpawn.X,
+		)
+	}
 	if !connection.SupportsUnreliable() {
 		t.Fatal("QUIC connection did not negotiate datagrams")
 	}
@@ -118,43 +130,19 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	}
 }
 
-func loadFixtureSpawns(t *testing.T) []content.NPCSpawn {
+// loadFixturePack reads the golden pack vendored at `testdata/packs/demo`. It
+// is compiled from the hand-authored demo dataset, so this test needs neither
+// the private data repository nor a YAML parser.
+func loadFixturePack(t *testing.T) *pack.Pack {
 	t.Helper()
-	root := t.TempDir()
-	tables := filepath.Join(root, "classic", "zones", "fixture-zone", "spawns", "tables")
-	placements := filepath.Join(root, "classic", "zones", "fixture-zone", "spawns", "placements")
-	if err := os.MkdirAll(tables, 0o755); err != nil {
-		t.Fatalf("create fixture table directory: %v", err)
-	}
-	if err := os.MkdirAll(placements, 0o755); err != nil {
-		t.Fatalf("create fixture placement directory: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(tables, "critter.yaml"), []byte(`
-id: spawn.fixture.table.critter
-entries:
-- object:
-    id: mob.fixture.critter
-`), 0o600); err != nil {
-		t.Fatalf("write fixture table: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(placements, "field.yaml"), []byte(`
-placements:
-- id: spawn.fixture.placement.critter
-  object:
-    id: spawn.fixture.table.critter
-  position: {x: 10, y: 20, z: 3}
-  orientation: {yaw: 1.25}
-`), 0o600); err != nil {
-		t.Fatalf("write fixture placement: %v", err)
-	}
-	spawns, err := content.LoadZoneNPCs(root, "classic", "fixture-zone")
+	content, err := pack.Load(filepath.Join("..", "..", "testdata", "packs", "demo"), pack.Options{})
 	if err != nil {
-		t.Fatalf("LoadZoneNPCs() error = %v", err)
+		t.Fatalf("pack.Load() error = %v", err)
 	}
-	if len(spawns) == 0 {
-		t.Fatal("fixture loaded no NPCs")
+	if len(content.NPCSpawns()) == 0 {
+		t.Fatal("fixture pack resolved no NPCs")
 	}
-	return spawns
+	return content
 }
 
 func waitForNPC(

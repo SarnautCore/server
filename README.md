@@ -49,12 +49,39 @@ Generate, test, lint, and build on Windows:
 
 The equivalent Make targets are `make generate`, `make test`, `make lint`, and `make build`.
 
-Run the services in separate PowerShell terminals. Start the shard first. It reads `classic/zones/inst-league1` from `E:\SarnautCore\data` by default:
+### Content packs
+
+The shard loads a **compiled runtime pack** and never parses game-design YAML
+([ADR 0006](https://github.com/SarnautCore/docs/blob/main/adr/0006-yaml-source-compiled-runtime-data.md),
+[ADR 0029](https://github.com/SarnautCore/docs/blob/main/adr/0029-runtime-pack-format.md)).
+A pack is a directory holding `manifest.json` and `tables/`, produced by
+`sarnaut-pack build` in the `tools` repository.
+
+`SARNAUT_CONTENT_PACK` is required and has no default. There is no fallback
+path, so a misconfigured shard fails at startup instead of quietly serving
+something else. Packs compiled from the private `data` repository are private
+artifacts and are never committed here.
+
+The one pack in this repository is the golden fixture at `testdata/packs/demo`,
+compiled from the hand-authored `data-schemas/demo` dataset. Server tests load
+it, and it is enough to run a shard locally:
+
+```powershell
+$env:SARNAUT_CONTENT_PACK = "$PWD\testdata\packs\demo"
+```
+
+Run the services in separate PowerShell terminals. Start the shard first:
 
 ```powershell
 go run ./cmd/shard
 go run ./cmd/auth
 go run ./cmd/gateway
+```
+
+To see what a pack resolves to without starting a listener:
+
+```powershell
+go run ./cmd/shard -dump-spawns spawns.json
 ```
 
 The gateway logs `shard handshake complete` after it receives the shard's `ServerHello`. Each process also exposes probes:
@@ -81,7 +108,7 @@ With the `server` and `client` repositories in the same parent directory, run th
 ./scripts/sar20-client-smoke.ps1
 ```
 
-The script builds and starts the real shard with an empty synthetic content fixture, runs the client's reusable .NET transport harness, and fails unless the joined player's position advances in an authoritative snapshot. It uses ports `4342` and `8181` by default so it does not disturb a shard on the development ports. Override `-ClientRepository`, `-Address`, or `-HealthAddress` when needed.
+The script builds and starts the real shard against the vendored fixture pack, runs the client's reusable .NET transport harness, and fails unless the joined player's position advances in an authoritative snapshot. It uses ports `4342` and `8181` by default so it does not disturb a shard on the development ports. Override `-ClientRepository`, `-Address`, or `-HealthAddress` when needed.
 
 The Godot client uses `System.Net.Quic` over MsQuic. The public .NET 10 API has no QUIC datagram send or receive methods, so the connection does not negotiate datagrams and this server uses its ordered QUIC-stream fallback. Frames on that stream use the same 4-byte big-endian protobuf length prefix as `internal/transport`.
 
@@ -92,9 +119,8 @@ Copy `config.example.yaml`, set `SARNAUT_CONFIG` to its path, and override indiv
 | `SARNAUT_SHARD_ADDRESS` | Gateway target, default `127.0.0.1:4242` |
 | `SARNAUT_QUIC_LISTEN_ADDRESS` | Shard QUIC listener |
 | `SARNAUT_HEALTH_ADDRESS` | Per-process health listener |
-| `SARNAUT_CONTENT_ROOT` | Private runtime data root, default `E:\SarnautCore\data` |
-| `SARNAUT_CONTENT_RULESET` | Content ruleset, default `classic` |
-| `SARNAUT_CONTENT_ZONE_SLUG` | Content directory under `zones`, default `inst-league1` |
+| `SARNAUT_CONTENT_PACK` | Compiled runtime pack directory. Required by the shard; no default |
+| `SARNAUT_CONTENT_ALLOW_EXTRA` | Accept a pack built with `--keep-extra`, default `false` |
 | `SARNAUT_WORLD_ZONE_ID` | Network zone ID, default `InstLeague1` |
 | `SARNAUT_WORLD_TICK_INTERVAL` | Fixed simulation interval, default 30 Hz |
 | `SARNAUT_WORLD_SNAPSHOT_INTERVAL` | Replication interval, default 15 Hz |

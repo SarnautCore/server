@@ -48,3 +48,9 @@ jobs:
 
       - name: Build
         run: go build ./cmd/...
+
+      # ADR 0029: no pack committed to a public repository may carry the untyped
+      # `extra:` passthrough, whose keys are verbatim MY.GAMES attribute names.
+      - name: Check the vendored fixture pack
+        shell: pwsh
+        run: ./scripts/check-fixture-pack.ps1

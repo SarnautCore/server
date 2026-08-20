@@ -55,9 +55,9 @@ foreach ($occupied in @(
 }
 
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("sarnaut-sar20-" + [Guid]::NewGuid().ToString("N"))
-$contentRoot = Join-Path $temporaryRoot "content"
-$tableDirectory = Join-Path $contentRoot "classic\zones\smoke-zone\spawns\tables"
-$placementDirectory = Join-Path $contentRoot "classic\zones\smoke-zone\spawns\placements"
+# The vendored golden fixture pack: invented content, no private data repository
+# and no YAML at runtime (ADR 0029).
+$contentPack = Join-Path $serverRepository "testdata\packs\demo"
 $binaryExtension = if ($IsWindows) { ".exe" } else { "" }
 $shardBinary = Join-Path $temporaryRoot ("shard-smoke" + $binaryExtension)
 $stdoutPath = Join-Path $temporaryRoot "shard.stdout.log"
@@ -67,9 +67,7 @@ $serverProcess = $null
 $environment = @{
     SARNAUT_QUIC_LISTEN_ADDRESS = $Address
     SARNAUT_HEALTH_ADDRESS = $HealthAddress
-    SARNAUT_CONTENT_ROOT = $contentRoot
-    SARNAUT_CONTENT_RULESET = "classic"
-    SARNAUT_CONTENT_ZONE_SLUG = "smoke-zone"
+    SARNAUT_CONTENT_PACK = $contentPack
     SARNAUT_WORLD_ZONE_ID = "InstLeague1"
     SARNAUT_NATS_URL = ""
     SARNAUT_POSTGRES_DSN = ""
@@ -79,15 +77,10 @@ $environment = @{
 $previousEnvironment = @{}
 
 try {
-    New-Item -ItemType Directory -Path $tableDirectory -Force | Out-Null
-    New-Item -ItemType Directory -Path $placementDirectory -Force | Out-Null
-    Set-Content -LiteralPath (Join-Path $tableDirectory "empty.yaml") -Encoding utf8 -Value @"
-id: spawn.smoke.empty
-entries: []
-"@
-    Set-Content -LiteralPath (Join-Path $placementDirectory "empty.yaml") -Encoding utf8 -Value @"
-placements: []
-"@
+    New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+    if (-not (Test-Path -LiteralPath (Join-Path $contentPack "manifest.json") -PathType Leaf)) {
+        throw "The vendored fixture pack was not found at $contentPack."
+    }
 
     & $goExecutable build -o $shardBinary ./cmd/shard
     if ($LASTEXITCODE -ne 0) {
