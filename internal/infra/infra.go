@@ -35,6 +35,24 @@ func Open(ctx context.Context, settings config.Config) (*Clients, error) {
 	return clients, nil
 }
 
+// ErrPostgresNotConfigured reports that SARNAUT_POSTGRES_DSN was empty.
+//
+// [Open] deliberately keeps skipping an unconfigured client so the gateway and
+// the tests still start with nothing running. Services that cannot function
+// without durable storage — the shard and auth, per ADR 0031 — call
+// [Clients.RequirePostgres] instead and fail loudly at start-up rather than
+// discovering the missing pool at the first save.
+var ErrPostgresNotConfigured = errors.New("infra: SARNAUT_POSTGRES_DSN is not configured")
+
+// RequirePostgres returns the pool, or [ErrPostgresNotConfigured] if the DSN was
+// empty.
+func (clients *Clients) RequirePostgres() (*pgxpool.Pool, error) {
+	if clients == nil || clients.Postgres == nil {
+		return nil, ErrPostgresNotConfigured
+	}
+	return clients.Postgres, nil
+}
+
 // Close releases every configured client.
 func (clients *Clients) Close() error {
 	if clients == nil {
