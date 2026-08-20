@@ -1,6 +1,8 @@
 package quests_test
 
 import (
+	"bytes"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,7 +30,7 @@ func TestAPackWithAnUnsupportedObjectiveKindIsRefusedByName(t *testing.T) {
 		t.Fatalf("pack.Load() error = %v; the pack's bytes are not what is under test", err)
 	}
 
-	_, err = quests.CatalogFromPack(content)
+	_, err = quests.CatalogFromPack(content, quests.CatalogOptions{})
 	if err == nil {
 		t.Fatal("CatalogFromPack() error = nil; a count-special objective must stop the boot")
 	}
@@ -44,6 +46,50 @@ func TestAPackWithAnUnsupportedObjectiveKindIsRefusedByName(t *testing.T) {
 	}
 }
 
+// TestTheOptInPolicySkipsOnlyUnsupportedQuests loads the same mixed pack as
+// the fail-fast test above. The six supported definitions remain playable and
+// the one future definition produces one detail warning and one exact summary.
+func TestTheOptInPolicySkipsOnlyUnsupportedQuests(t *testing.T) {
+	t.Parallel()
+
+	directory := filepath.Join("..", "..", "testdata", "packs", "demo-quest-unsupported")
+	content, err := pack.Load(directory, pack.Options{})
+	if err != nil {
+		t.Fatalf("pack.Load() error = %v", err)
+	}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	catalog, err := quests.CatalogFromPack(content, quests.CatalogOptions{
+		SkipUnsupportedQuests: true,
+		Logger:                logger,
+	})
+	if err != nil {
+		t.Fatalf("CatalogFromPack() error = %v", err)
+	}
+	skipped := catalog.SkippedUnsupportedQuests()
+	if len(skipped) != 1 {
+		t.Fatalf("skipped quests = %v, want exactly one", skipped)
+	}
+	if skipped[0].ID != "quest.paper-harbor.gate-ritual" ||
+		skipped[0].Kind != pack.QuestObjectiveCountSpecial {
+		t.Errorf("skipped quest = %+v, want gate-ritual/count-special", skipped[0])
+	}
+	if catalog.Count() != len(content.QuestIDs())-len(skipped) {
+		t.Errorf("catalog count = %d, pack quests = %d, skipped = %d",
+			catalog.Count(), len(content.QuestIDs()), len(skipped))
+	}
+	output := logs.String()
+	if strings.Count(output, "quest_id=quest.paper-harbor.gate-ritual") != 1 {
+		t.Errorf("detail log count is not one:\n%s", output)
+	}
+	if !strings.Contains(output, "kind=count-special") {
+		t.Errorf("detail log does not name the objective kind:\n%s", output)
+	}
+	if !strings.Contains(output, "msg=\"unsupported quests skipped\" skipped_count=1") {
+		t.Errorf("summary log does not carry the exact skipped count:\n%s", output)
+	}
+}
+
 // TestTheFixturePackLoadsEveryQuestItCarries is the other direction: the shard
 // refuses the quest above and accepts everything the golden fixture carries.
 func TestTheFixturePackLoadsEveryQuestItCarries(t *testing.T) {
@@ -53,7 +99,7 @@ func TestTheFixturePackLoadsEveryQuestItCarries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pack.Load() error = %v", err)
 	}
-	catalog, err := quests.CatalogFromPack(content)
+	catalog, err := quests.CatalogFromPack(content, quests.CatalogOptions{})
 	if err != nil {
 		t.Fatalf("CatalogFromPack() error = %v", err)
 	}

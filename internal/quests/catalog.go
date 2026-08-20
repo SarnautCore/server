@@ -1,7 +1,9 @@
 package quests
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -46,20 +48,78 @@ type Catalog struct {
 	byFinisher map[string][]string
 	dependents map[string][]string
 	unresolved []string
+	skipped    []SkippedQuest
+}
+
+// CatalogOptions controls how a pack's quest definitions are admitted.
+type CatalogOptions struct {
+	// SkipUnsupportedQuests omits a whole quest when any objective has a kind
+	// this build cannot advance. Every other validation failure remains fatal.
+	// Default false preserves mechanics/quests.md rule 5.5.6's fail-fast boot.
+	SkipUnsupportedQuests bool
+	// Logger receives one warning per omitted quest and one summary warning.
+	Logger *slog.Logger
+}
+
+// SkippedQuest identifies one definition omitted because of an unsupported
+// objective kind. Kind is the first unsupported kind in authored order.
+type SkippedQuest struct {
+	ID   string
+	Kind pack.QuestObjectiveKind
+}
+
+// UnsupportedObjectiveError reports the precise objective that this build
+// cannot advance. The typed error lets the opt-in loader distinguish an M3
+// objective from malformed content, which must still stop startup.
+type UnsupportedObjectiveError struct {
+	QuestID        string
+	ObjectiveIndex int
+	Kind           pack.QuestObjectiveKind
+}
+
+func (problem *UnsupportedObjectiveError) Error() string {
+	switch problem.Kind {
+	case pack.QuestObjectiveCountSpecial, pack.QuestObjectiveUnspecified:
+		return fmt.Sprintf(
+			"quest %q objective %d is of kind %s, which mechanics/quests.md rule 5.5.6 does not implement",
+			problem.QuestID, problem.ObjectiveIndex, problem.Kind,
+		)
+	default:
+		return fmt.Sprintf(
+			"quest %q objective %d is of kind %s, which this build does not implement",
+			problem.QuestID, problem.ObjectiveIndex, problem.Kind,
+		)
+	}
 }
 
 // CatalogFromPack reads the quest table of a loaded pack and validates every
 // definition against the rules M2 implements.
 //
-// It fails the boot rather than skipping a definition. mechanics/quests.md rule
-// 5.5.6 is explicit about why: a quest whose objective kind this build cannot
-// advance is a quest a player can accept and never finish, and finding that out
-// from a support ticket costs far more than a refused start-up.
-func CatalogFromPack(content *pack.Pack) (Catalog, error) {
+// It fails the boot rather than skipping a definition unless the operator has
+// explicitly enabled SkipUnsupportedQuests. mechanics/quests.md rule 5.5.6
+// remains the default: a quest whose objective kind this build cannot advance
+// must never be offered to a player.
+func CatalogFromPack(content *pack.Pack, options CatalogOptions) (Catalog, error) {
 	definitions := make([]pack.Quest, 0, len(content.QuestIDs()))
+	skipped := make([]SkippedQuest, 0)
 	for _, id := range content.QuestIDs() {
 		definition, ok := content.Quest(id)
 		if !ok {
+			continue
+		}
+		if err := checkObjectives(definition); err != nil {
+			var unsupported *UnsupportedObjectiveError
+			if !options.SkipUnsupportedQuests || !errors.As(err, &unsupported) {
+				return Catalog{}, fmt.Errorf("content pack %s: %w", content.ID(), err)
+			}
+			skipped = append(skipped, SkippedQuest{ID: definition.ID, Kind: unsupported.Kind})
+			if options.Logger != nil {
+				options.Logger.Warn(
+					"skipping quest with unsupported objective kind",
+					"quest_id", definition.ID,
+					"kind", unsupported.Kind.String(),
+				)
+			}
 			continue
 		}
 		definitions = append(definitions, definition)
@@ -67,6 +127,10 @@ func CatalogFromPack(content *pack.Pack) (Catalog, error) {
 	catalog, err := NewCatalog(definitions, content)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("content pack %s: %w", content.ID(), err)
+	}
+	catalog.skipped = skipped
+	if len(skipped) > 0 && options.Logger != nil {
+		options.Logger.Warn("unsupported quests skipped", "skipped_count", len(skipped))
 	}
 	return catalog, nil
 }
@@ -125,15 +189,13 @@ func checkObjectives(definition pack.Quest) error {
 		switch objective.Kind {
 		case pack.QuestObjectiveCountKill, pack.QuestObjectiveCountItem:
 		case pack.QuestObjectiveCountSpecial, pack.QuestObjectiveUnspecified:
-			return fmt.Errorf(
-				"quest %q objective %d is of kind %s, which mechanics/quests.md rule 5.5.6 does not implement",
-				definition.ID, index, objective.Kind,
-			)
+			return &UnsupportedObjectiveError{
+				QuestID: definition.ID, ObjectiveIndex: index, Kind: objective.Kind,
+			}
 		default:
-			return fmt.Errorf(
-				"quest %q objective %d is of kind %s, which this build does not implement",
-				definition.ID, index, objective.Kind,
-			)
+			return &UnsupportedObjectiveError{
+				QuestID: definition.ID, ObjectiveIndex: index, Kind: objective.Kind,
+			}
 		}
 		if objective.Limit > 0 && len(objective.TargetIDs) == 0 {
 			return fmt.Errorf(
@@ -210,6 +272,12 @@ func (catalog Catalog) IDs() []string {
 
 // Count is how many definitions the catalog holds.
 func (catalog Catalog) Count() int { return len(catalog.quests) }
+
+// SkippedUnsupportedQuests lists the definitions omitted by the opt-in load
+// policy, in canonical-id order.
+func (catalog Catalog) SkippedUnsupportedQuests() []SkippedQuest {
+	return append([]SkippedQuest(nil), catalog.skipped...)
+}
 
 // StartedBy lists the quests one mob offers, in canonical-id order.
 func (catalog Catalog) StartedBy(mobContentID string) []string {

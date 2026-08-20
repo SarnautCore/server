@@ -22,6 +22,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +45,18 @@ import (
 // driver deliberately runs on synthetic content: a slip in the content lane
 // must not be able to stall the first demoable kill.
 const defaultPack = "testdata/packs/demo"
+
+// skipUnsupportedQuestsFor keeps the synthetic fixture on the fail-fast
+// default. Supplying any other pack path is the driver's real-content mode,
+// whose pack deliberately includes objectives queued for M3.
+func skipUnsupportedQuestsFor(packPath string) bool {
+	packAbsolute, packErr := filepath.Abs(packPath)
+	defaultAbsolute, defaultErr := filepath.Abs(defaultPack)
+	if packErr == nil && defaultErr == nil {
+		return !strings.EqualFold(filepath.Clean(packAbsolute), filepath.Clean(defaultAbsolute))
+	}
+	return !strings.EqualFold(filepath.Clean(packPath), filepath.Clean(defaultPack))
+}
 
 // defaultQuest is the quest the slice plays end to end, and defaultGiver is the
 // NPC that both offers and finishes it. Both are ids in the fixture pack: a
@@ -96,6 +111,9 @@ func main() {
 		ticket:    *ticket,
 		questID:   *questID,
 		giverMob:  *giverMob,
+		// The default synthetic fixture stays fail-fast. An explicit pack is a
+		// real-pack run and may deliberately carry objectives queued for M3.
+		skipUnsupportedQuests: skipUnsupportedQuestsFor(*packPath),
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "m2-slice-driver: %v\n", err)
@@ -106,8 +124,9 @@ func main() {
 }
 
 type driver struct {
-	out    io.Writer
-	failed bool
+	out        io.Writer
+	failed     bool
+	abilitySeq uint64
 }
 
 func (driver *driver) pass(step string, format string, arguments ...any) {
@@ -123,14 +142,15 @@ func (driver *driver) fail(step string, format string, arguments ...any) {
 // positional strings because the eighth one was where the mistake was going to
 // be.
 type runOptions struct {
-	address   string
-	packPath  string
-	zoneID    string
-	targetMob string
-	abilityID string
-	ticket    string
-	questID   string
-	giverMob  string
+	address               string
+	packPath              string
+	zoneID                string
+	targetMob             string
+	abilityID             string
+	ticket                string
+	questID               string
+	giverMob              string
+	skipUnsupportedQuests bool
 }
 
 func (driver *driver) run(ctx context.Context, options runOptions) error {
@@ -142,12 +162,19 @@ func (driver *driver) run(ctx context.Context, options runOptions) error {
 	// stepping around it. Against an external shard it stays empty, which that
 	// shard accepts only under content.allow_unverified_pack.
 	var packID string
+	killLimit := 1
+	var itemObjectiveIndexes []uint32
 	if address == "" {
-		hosted, err := startInProcessShard(ctx, packPath, zoneID, targetMob)
+		hosted, err := startInProcessShard(
+			ctx, packPath, zoneID, targetMob, options.giverMob, options.questID,
+			options.skipUnsupportedQuests,
+		)
 		if err != nil {
 			return err
 		}
 		address, zoneID, ticket, packID = hosted.address, hosted.zoneID, hosted.ticket, hosted.packID
+		killLimit = hosted.killLimit
+		itemObjectiveIndexes = hosted.itemObjectiveIndexes
 		driver.pass("host", "in-process shard on %s, zone %s, pack %s", address, zoneID, hosted.packID)
 	}
 
@@ -181,47 +208,63 @@ func (driver *driver) run(ctx context.Context, options runOptions) error {
 	// The quest is accepted before anything dies, because kill credit only
 	// reaches an instance that is already accepted (mechanics/quests.md rule
 	// 5.4.3).
-	giver, ok := driver.acceptQuest(ctx, client, connection, options)
+	giver, ok := driver.acceptQuest(ctx, client, connection, options, itemObjectiveIndexes)
 	if !ok {
 		return nil
 	}
 
-	target, err := findTarget(ctx, client, connection, targetMob)
-	if err != nil {
-		driver.fail("target", "%v", err)
-		return nil
-	}
-	driver.pass("target", "%s entity=%d level=%d health=%d/%d",
-		target.GetContentId(), target.GetEntityId(), target.GetLevel(),
-		target.GetHealth(), target.GetMaxHealth())
+	var totalCasts, totalRefusals, totalDamage int
+	var usedAbility string
+	var firstVictimID uint64
+	killedEntityIDs := make(map[uint64]struct{}, killLimit)
+	for killNumber := 1; killNumber <= killLimit; killNumber++ {
+		target, err := findTarget(ctx, client, connection, targetMob, killedEntityIDs)
+		if err != nil {
+			driver.fail("target", "%v", err)
+			return nil
+		}
+		if killNumber == 1 {
+			driver.pass("target", "%s entity=%d level=%d health=%d/%d",
+				target.GetContentId(), target.GetEntityId(), target.GetLevel(),
+				target.GetHealth(), target.GetMaxHealth())
+		}
 
-	report, err := driver.castUntilDead(client, connection, target, abilityID)
-	if err != nil {
-		driver.fail("cast", "%v", err)
-		return nil
+		report, err := driver.castUntilDead(client, connection, target, abilityID)
+		if err != nil {
+			driver.fail("cast", "%v", err)
+			return nil
+		}
+		totalCasts += report.casts
+		totalRefusals += report.refusals
+		totalDamage += int(report.totalDamage)
+		usedAbility = report.abilityID
+		switch {
+		case report.death == nil:
+			driver.fail("kill", "%s survived %d casts", target.GetContentId(), report.casts)
+			return nil
+		case report.death.GetKillerEntityId() != entered.GetOwnEntityId():
+			driver.fail("kill", "kill credit went to entity %d, not to this session's %d",
+				report.death.GetKillerEntityId(), entered.GetOwnEntityId())
+			return nil
+		case report.totalDamage < target.GetMaxHealth() ||
+			report.totalDamage-report.damagePerCast >= target.GetMaxHealth():
+			driver.fail("kill", "%d damage in %d-damage casts against a %d health pool",
+				report.totalDamage, report.damagePerCast, target.GetMaxHealth())
+			return nil
+		}
+		driver.pass("kill", "%d/%d %s entity=%d died to %d reported damage",
+			killNumber, killLimit, targetMob, report.death.GetVictimEntityId(), report.totalDamage)
+		if killNumber == 1 {
+			firstVictimID = report.death.GetVictimEntityId()
+		}
+		killedEntityIDs[report.death.GetVictimEntityId()] = struct{}{}
 	}
-	driver.pass("cast", "%d casts of %s for %d damage each, %d refused for cooldown",
-		report.casts, report.abilityID, report.damagePerCast, report.refusals)
-
-	switch {
-	case report.death == nil:
-		driver.fail("kill", "%s survived %d casts", target.GetContentId(), report.casts)
-	case report.death.GetKillerEntityId() != entered.GetOwnEntityId():
-		driver.fail("kill", "kill credit went to entity %d, not to this session's %d",
-			report.death.GetKillerEntityId(), entered.GetOwnEntityId())
-	case report.totalDamage != target.GetMaxHealth():
-		driver.fail("kill", "%d total damage against a %d health pool",
-			report.totalDamage, target.GetMaxHealth())
-	default:
-		driver.pass("kill", "%s died on cast %d to %d total damage; corpse despawns at tick %d",
-			target.GetContentId(), report.casts, report.totalDamage,
-			report.death.GetCorpseDespawnTick())
-	}
-
-	if report.death != nil {
-		driver.lootTheCorpse(ctx, client, connection, report.death.GetVictimEntityId())
-		driver.turnInQuest(client, connection, options.questID, giver)
-	}
+	driver.pass("cast", "%d casts of %s across %d target(s), %d refused for cooldown",
+		totalCasts, usedAbility, killLimit, totalRefusals)
+	driver.pass("damage", "%d %s target(s) took %d reported damage",
+		killLimit, targetMob, totalDamage)
+	driver.lootTheCorpse(ctx, client, connection, firstVictimID)
+	driver.turnInQuest(client, connection, options.questID, giver)
 
 	if err := client.Logout(connection); err != nil {
 		driver.fail("logout", "%v", err)
@@ -243,8 +286,9 @@ func (driver *driver) acceptQuest(
 	client session.Client,
 	connection transport.Connection,
 	options runOptions,
+	itemObjectiveIndexes []uint32,
 ) (uint64, bool) {
-	giver, err := findTarget(ctx, client, connection, options.giverMob)
+	giver, err := findTarget(ctx, client, connection, options.giverMob, nil)
 	if err != nil {
 		driver.fail("accept", "no quest giver %s in a snapshot: %v", options.giverMob, err)
 		return 0, false
@@ -290,7 +334,36 @@ func (driver *driver) acceptQuest(
 	driver.pass("accept", "%s from %s entity=%d, state=%s, %d objective(s)",
 		options.questID, options.giverMob, giver.GetEntityId(),
 		accepted.GetState(), len(accepted.GetObjectives()))
+	if len(itemObjectiveIndexes) > 0 {
+		progress, err := completedObjectiveProgress(accepted, itemObjectiveIndexes)
+		if err != nil {
+			driver.fail("item", "%v", err)
+			return 0, false
+		}
+		driver.pass("item", "%s", progress)
+	}
 	return giver.GetEntityId(), true
+}
+
+func completedObjectiveProgress(update *sarnautv1.QuestStateUpdate, indexes []uint32) (string, error) {
+	objectives := make(map[uint32]*sarnautv1.QuestObjectiveProgress, len(update.GetObjectives()))
+	for _, objective := range update.GetObjectives() {
+		objectives[objective.GetIndex()] = objective
+	}
+	progress := make([]string, 0, len(indexes))
+	for _, index := range indexes {
+		objective := objectives[index]
+		if objective == nil {
+			return "", fmt.Errorf("quest %s omitted item objective %d from its accepted state", update.GetQuestId(), index)
+		}
+		if objective.GetCounter() < objective.GetLimit() {
+			return "", fmt.Errorf("quest %s item objective %d is %d/%d after inventory preload",
+				update.GetQuestId(), index, objective.GetCounter(), objective.GetLimit())
+		}
+		progress = append(progress, fmt.Sprintf("objective %d=%d/%d",
+			index, objective.GetCounter(), objective.GetLimit()))
+	}
+	return strings.Join(progress, ", ") + " from starting inventory", nil
 }
 
 // turnInQuest plays the other half: hand the quest back and read what the grant
@@ -419,15 +492,20 @@ func (driver *driver) lootTheCorpse(
 	}
 
 	var taken, held int32
+	heldByItem := make(map[string]int32)
 	for _, item := range result.GetItems() {
 		taken += item.GetCount()
 	}
 	for _, slot := range update.GetSlots() {
 		held += slot.GetCount()
+		heldByItem[slot.GetItemId()] += slot.GetCount()
 	}
-	if taken != held {
-		driver.fail("loot", "took %d units but the bag holds %d", taken, held)
-		return
+	for _, item := range result.GetItems() {
+		if heldByItem[item.GetItemId()] < item.GetCount() {
+			driver.fail("loot", "took %d of %s but the bag holds %d",
+				item.GetCount(), item.GetItemId(), heldByItem[item.GetItemId()])
+			return
+		}
 	}
 	if int64(len(offer.GetItems())) != int64(len(result.GetItems())) {
 		driver.fail("loot", "the corpse offered %d grants and the take produced %d",
@@ -452,8 +530,9 @@ func (driver *driver) lootTheCorpse(
 		driver.fail("loot", "the corpse stood up holding nothing; an empty drop gets no container")
 		return
 	}
-	driver.pass("loot", "corpse=%d money=%d grants=%d -> %d units in %d bag slots, purse=%d",
-		corpse, result.GetMoney(), len(result.GetItems()), held, len(update.GetSlots()), update.GetCurrency())
+	driver.pass("loot", "corpse=%d money=%d grants=%d -> %d taken units, %d total units in %d bag slots, purse=%d",
+		corpse, result.GetMoney(), len(result.GetItems()), taken, held,
+		len(update.GetSlots()), update.GetCurrency())
 }
 
 // findCorpse waits for the loot module's container to appear in a snapshot. It
@@ -527,11 +606,10 @@ func (driver *driver) castUntilDead(
 	abilityID string,
 ) (killReport, error) {
 	report := killReport{abilityID: abilityID}
-	var seq uint64
 	for attempt := 0; attempt < 500; attempt++ {
-		seq++
+		driver.abilitySeq++
 		if err := client.SendCommand(connection, &sarnautv1.ClientMessage{
-			ClientSeq: seq,
+			ClientSeq: driver.abilitySeq,
 			Payload: &sarnautv1.ClientMessage_AbilityUse{
 				AbilityUse: &sarnautv1.AbilityUse{
 					TargetId:  target.GetEntityId(),
@@ -548,6 +626,9 @@ func (driver *driver) castUntilDead(
 				return report, fmt.Errorf("read server message: %w", err)
 			}
 			if death := message.GetDeathEvent(); death != nil {
+				if death.GetVictimEntityId() != target.GetEntityId() {
+					continue
+				}
 				report.death = death
 				break
 			}
@@ -561,6 +642,12 @@ func (driver *driver) castUntilDead(
 				report.abilityID = event.GetAbilityId()
 				report.damagePerCast = event.GetDamage()
 				report.totalDamage += event.GetDamage()
+				if event.GetKillingBlow() {
+					// The death event follows the killing combat event. Read it
+					// before sending another cast, or that extra command leaves a
+					// target-dead rejection queued for the next mob.
+					continue
+				}
 			case sarnautv1.AbilityRejection_ABILITY_REJECTION_ON_COOLDOWN:
 				report.refusals++
 				time.Sleep(100 * time.Millisecond)
@@ -581,16 +668,15 @@ func findTarget(
 	client session.Client,
 	connection transport.Connection,
 	contentID string,
+	excludedEntityIDs map[uint64]struct{},
 ) (*sarnautv1.EntitySnapshot, error) {
 	for {
 		snapshot, err := client.ReadSnapshot(ctx, connection)
 		if err != nil {
 			return nil, fmt.Errorf("read snapshot: %w", err)
 		}
-		for _, entity := range snapshot.GetEntities() {
-			if entity.GetContentId() == contentID && entity.GetAlive() {
-				return entity, nil
-			}
+		if entity := liveTarget(snapshot.GetEntities(), contentID, excludedEntityIDs); entity != nil {
+			return entity, nil
 		}
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("no snapshot carried a live %s", contentID)
@@ -598,10 +684,29 @@ func findTarget(
 	}
 }
 
+func liveTarget(
+	entities []*sarnautv1.EntitySnapshot,
+	contentID string,
+	excludedEntityIDs map[uint64]struct{},
+) *sarnautv1.EntitySnapshot {
+	for _, entity := range entities {
+		if entity.GetContentId() != contentID || !entity.GetAlive() {
+			continue
+		}
+		if _, excluded := excludedEntityIDs[entity.GetEntityId()]; excluded {
+			continue
+		}
+		return entity
+	}
+	return nil
+}
+
 type hostedShard struct {
-	address string
-	zoneID  string
-	packID  string
+	address              string
+	zoneID               string
+	packID               string
+	killLimit            int
+	itemObjectiveIndexes []uint32
 	// ticket is the single-use shard ticket the in-process authority minted for
 	// this run. The shard admits nobody without one (ADR 0030).
 	ticket string
@@ -611,12 +716,24 @@ type hostedShard struct {
 // telemetry, the health endpoint and the infrastructure clients, and with the
 // player spawned next to the target so the driver has something to cast at
 // without a pathfinder.
-func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string) (hostedShard, error) {
+func startInProcessShard(
+	ctx context.Context,
+	packPath, zoneID, targetMob, giverMob, questID string,
+	skipUnsupportedQuests bool,
+) (hostedShard, error) {
 	content, err := pack.Load(packPath, pack.Options{})
 	if err != nil {
 		return hostedShard{}, fmt.Errorf("load content pack %q: %w", packPath, err)
 	}
 	anchor, err := anchorOf(content, targetMob)
+	if err != nil {
+		return hostedShard{}, err
+	}
+	definition, ok := content.Quest(questID)
+	if !ok {
+		return hostedShard{}, fmt.Errorf("content pack %s carries no quest %q", content.ID(), questID)
+	}
+	requirements, err := requirementsFor(definition, targetMob)
 	if err != nil {
 		return hostedShard{}, err
 	}
@@ -637,7 +754,15 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	combatModule := combat.New(logger, zone, rules, combat.Options{})
-	if err := combatModule.Populate(content.NPCSpawns()); err != nil {
+	spawns := content.NPCSpawns()
+	if err := coLocateGiver(spawns, giverMob, anchor); err != nil {
+		return hostedShard{}, err
+	}
+	spawns, err = coLocateTargets(spawns, targetMob, anchor, requirements.killLimit)
+	if err != nil {
+		return hostedShard{}, err
+	}
+	if err := combatModule.Populate(spawns); err != nil {
 		return hostedShard{}, fmt.Errorf("populate zone: %w", err)
 	}
 
@@ -665,7 +790,7 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 			X: anchor.X + castDistance,
 			Y: anchor.Y,
 			Z: anchor.Z,
-		}},
+		}, inventory: requirements.inventory},
 		worker,
 		logger,
 		0,
@@ -679,10 +804,13 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 		return hostedShard{}, fmt.Errorf("read loot rules: %w", err)
 	}
 	lootModule := loot.New(logger, zone, lootRules, bags, loot.Options{WorldSeed: "m2-slice-driver"})
-	// Quests read the same pack and grant through the same bag as loot, and a
-	// definition this build cannot play stops the driver here rather than at the
-	// step that would have failed mysteriously.
-	catalog, err := quests.CatalogFromPack(content)
+	// Quests read the same pack and grant through the same bag as loot. The
+	// default fixture remains fail-fast; real packs skip future objective kinds
+	// and log every omitted definition before the driver connects.
+	catalog, err := quests.CatalogFromPack(content, quests.CatalogOptions{
+		SkipUnsupportedQuests: skipUnsupportedQuests,
+		Logger:                logger,
+	})
 	if err != nil {
 		return hostedShard{}, fmt.Errorf("read quests: %w", err)
 	}
@@ -724,10 +852,12 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 	}()
 
 	return hostedShard{
-		address: listener.Addr().String(),
-		zoneID:  zone.ID(),
-		packID:  content.ID(),
-		ticket:  authority.ticket,
+		address:              listener.Addr().String(),
+		zoneID:               zone.ID(),
+		packID:               content.ID(),
+		ticket:               authority.ticket,
+		killLimit:            requirements.killLimit,
+		itemObjectiveIndexes: append([]uint32(nil), requirements.itemObjectiveIndexes...),
 	}, nil
 }
 
@@ -738,12 +868,14 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 // is that the worked example starts six metres from the mob and the driver has
 // no pathfinder to walk there.
 type sliceTemplates struct {
-	spawn store.Vec3
+	spawn     store.Vec3
+	inventory []store.InventoryItem
 }
 
 func (templates sliceTemplates) Template(string) (store.Snapshot, bool) {
 	return store.Snapshot{
-		State: store.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
+		State:     store.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
+		Inventory: append([]store.InventoryItem(nil), templates.inventory...),
 	}, true
 }
 
@@ -794,4 +926,103 @@ func anchorOf(content *pack.Pack, mobID string) (world.Vec3, error) {
 		"content pack %s has no live placement spawning %q; pass -target",
 		content.ID(), mobID,
 	)
+}
+
+// coLocateGiver places one authored giver within both interaction range of the
+// player and replication range of the selected target. The driver already
+// overrides the player spawn because it has no pathfinder; shifting this one
+// copied spawn keeps that test-only geometry coherent after spatial AoI.
+func coLocateGiver(spawns []pack.NPCSpawn, giverMob string, anchor world.Vec3) error {
+	for index := range spawns {
+		if spawns[index].MobID != giverMob {
+			continue
+		}
+		spawns[index].Position = pack.Vec3{
+			X: anchor.X + castDistance/2,
+			Y: anchor.Y,
+			Z: anchor.Z,
+		}
+		return nil
+	}
+	return fmt.Errorf("content pack has no live placement spawning quest giver %q", giverMob)
+}
+
+type sliceRequirements struct {
+	killLimit            int
+	inventory            []store.InventoryItem
+	itemObjectiveIndexes []uint32
+}
+
+func requirementsFor(definition pack.Quest, targetMob string) (sliceRequirements, error) {
+	requirements := sliceRequirements{}
+	quantities := make(map[string]int32)
+	for index, objective := range definition.Objectives {
+		switch objective.Kind {
+		case pack.QuestObjectiveCountKill:
+			if containsID(objective.TargetIDs, targetMob) && int(objective.Limit) > requirements.killLimit {
+				requirements.killLimit = int(objective.Limit)
+			}
+		case pack.QuestObjectiveCountItem:
+			if objective.Limit > 0 && len(objective.TargetIDs) > 0 {
+				quantities[objective.TargetIDs[0]] += objective.Limit
+				requirements.itemObjectiveIndexes = append(
+					requirements.itemObjectiveIndexes, uint32(index),
+				)
+			}
+		}
+	}
+	if requirements.killLimit < 1 {
+		return sliceRequirements{}, fmt.Errorf(
+			"quest %q has no positive count-kill objective targeting %q",
+			definition.ID, targetMob,
+		)
+	}
+	itemIDs := make([]string, 0, len(quantities))
+	for id := range quantities {
+		itemIDs = append(itemIDs, id)
+	}
+	sort.Strings(itemIDs)
+	for slot, id := range itemIDs {
+		requirements.inventory = append(requirements.inventory, store.InventoryItem{
+			Slot: int32(slot), ItemID: id, Quantity: quantities[id],
+		})
+	}
+	return requirements, nil
+}
+
+func containsID(ids []string, target string) bool {
+	for _, id := range ids {
+		if id == target {
+			return true
+		}
+	}
+	return false
+}
+
+func coLocateTargets(
+	spawns []pack.NPCSpawn,
+	targetMob string,
+	anchor world.Vec3,
+	count int,
+) ([]pack.NPCSpawn, error) {
+	indices := make([]int, 0, count)
+	for index := range spawns {
+		if spawns[index].MobID == targetMob {
+			indices = append(indices, index)
+		}
+	}
+	if len(indices) == 0 {
+		return nil, fmt.Errorf("content pack has no live placement spawning target %q", targetMob)
+	}
+	base := spawns[indices[0]]
+	for len(indices) < count {
+		copy := base
+		copy.PlacementID = fmt.Sprintf("%s.driver-%d", base.PlacementID, len(indices)+1)
+		spawns = append(spawns, copy)
+		indices = append(indices, len(spawns)-1)
+	}
+	for _, index := range indices[:count] {
+		spawns[index].Position = pack.Vec3{X: anchor.X, Y: anchor.Y, Z: anchor.Z}
+	}
+	return spawns, nil
 }

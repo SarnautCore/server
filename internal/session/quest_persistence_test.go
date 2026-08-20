@@ -92,7 +92,7 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inventory.NewService() error = %v", err)
 	}
-	catalog, err := quests.CatalogFromPack(content)
+	catalog, err := quests.CatalogFromPack(content, quests.CatalogOptions{})
 	if err != nil {
 		t.Fatalf("quests.CatalogFromPack() error = %v", err)
 	}

@@ -215,12 +215,14 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	)
 
 	// Quests read the same pack and grant through the same bag. The catalog is
-	// built before anything is served so that a definition this build cannot
-	// play — mechanics/quests.md rule 5.5.6's `count-special` objective, a
-	// prerequisite status M2 does not implement, a reward naming an item the
-	// pack does not carry — stops the boot and names the quest, rather than
-	// surfacing when a player clicks an NPC.
-	catalog, err := quests.CatalogFromPack(content)
+	// built before anything is served. By default, a definition this build
+	// cannot play stops the boot and names the quest. The content opt-in skips
+	// only unsupported objective kinds; invalid prerequisites and rewards still
+	// stop startup.
+	catalog, err := quests.CatalogFromPack(content, quests.CatalogOptions{
+		SkipUnsupportedQuests: settings.Content.SkipUnsupportedQuests,
+		Logger:                logger,
+	})
 	if err != nil {
 		return fmt.Errorf("read quests from content pack: %w", err)
 	}

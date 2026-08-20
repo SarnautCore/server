@@ -193,7 +193,7 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 	// they are supposed to exercise would never run. Its grants go to a store
 	// nothing else writes, which is enough for the verbs these tests send —
 	// every one of them is refused before a transaction starts.
-	catalog, err := quests.CatalogFromPack(content)
+	catalog, err := quests.CatalogFromPack(content, quests.CatalogOptions{})
 	if err != nil {
 		t.Fatalf("CatalogFromPack() error = %v", err)
 	}

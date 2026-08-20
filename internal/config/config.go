@@ -93,6 +93,9 @@ type ContentConfig struct {
 	// makes no claim, which today is every client that has not shipped a pack of
 	// its own yet.
 	AllowUnverifiedPack bool
+	// SkipUnsupportedQuests omits quest definitions whose objective kind this
+	// build cannot advance. Default false keeps content startup fail-fast.
+	SkipUnsupportedQuests bool
 }
 
 type NATSConfig struct {
@@ -144,9 +147,10 @@ type fileConfig struct {
 		WorldSeed        *string  `yaml:"world_seed"`
 	} `yaml:"world"`
 	Content struct {
-		PackPath            *string `yaml:"pack_path"`
-		AllowExtra          *bool   `yaml:"allow_extra"`
-		AllowUnverifiedPack *bool   `yaml:"allow_unverified_pack"`
+		PackPath              *string `yaml:"pack_path"`
+		AllowExtra            *bool   `yaml:"allow_extra"`
+		AllowUnverifiedPack   *bool   `yaml:"allow_unverified_pack"`
+		SkipUnsupportedQuests *bool   `yaml:"skip_unsupported_quests"`
 	} `yaml:"content"`
 	NATS struct {
 		URL *string `yaml:"url"`
@@ -314,6 +318,9 @@ func applyFileValues(configuration *Config, values fileConfig) error {
 	if values.Content.AllowUnverifiedPack != nil {
 		configuration.Content.AllowUnverifiedPack = *values.Content.AllowUnverifiedPack
 	}
+	if values.Content.SkipUnsupportedQuests != nil {
+		configuration.Content.SkipUnsupportedQuests = *values.Content.SkipUnsupportedQuests
+	}
 	if values.Auth.NameBlocklist != nil {
 		configuration.Auth.NameBlocklist = *values.Auth.NameBlocklist
 	}
@@ -428,6 +435,13 @@ func applyEnvironment(configuration *Config) error {
 			return fmt.Errorf("parse SARNAUT_CONTENT_ALLOW_UNVERIFIED_PACK: %w", err)
 		}
 		configuration.Content.AllowUnverifiedPack = allowUnverified
+	}
+	if value := os.Getenv("SARNAUT_CONTENT_SKIP_UNSUPPORTED_QUESTS"); value != "" {
+		skipUnsupported, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_CONTENT_SKIP_UNSUPPORTED_QUESTS: %w", err)
+		}
+		configuration.Content.SkipUnsupportedQuests = skipUnsupported
 	}
 	if value := os.Getenv("SARNAUT_PERSISTENCE_SAVE_INTERVAL"); value != "" {
 		duration, err := time.ParseDuration(value)

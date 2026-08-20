@@ -31,6 +31,10 @@ content:
   # its own yet; leave it off anywhere a wrong content table would be expensive
   # to diagnose, which is everywhere else.
   allow_unverified_pack: false
+  # Omit quests whose objective kinds this build cannot advance. Each omitted
+  # quest is logged by id and kind. Leave this false for fail-fast validation;
+  # enable it only for curated packs that deliberately carry future content.
+  skip_unsupported_quests: false
 
 # `auth` and `shard` require all three of these and refuse to start without
 # them: accounts and character state have nowhere else to live (ADR 0031), and
