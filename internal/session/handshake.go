@@ -11,6 +11,7 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 	"go.opentelemetry.io/otel"
@@ -335,6 +336,11 @@ type Server struct {
 type ZoneBinding struct {
 	World  *world.Zone
 	Combat *combat.Module
+	// Loot may be nil, in which case a session in this zone refuses loot_take
+	// and ignores interact. A zone with combat but no loot is a legal, if
+	// unrewarding, composition; a zone with loot but no combat has nothing to
+	// create a corpse.
+	Loot *loot.Module
 }
 
 // DefaultSaveInterval is protocol/session.md's PERIODIC_SAVE_INTERVAL_S: the
@@ -526,6 +532,14 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		}
 		defer binding.Combat.Release(entityID)
 	}
+	// Loot ownership is keyed on the character, not on this entity or this
+	// session, because mechanics/loot.md rule 5.8.4 keeps a corpse yours across
+	// a reconnect and both of the others are destroyed by one. What the module
+	// needs from here is only the mapping between them.
+	if binding.Loot != nil {
+		binding.Loot.Admit(entityID, admission.CharacterID)
+		defer binding.Loot.Release(entityID)
+	}
 
 	// S0 stamps the zone this character is now in. It is not a redundant
 	// write-back of what L1 just read: a later load and any operator
@@ -567,6 +581,8 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		writer:     writer,
 		zone:       zone,
 		combat:     binding.Combat,
+		loot:       binding.Loot,
+		character:  character,
 		entityID:   entityID,
 		datagrams:  connection.SupportsUnreliable(),
 		span:       span,

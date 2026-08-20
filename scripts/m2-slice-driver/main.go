@@ -3,8 +3,8 @@
 //
 // It is the slice's smoke test, and it is meant to grow: every later M2 server
 // task adds a step to the sequence below rather than writing a driver of its
-// own. After the combat task the sequence is connect, enter, target, cast and
-// kill; loot, quests and persistence each append to it.
+// own. After the loot task the sequence is connect, enter, target, cast, kill
+// and loot; quests and persistence each append to it.
 //
 // It is built on `cmd/probe`, which is the same session client, driven to a
 // script instead of to a duration. By default it stands the shard up in
@@ -27,6 +27,8 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/inventory"
+	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/store"
@@ -41,11 +43,23 @@ import (
 const defaultPack = "testdata/packs/demo"
 
 // defaultTarget is the M2 combat target of mechanics/combat.md section 6.1.
+//
+// It is also the loot target. Its table is the curated depth-3 tree of
+// mechanics/loot.md section 6.1, so the driver's loot step exercises the
+// recursion rather than a flat table, and what it drops depends on the roll
+// seed — which is why the step asserts that the bag matches the result rather
+// than asserting a particular item.
 const defaultTarget = "mob.paper-harbor.tide-crab"
 
 // castDistance is where the driver stands to cast, in metres. It is the
 // scenario input of the worked example.
 const castDistance = 6
+
+// corpseSearchWindow bounds the wait for the corpse container to reach a
+// snapshot. Snapshots go out every 66 ms, so this is generous by two orders of
+// magnitude and exists only so a broken loot module fails a step rather than
+// hanging the driver.
+const corpseSearchWindow = 10 * time.Second
 
 func main() {
 	address := flag.String("address", "", "shard QUIC address; empty starts one in process")
@@ -157,12 +171,148 @@ func (driver *driver) run(ctx context.Context, address, packPath, zoneID, target
 			report.death.GetCorpseDespawnTick())
 	}
 
+	if report.death != nil {
+		driver.lootTheCorpse(ctx, client, connection, report.death.GetVictimEntityId())
+	}
+
 	if err := client.Logout(connection); err != nil {
 		driver.fail("logout", "%v", err)
 		return nil
 	}
 	driver.pass("logout", "clean exit requested")
 	return nil
+}
+
+// lootTheCorpse plays mechanics/loot.md rule 5.6 the way a client does: find
+// the corpse container in a snapshot, ask what is on it, take it, and check
+// that the inventory update agrees with the result.
+//
+// It asserts the shape of the answer, not a particular drop. The corpse's
+// contents are a roll against a seed the shard chose, and a driver that
+// insisted on one item would fail the day the seed or the table changed, which
+// is exactly the kind of false alarm a smoke test must not produce.
+func (driver *driver) lootTheCorpse(
+	ctx context.Context,
+	client session.Client,
+	connection transport.Connection,
+	victimEntityID uint64,
+) {
+	corpse, ok := findCorpse(ctx, client, connection, victimEntityID)
+	if !ok {
+		// A table that rolled nothing stands no container up, which is correct
+		// behaviour and not a failing step.
+		driver.pass("loot", "the corpse of entity %d carried no drop; nothing to take", victimEntityID)
+		return
+	}
+
+	offer, err := requestLootOffer(client, connection, corpse)
+	if err != nil {
+		driver.fail("loot", "%v", err)
+		return
+	}
+
+	if err := client.SendCommand(connection, &sarnautv1.ClientMessage{
+		Payload: &sarnautv1.ClientMessage_LootTake{
+			LootTake: &sarnautv1.LootTake{CorpseEntityId: corpse},
+		},
+	}); err != nil {
+		driver.fail("loot", "send loot take: %v", err)
+		return
+	}
+
+	var (
+		result *sarnautv1.LootResult
+		update *sarnautv1.InventoryUpdate
+	)
+	for result == nil || update == nil {
+		message, err := client.ReadReliableMessage(connection)
+		if err != nil {
+			driver.fail("loot", "read loot answer: %v", err)
+			return
+		}
+		if seen := message.GetLootResult(); seen != nil {
+			result = seen
+			if result.GetRefusal() != sarnautv1.LootRefusal_LOOT_REFUSAL_NONE {
+				driver.fail("loot", "take refused: %s", result.GetRefusal())
+				return
+			}
+			continue
+		}
+		if seen := message.GetInventoryUpdate(); seen != nil {
+			update = seen
+		}
+	}
+
+	var taken, held int32
+	for _, item := range result.GetItems() {
+		taken += item.GetCount()
+	}
+	for _, slot := range update.GetSlots() {
+		held += slot.GetCount()
+	}
+	if taken != held {
+		driver.fail("loot", "took %d units but the bag holds %d", taken, held)
+		return
+	}
+	if int64(len(offer.GetItems())) != int64(len(result.GetItems())) {
+		driver.fail("loot", "the corpse offered %d grants and the take produced %d",
+			len(offer.GetItems()), len(result.GetItems()))
+		return
+	}
+	driver.pass("loot", "corpse=%d money=%d grants=%d -> %d units in %d bag slots, purse=%d",
+		corpse, result.GetMoney(), len(result.GetItems()), held, len(update.GetSlots()), update.GetCurrency())
+}
+
+// findCorpse waits for the loot module's container to appear in a snapshot. It
+// is a new entity carrying the victim's content id, no health and not alive,
+// which is what a client renders as a lootable corpse.
+func findCorpse(
+	ctx context.Context,
+	client session.Client,
+	connection transport.Connection,
+	victimEntityID uint64,
+) (uint64, bool) {
+	deadline := time.Now().Add(corpseSearchWindow)
+	for time.Now().Before(deadline) {
+		snapshot, err := client.ReadSnapshot(ctx, connection)
+		if err != nil {
+			return 0, false
+		}
+		for _, entity := range snapshot.GetEntities() {
+			if entity.GetEntityId() <= victimEntityID || entity.GetAlive() || entity.GetMaxHealth() != 0 {
+				continue
+			}
+			return entity.GetEntityId(), true
+		}
+	}
+	return 0, false
+}
+
+// requestLootOffer asks what is on a corpse with the generic interact verb.
+func requestLootOffer(
+	client session.Client,
+	connection transport.Connection,
+	corpse uint64,
+) (*sarnautv1.LootOffer, error) {
+	if err := client.SendCommand(connection, &sarnautv1.ClientMessage{
+		Payload: &sarnautv1.ClientMessage_Interact{
+			Interact: &sarnautv1.Interact{TargetEntityId: corpse},
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("send interact: %w", err)
+	}
+	for {
+		message, err := client.ReadReliableMessage(connection)
+		if err != nil {
+			return nil, fmt.Errorf("read loot offer: %w", err)
+		}
+		if offer := message.GetLootOffer(); offer != nil {
+			return offer, nil
+		}
+		if result := message.GetLootResult(); result != nil {
+			return nil, fmt.Errorf("the corpse refused to open: %s", result.GetRefusal())
+		}
+	}
 }
 
 type killReport struct {
@@ -309,9 +459,15 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 	// Admission, composed the way `cmd/shard` composes it but over the
 	// in-memory repository: the shard refuses a peer with no ticket, so the
 	// driver has to mint one rather than skip the check it is meant to cover.
-	worker := store.NewSaveWorker(store.NewMemory(), logger, 0, 0)
+	//
+	// One repository serves both the checkpoint path and the bag, exactly as
+	// `cmd/shard` composes them: the loot award and the periodic save are two
+	// writers on one character row, and running them against two stores would
+	// hide the thing this driver is meant to smoke out.
+	repository := store.NewMemory()
+	worker := store.NewSaveWorker(repository, logger, 0, 0)
 	characters := store.NewCharacterService(
-		store.NewMemory(),
+		repository,
 		sliceTemplates{spawn: store.Vec3{
 			X: anchor.X + castDistance,
 			Y: anchor.Y,
@@ -321,13 +477,23 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 		logger,
 		0,
 	)
+	bags, err := inventory.NewService(repository, inventory.LimitsFromPack(content), 0)
+	if err != nil {
+		return hostedShard{}, err
+	}
+	lootRules, err := loot.RulesFromPack(content)
+	if err != nil {
+		return hostedShard{}, fmt.Errorf("read loot rules: %w", err)
+	}
+	lootModule := loot.New(logger, zone, lootRules, bags, loot.Options{WorldSeed: "m2-slice-driver"})
+	combatModule.SetKillSink(lootModule)
 	authority := newSliceAuthority()
 
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "m2-slice-driver",
 		PackID:          content.ID(),
-		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
+		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule, Loot: lootModule}},
 		Authority:       authority,
 		Characters:      characters,
 		Logger:          logger,

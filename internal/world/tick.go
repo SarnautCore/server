@@ -59,6 +59,27 @@ func (tick *Tick) SpawnNPC(spec NPCSpec) *Entity {
 	return tick.zone.spawnNPCLocked(spec)
 }
 
+// Despawn removes one non-player entity from the registry and the spatial
+// index, reporting whether it was there.
+//
+// It is deliberately not the mirror of [Zone.Leave]: a player entity belongs to
+// a session and only the session may retire it, so this refuses one. What it
+// serves is an entity that exists for as long as some rule says it does and
+// then genuinely goes — a loot corpse container, which mechanics/loot.md rule
+// 5.1.2 destroys with its drop at the despawn tick.
+//
+// A mob whose corpse is waiting to respawn is a different case and does not
+// come through here: it stays in the registry with Replicated false, because
+// the placement it fills has to keep its identity.
+func (tick *Tick) Despawn(entityID uint64) bool {
+	entity := tick.zone.registry.get(entityID)
+	if entity == nil || entity.Kind == EntityKindPlayer {
+		return false
+	}
+	tick.zone.registry.remove(entityID)
+	return true
+}
+
 // After files `run` to happen `delay` ticks from now. A delay of zero runs on
 // the next tick; work is never dropped for being late.
 func (tick *Tick) After(delay uint64, run func(*Tick)) {

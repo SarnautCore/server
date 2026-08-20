@@ -69,6 +69,13 @@ type WorldConfig struct {
 	// build over the same pack produce the same zone, which is what makes the
 	// slice driver and the acceptance tests reproducible.
 	SpawnSeed uint64
+	// WorldSeed is the per-shard-instance half of the loot roll seed
+	// (mechanics/loot.md rule 5.2.4). It is a string rather than a number
+	// because it is an operator-chosen instance name, and it must not be
+	// derived from the clock or the pid: a restart that changed it would change
+	// the drop every corpse in the zone would have produced, and rule 5.1.1
+	// would buy nothing across restarts.
+	WorldSeed string
 }
 
 // ContentConfig points the shard at one compiled runtime pack. There is no
@@ -134,6 +141,7 @@ type fileConfig struct {
 		SnapshotInterval *string  `yaml:"snapshot_interval"`
 		MaxMoveSpeed     *float32 `yaml:"max_move_speed"`
 		SpawnSeed        *uint64  `yaml:"spawn_seed"`
+		WorldSeed        *string  `yaml:"world_seed"`
 	} `yaml:"world"`
 	Content struct {
 		PackPath            *string `yaml:"pack_path"`
@@ -250,6 +258,7 @@ func defaults(serviceName string) Config {
 			TickInterval:     time.Second / 30,
 			SnapshotInterval: time.Second / 15,
 			MaxMoveSpeed:     7,
+			WorldSeed:        "sarnaut-shard",
 		},
 		// Content deliberately has no default: a public repository must not
 		// ship a private path, and a shard must not guess where its content is.
@@ -290,6 +299,7 @@ func applyFileValues(configuration *Config, values fileConfig) error {
 	setString(&configuration.QUIC.ListenAddress, values.QUIC.ListenAddress)
 	setString(&configuration.QUIC.ShardAddress, values.QUIC.ShardAddress)
 	setString(&configuration.World.ZoneID, values.World.ZoneID)
+	setString(&configuration.World.WorldSeed, values.World.WorldSeed)
 	setString(&configuration.Content.PackPath, values.Content.PackPath)
 	setString(&configuration.NATS.URL, values.NATS.URL)
 	setString(&configuration.Postgres.DSN, values.Postgres.DSN)
@@ -367,6 +377,7 @@ func applyEnvironment(configuration *Config) error {
 	setFromEnvironment(&configuration.QUIC.ListenAddress, "SARNAUT_QUIC_LISTEN_ADDRESS")
 	setFromEnvironment(&configuration.QUIC.ShardAddress, "SARNAUT_SHARD_ADDRESS")
 	setFromEnvironment(&configuration.World.ZoneID, "SARNAUT_WORLD_ZONE_ID")
+	setFromEnvironment(&configuration.World.WorldSeed, "SARNAUT_WORLD_SEED")
 	setFromEnvironment(&configuration.Content.PackPath, "SARNAUT_CONTENT_PACK")
 	setFromEnvironment(&configuration.NATS.URL, "SARNAUT_NATS_URL")
 	setFromEnvironment(&configuration.Postgres.DSN, "SARNAUT_POSTGRES_DSN")

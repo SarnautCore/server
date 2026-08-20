@@ -16,6 +16,8 @@ import (
 	"github.com/SarnautCore/server/internal/config"
 	"github.com/SarnautCore/server/internal/health"
 	"github.com/SarnautCore/server/internal/infra"
+	"github.com/SarnautCore/server/internal/inventory"
+	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/observability"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
@@ -145,6 +147,14 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		"player_faction", rules.PlayerFaction(),
 	)
 
+	// Loot rolls against the same pack combat does, and its rules are read
+	// before anything else so that a tree naming an item the pack does not
+	// carry stops the boot rather than a player's kill.
+	lootRules, err := loot.RulesFromPack(content)
+	if err != nil {
+		return fmt.Errorf("read loot rules from content pack: %w", err)
+	}
+
 	worldModule := world.New(logger, zone)
 	go worldModule.Run(ctx)
 	go combatModule.Run(ctx)
@@ -187,6 +197,23 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		logger,
 		settings.Persistence.SaveTimeout,
 	)
+	// The bag is behind the repository, and the loot module is behind the bag:
+	// nothing in `internal/loot` can reach a database, and nothing in
+	// `internal/inventory` can reach the zone.
+	bags, err := inventory.NewService(repository, inventory.LimitsFromPack(content), 0)
+	if err != nil {
+		return err
+	}
+	lootModule := loot.New(logger, zone, lootRules, bags, loot.Options{
+		WorldSeed: settings.World.WorldSeed,
+	})
+	combatModule.SetKillSink(lootModule)
+	logger.Info("zone loot wired",
+		"loot_tables", lootRules.TableCount(),
+		"items", content.ItemCount(),
+		"bag_slots", bags.Slots(),
+	)
+
 	instanceID := shardInstanceID(settings.Auth.InstanceID)
 	logger.Info("shard admission wired",
 		"instance_id", instanceID,
@@ -203,7 +230,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		PackID:              content.ID(),
 		AllowUnverifiedPack: settings.Content.AllowUnverifiedPack,
 		Zones: map[string]session.ZoneBinding{
-			zone.ID(): {World: zone, Combat: combatModule},
+			zone.ID(): {World: zone, Combat: combatModule, Loot: lootModule},
 		},
 		Authority:    session.NewNATSAuthority(clients.NATS, instanceID, settings.Auth.RequestTimeout),
 		Characters:   characters,

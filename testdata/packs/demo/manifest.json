@@ -2,7 +2,7 @@
   "schema_version": 1,
   "ruleset": "classic",
   "zone": "paper-harbor",
-  "pack_id": "f43d6e93a863a7e6f23d9b437dfbfbde29ee5c2fa283b1cacb3b27f1bdb032e0",
+  "pack_id": "abfa400eaf89ebbad1b69d4c279908498556e71adb7f7d153bdefbef2a9362e8",
   "builder": {
     "name": "sarnaut-pack",
     "version": "0.1.0"
@@ -39,12 +39,28 @@
       "blake3": "b811634f29df64de7e5cf00e213aaf4c005f7aa45d8fabbc9d12d622943b62dc"
     },
     {
+      "name": "items",
+      "file": "tables/items.sptbl",
+      "row_type": "ROW_TYPE_ITEM",
+      "rows": 3,
+      "bytes": 290,
+      "blake3": "ef12d4b2a41e0c4f3f34a96ef29d523c26a2ca9d84e790c25b4320f565453094"
+    },
+    {
+      "name": "loot-tables",
+      "file": "tables/loot-tables.sptbl",
+      "row_type": "ROW_TYPE_LOOT_TABLE",
+      "rows": 2,
+      "bytes": 432,
+      "blake3": "dcd7719d5214c190f36c58b1dbacc1cbdf54eff83e0688c3d1c05b6e04354322"
+    },
+    {
       "name": "mobs",
       "file": "tables/mobs.sptbl",
       "row_type": "ROW_TYPE_MOB",
       "rows": 2,
-      "bytes": 408,
-      "blake3": "abe04dcb1ebce4d59df9ef9370cd5c0d5f31bbe5329f06a8bb5a64a553d6c532"
+      "bytes": 406,
+      "blake3": "bbbfddaac895e17b5eb1ca577b35d61049f5e0b8ccb89ec1286d4abafc0cf0b2"
     },
     {
       "name": "placements",

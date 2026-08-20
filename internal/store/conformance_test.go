@@ -246,6 +246,46 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) sto
 		}
 	})
 
+	t.Run("character currency round-trips", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+
+		state := store.CharacterState{
+			CharacterID: characterID,
+			ZoneID:      "InstLeague1",
+			Level:       1,
+			Health:      100,
+			SaveSeq:     1,
+		}
+		if err := repository.SaveCharacterState(ctx, state); err != nil {
+			t.Fatalf("first save: %v", err)
+		}
+		loaded, err := repository.LoadCharacterState(ctx, characterID)
+		if err != nil {
+			t.Fatalf("load state: %v", err)
+		}
+		if loaded.Currency != 0 {
+			t.Errorf("a fresh character's purse holds %d, want 0", loaded.Currency)
+		}
+
+		// mechanics/loot.md rule 5.6.1: money credits the purse. It is written
+		// by the same statement as the position, so a save that carried a
+		// currency and dropped it would show up here and nowhere else.
+		state.SaveSeq = 2
+		state.Currency = 4_294_967_297 // past 32 bits, because the column is a bigint
+		if err := repository.SaveCharacterState(ctx, state); err != nil {
+			t.Fatalf("credit save: %v", err)
+		}
+		credited, err := repository.LoadCharacterState(ctx, characterID)
+		if err != nil {
+			t.Fatalf("reload state: %v", err)
+		}
+		if credited.Currency != state.Currency {
+			t.Errorf("purse = %d, want %d", credited.Currency, state.Currency)
+		}
+	})
+
 	t.Run("inventory insert stack and move", func(t *testing.T) {
 		repository := newRepository(t)
 		ctx := t.Context()

@@ -8,6 +8,7 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 	"go.opentelemetry.io/otel/attribute"
@@ -75,9 +76,14 @@ type commandReader struct {
 	writer     *reliableWriter
 	zone       *world.Zone
 	combat     *combat.Module
-	entityID   uint64
-	datagrams  bool
-	span       trace.Span
+	loot       *loot.Module
+	// character is this session's view of its own persisted state. The loot
+	// take refreshes it, because the award commits the bag and the session's
+	// next checkpoint must not write the pre-loot one back over it.
+	character *characterSession
+	entityID  uint64
+	datagrams bool
+	span      trace.Span
 }
 
 // readReliable drains the ordered stream. It is always started, whether or not
@@ -139,9 +145,19 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 			return reader.refuseCarrier("ability_use", via)
 		}
 		return reader.useAbility(payload.AbilityUse, message.GetClientSeq())
-	case *sarnautv1.ClientMessage_Interact,
-		*sarnautv1.ClientMessage_LootTake,
-		*sarnautv1.ClientMessage_QuestAccept,
+	case *sarnautv1.ClientMessage_Interact:
+		if via != carrierReliable {
+			return reader.refuseCarrier("interact", via)
+		}
+		return reader.interact(payload.Interact)
+	case *sarnautv1.ClientMessage_LootTake:
+		if via != carrierReliable {
+			// Looting is never a datagram: rule 5.6 answers with what was
+			// committed, and an answer that may be dropped is not an answer.
+			return reader.refuseCarrier("loot_take", via)
+		}
+		return reader.lootTake(payload.LootTake)
+	case *sarnautv1.ClientMessage_QuestAccept,
 		*sarnautv1.ClientMessage_QuestTurnIn,
 		*sarnautv1.ClientMessage_QuestAbandon:
 		if via != carrierReliable {
@@ -151,7 +167,7 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 		// mechanics task. Dropping it keeps the envelope honest: the frame was
 		// understood, so it is not a protocol violation, and the move path is
 		// unaffected.
-		// TODO(m2-loot, m2-quests): route these to their modules.
+		// TODO(m2-quests): route these to their module.
 		reader.span.AddEvent("session.command.unhandled", trace.WithAttributes(
 			attribute.String("sarnaut.payload", payloadName(message)),
 		))

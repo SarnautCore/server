@@ -26,6 +26,8 @@ enum RowType {
   ROW_TYPE_ABILITY = 5;
   ROW_TYPE_FACTION = 6;
   ROW_TYPE_MOB = 7;
+  ROW_TYPE_ITEM = 8;
+  ROW_TYPE_LOOT_TABLE = 9;
 }
 
 // Vec3 is a world-space position. Z is the vertical axis.
@@ -250,4 +252,75 @@ message ChargenOption {
   repeated string starting_abilities = 17;
   // Canonical quest ids granted at first spawn.
   repeated string starting_quests = 18;
+}
+
+// Item is one item definition: the fields the shard needs to hold an item
+// instance in a bag, and nothing else.
+//
+// `stack_limit` is the load-bearing one. mechanics/loot.md rule 5.7.1 says the
+// limit is per-item content and never a constant, so it is a field here rather
+// than a number in Go, and rule 5.7.6 makes a limit of 1 a legal value rather
+// than a missing one.
+message Item {
+  // Canonical id, for example `item.consumable.harbor-tonic`.
+  string id = 1;
+  // Localization key for the display name (ADR 0007).
+  string name_key = 2;
+  // Authored category slug, for example `consumable`.
+  string category = 3;
+  uint32 level = 4;
+  uint32 required_level = 5;
+  // Maximum units in one stack. Zero means the authored record carried none,
+  // which the shard reads as unstackable (loot.md rule 5.7.6).
+  int32 stack_limit = 6;
+  int64 vendor_sell = 7;
+  int64 vendor_buy = 8;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}
+
+// LootNodeKind names one node of a loot tree (mechanics/loot.md section 4).
+//
+// It is an enum rather than the authored slug that abilities use, because
+// unlike an effect kind this taxonomy is closed: the reference set contains
+// these four node types and no others, and a fifth would be a new evaluation
+// rule rather than new content.
+enum LootNodeKind {
+  LOOT_NODE_KIND_UNSPECIFIED = 0;
+  LOOT_NODE_KIND_AND = 1;
+  LOOT_NODE_KIND_OR = 2;
+  LOOT_NODE_KIND_SINGLE_ITEM = 3;
+  LOOT_NODE_KIND_MONEY = 4;
+}
+
+// LootNode is one node of a loot tree, carrying its children inline.
+//
+// `entries` and `chances` are positionally paired and must be the same length;
+// nothing in the authored file links entry `i` to chance `i` other than ordinal
+// position, so the pairing is preserved as two parallel arrays rather than
+// being folded into one message. The reader enforces the length equality.
+//
+// `chances` is `double`, not `float`. Reference chances are written with eight
+// significant digits — `0.00618751` is one of them — and narrowing to binary32
+// would change the number between the authored document and the evaluator.
+message LootNode {
+  LootNodeKind kind = 1;
+  repeated LootNode entries = 2;
+  repeated double chances = 3;
+  // Canonical item id. Set on a SINGLE_ITEM leaf and empty everywhere else: a
+  // MONEY leaf has no item reference at all (loot.md rule 5.6.1).
+  string item_id = 4;
+  // Inclusive count bounds of a leaf. `max_number >= min_number` is enforced by
+  // the reader.
+  int32 min_number = 5;
+  int32 max_number = 6;
+}
+
+// LootTable is one tree with exactly one root node.
+message LootTable {
+  // Canonical id, for example `loot.fixture.m2-nested`.
+  string id = 1;
+  LootNode root = 2;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
 }

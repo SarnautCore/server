@@ -143,6 +143,10 @@ type Pack struct {
 	factions   map[string]Faction
 	mobs       map[string]Mob
 	chargen    []ChargenOption
+	lootTables map[string]LootTable
+	// items is the table handle, not its contents. See Pack.Item: the item
+	// tree is the one table this reader never materializes.
+	items *table
 }
 
 // Load reads, validates and resolves the pack directory at `directory`.
@@ -246,6 +250,14 @@ func Load(directory string, options Options) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	lootTables, err := readLootTables(tables)
+	if err != nil {
+		return nil, err
+	}
+	items, err := readItems(tables)
+	if err != nil {
+		return nil, err
+	}
 	return &Pack{
 		id:         document.PackID,
 		directory:  directory,
@@ -257,6 +269,8 @@ func Load(directory string, options Options) (*Pack, error) {
 		factions:   factions,
 		mobs:       mobs,
 		chargen:    chargen,
+		lootTables: lootTables,
+		items:      items,
 	}, nil
 }
 

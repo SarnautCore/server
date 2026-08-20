@@ -102,6 +102,10 @@ type CharacterState struct {
 	Level       int32
 	Experience  int64
 	Health      int32
+	// Currency is the character's purse (mechanics/loot.md rule 5.6.1). Money
+	// occupies no bag slot and has no stack limit, so it is a scalar here
+	// rather than a row in shard.character_inventory.
+	Currency int64
 	// SaveSeq must strictly increase per character. A save at or below the
 	// stored value is rejected with [ErrStaleSave].
 	SaveSeq int64

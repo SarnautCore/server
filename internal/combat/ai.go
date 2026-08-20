@@ -232,6 +232,27 @@ func (module *Module) kill(tick *world.Tick, victim *world.Entity, killerID uint
 		CorpseDespawnTick: despawnAt,
 	})
 
+	// The kill sink is told inside this tick, before the despawn is filed, so
+	// that mechanics/loot.md rule 5.1.1 holds: the drop is rolled at corpse
+	// creation and is fixed before anything can observe it. Rolling it lazily
+	// when a player opens the corpse would make a disconnect mid-loot able to
+	// change what is there.
+	if module.killSink != nil {
+		mob, _ := module.rules.Mob(state.contentID)
+		module.killSink.MobKilled(tick, Kill{
+			VictimEntityID:  victim.ID,
+			KillerEntityID:  killerID,
+			VictimContentID: state.contentID,
+			PlacementID:     state.placementID,
+			LootTableID:     mob.LootTableID,
+			VictimLevel:     victim.Level,
+			Position:        victim.Position(),
+			Heading:         victim.Heading,
+			DeathTick:       tick.Number(),
+			DespawnTick:     despawnAt,
+		})
+	}
+
 	victimID := victim.ID
 	tick.After(despawnAt-tick.Number(), func(later *world.Tick) {
 		module.despawnCorpse(later, victimID)

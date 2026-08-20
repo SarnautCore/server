@@ -56,9 +56,9 @@ jobs:
         run: ./scripts/check-fixture-pack.ps1
 
       # The M2 vertical slice, played headlessly against the vendored fixture
-      # pack: connect, enter, target, cast, kill. It stands its own shard up in
-      # process, so it needs nothing running. Every later M2 server task adds a
-      # step to it rather than writing a driver of its own.
+      # pack: connect, enter, target, cast, kill, loot. It stands its own shard
+      # up in process, so it needs nothing running. Every later M2 server task
+      # adds a step to it rather than writing a driver of its own.
       - name: Run the M2 slice driver
         run: go run ./scripts/m2-slice-driver
 
@@ -112,6 +112,11 @@ jobs:
       # NAME_TAKEN, and the soft delete that keeps a name taken. An in-memory
       # store can imitate all three, and imitating them is not evidence.
       #
+      # `internal/loot` joins for the same reason: what it asserts here is that
+      # a loot award's bag write and purse credit are one PostgreSQL
+      # transaction, and that the bag a player looted is still there after a
+      # disconnect and a reconnect.
+      #
       # `-p 1` is load-bearing, not tidiness. `go test` runs one test binary per
       # package concurrently, both packages share this one database, and
       # `internal/store` truncates `auth.accounts` and `auth.characters` between
@@ -120,4 +125,4 @@ jobs:
       # existing: the failure surfaces as `Login() error = invalid credentials`
       # or an empty character roster, on unchanged code.
       - name: Integration tests
-        run: go test -tags=integration -count=1 -p 1 ./internal/store/... ./internal/account/...
+        run: go test -tags=integration -count=1 -p 1 ./internal/store/... ./internal/account/... ./internal/loot/...

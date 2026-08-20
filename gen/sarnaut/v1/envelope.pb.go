@@ -162,6 +162,85 @@ func (AbilityRejection) EnumDescriptor() ([]byte, []int) {
 	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{1}
 }
 
+// LootRefusal names why a loot verb resolved to nothing.
+//
+// Like AbilityRejection it is not an ErrorCode. Opening somebody else's corpse
+// or arriving at one with a full bag is ordinary play and must leave the
+// session running (mechanics/loot.md rules 5.6.3 and 5.8.2); an ErrorCode is a
+// protocol violation and closes the connection.
+type LootRefusal int32
+
+const (
+	LootRefusal_LOOT_REFUSAL_UNSPECIFIED LootRefusal = 0
+	// The verb resolved.
+	LootRefusal_LOOT_REFUSAL_NONE LootRefusal = 1
+	// The entity named is not a corpse container in this zone, or has already
+	// despawned (rule 5.1.2).
+	LootRefusal_LOOT_REFUSAL_NO_CORPSE LootRefusal = 2
+	// rule 5.8.2: the corpse is credited to another character.
+	LootRefusal_LOOT_REFUSAL_NOT_YOUR_LOOT LootRefusal = 3
+	// rule 5.6.4: the drop was taken and the corpse is standing but empty.
+	LootRefusal_LOOT_REFUSAL_ALREADY_LOOTED LootRefusal = 4
+	// rule 5.6.3. Nothing was inserted, no money was credited, and the corpse
+	// still holds the whole drop.
+	LootRefusal_LOOT_REFUSAL_BAG_FULL LootRefusal = 5
+	// A take on this corpse is already committing. A retransmit lands here.
+	LootRefusal_LOOT_REFUSAL_IN_PROGRESS LootRefusal = 6
+	// The award could not be committed. The corpse is intact.
+	LootRefusal_LOOT_REFUSAL_INTERNAL LootRefusal = 7
+)
+
+// Enum value maps for LootRefusal.
+var (
+	LootRefusal_name = map[int32]string{
+		0: "LOOT_REFUSAL_UNSPECIFIED",
+		1: "LOOT_REFUSAL_NONE",
+		2: "LOOT_REFUSAL_NO_CORPSE",
+		3: "LOOT_REFUSAL_NOT_YOUR_LOOT",
+		4: "LOOT_REFUSAL_ALREADY_LOOTED",
+		5: "LOOT_REFUSAL_BAG_FULL",
+		6: "LOOT_REFUSAL_IN_PROGRESS",
+		7: "LOOT_REFUSAL_INTERNAL",
+	}
+	LootRefusal_value = map[string]int32{
+		"LOOT_REFUSAL_UNSPECIFIED":    0,
+		"LOOT_REFUSAL_NONE":           1,
+		"LOOT_REFUSAL_NO_CORPSE":      2,
+		"LOOT_REFUSAL_NOT_YOUR_LOOT":  3,
+		"LOOT_REFUSAL_ALREADY_LOOTED": 4,
+		"LOOT_REFUSAL_BAG_FULL":       5,
+		"LOOT_REFUSAL_IN_PROGRESS":    6,
+		"LOOT_REFUSAL_INTERNAL":       7,
+	}
+)
+
+func (x LootRefusal) Enum() *LootRefusal {
+	p := new(LootRefusal)
+	*p = x
+	return p
+}
+
+func (x LootRefusal) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (LootRefusal) Descriptor() protoreflect.EnumDescriptor {
+	return file_sarnaut_v1_envelope_proto_enumTypes[2].Descriptor()
+}
+
+func (LootRefusal) Type() protoreflect.EnumType {
+	return &file_sarnaut_v1_envelope_proto_enumTypes[2]
+}
+
+func (x LootRefusal) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use LootRefusal.Descriptor instead.
+func (LootRefusal) EnumDescriptor() ([]byte, []int) {
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{2}
+}
+
 type ClientMessage struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	ClientSeq uint64                 `protobuf:"varint,1,opt,name=client_seq,json=clientSeq,proto3" json:"client_seq,omitempty"`
@@ -1129,16 +1208,78 @@ func (x *DeathEvent) GetCorpseDespawnTick() uint64 {
 	return 0
 }
 
-// TODO(m2-loot): fields per mechanics/loot.md rule 5.6.
-type LootOffer struct {
+// LootItem is one item id and the count rolled for it. It is the roll's output
+// (mechanics/loot.md section 4's ItemGrant), not a bag slot: duplicates are not
+// merged and stack limits have not been applied yet.
+type LootItem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemId        string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	Count         int32                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LootItem) Reset() {
+	*x = LootItem{}
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LootItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LootItem) ProtoMessage() {}
+
+func (x *LootItem) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LootItem.ProtoReflect.Descriptor instead.
+func (*LootItem) Descriptor() ([]byte, []int) {
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *LootItem) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *LootItem) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+// LootOffer is what is on a corpse, answering ClientMessage.interact.
+//
+// The drop is rolled at corpse creation and fixed before it is observable
+// (rule 5.1.1), so what an offer reports is what a take will produce.
+type LootOffer struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	CorpseEntityId uint64                 `protobuf:"varint,1,opt,name=corpse_entity_id,json=corpseEntityId,proto3" json:"corpse_entity_id,omitempty"`
+	// Purse credit. Money occupies no bag slot (rule 5.6.1).
+	Money         int64       `protobuf:"varint,2,opt,name=money,proto3" json:"money,omitempty"`
+	Items         []*LootItem `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LootOffer) Reset() {
 	*x = LootOffer{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[12]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1150,7 +1291,7 @@ func (x *LootOffer) String() string {
 func (*LootOffer) ProtoMessage() {}
 
 func (x *LootOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[12]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1163,19 +1304,50 @@ func (x *LootOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LootOffer.ProtoReflect.Descriptor instead.
 func (*LootOffer) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{12}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{13}
 }
 
-// TODO(m2-loot): fields per mechanics/loot.md rule 5.6.
+func (x *LootOffer) GetCorpseEntityId() uint64 {
+	if x != nil {
+		return x.CorpseEntityId
+	}
+	return 0
+}
+
+func (x *LootOffer) GetMoney() int64 {
+	if x != nil {
+		return x.Money
+	}
+	return 0
+}
+
+func (x *LootOffer) GetItems() []*LootItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+// LootResult answers ClientMessage.loot_take.
+//
+// On LOOT_REFUSAL_NONE it is written after the award is committed to storage
+// (protocol/session.md rule 5.7.4), so a crash in that window replays as "you
+// already have it" rather than as a lost item. On any other refusal nothing was
+// written at all.
 type LootResult struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	CorpseEntityId uint64                 `protobuf:"varint,1,opt,name=corpse_entity_id,json=corpseEntityId,proto3" json:"corpse_entity_id,omitempty"`
+	Refusal        LootRefusal            `protobuf:"varint,2,opt,name=refusal,proto3,enum=sarnaut.v1.LootRefusal" json:"refusal,omitempty"`
+	// What was taken. Empty on a refusal.
+	Money         int64       `protobuf:"varint,3,opt,name=money,proto3" json:"money,omitempty"`
+	Items         []*LootItem `protobuf:"bytes,4,rep,name=items,proto3" json:"items,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LootResult) Reset() {
 	*x = LootResult{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[13]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1187,7 +1359,7 @@ func (x *LootResult) String() string {
 func (*LootResult) ProtoMessage() {}
 
 func (x *LootResult) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[13]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1200,19 +1372,116 @@ func (x *LootResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LootResult.ProtoReflect.Descriptor instead.
 func (*LootResult) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{13}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{14}
 }
 
-// TODO(m2-loot): fields per mechanics/loot.md rule 5.7.
+func (x *LootResult) GetCorpseEntityId() uint64 {
+	if x != nil {
+		return x.CorpseEntityId
+	}
+	return 0
+}
+
+func (x *LootResult) GetRefusal() LootRefusal {
+	if x != nil {
+		return x.Refusal
+	}
+	return LootRefusal_LOOT_REFUSAL_UNSPECIFIED
+}
+
+func (x *LootResult) GetMoney() int64 {
+	if x != nil {
+		return x.Money
+	}
+	return 0
+}
+
+func (x *LootResult) GetItems() []*LootItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+// InventorySlot is one occupied bag slot after stack splitting (rule 5.7).
+type InventorySlot struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Slot   int32                  `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	ItemId string                 `protobuf:"bytes,2,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	// 1 <= count <= the item's stack_limit.
+	Count         int32 `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventorySlot) Reset() {
+	*x = InventorySlot{}
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventorySlot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventorySlot) ProtoMessage() {}
+
+func (x *InventorySlot) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventorySlot.ProtoReflect.Descriptor instead.
+func (*InventorySlot) Descriptor() ([]byte, []int) {
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *InventorySlot) GetSlot() int32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *InventorySlot) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *InventorySlot) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+// InventoryUpdate is the character's whole bag and purse.
+//
+// It is a full replacement rather than a delta. M2's only writer is the
+// all-or-nothing loot take of rule 5.6.3, a bag is sixteen slots, and a delta
+// protocol would be a second thing that can disagree with the database for no
+// bandwidth anyone will notice.
 type InventoryUpdate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Slots         []*InventorySlot       `protobuf:"bytes,1,rep,name=slots,proto3" json:"slots,omitempty"`
+	Currency      int64                  `protobuf:"varint,2,opt,name=currency,proto3" json:"currency,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InventoryUpdate) Reset() {
 	*x = InventoryUpdate{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[14]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1224,7 +1493,7 @@ func (x *InventoryUpdate) String() string {
 func (*InventoryUpdate) ProtoMessage() {}
 
 func (x *InventoryUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[14]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1237,7 +1506,21 @@ func (x *InventoryUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InventoryUpdate.ProtoReflect.Descriptor instead.
 func (*InventoryUpdate) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{14}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *InventoryUpdate) GetSlots() []*InventorySlot {
+	if x != nil {
+		return x.Slots
+	}
+	return nil
+}
+
+func (x *InventoryUpdate) GetCurrency() int64 {
+	if x != nil {
+		return x.Currency
+	}
+	return 0
 }
 
 // QuestStateUpdate is the server's report of one quest instance changing state.
@@ -1255,7 +1538,7 @@ type QuestStateUpdate struct {
 
 func (x *QuestStateUpdate) Reset() {
 	*x = QuestStateUpdate{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[15]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1267,7 +1550,7 @@ func (x *QuestStateUpdate) String() string {
 func (*QuestStateUpdate) ProtoMessage() {}
 
 func (x *QuestStateUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[15]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1280,7 +1563,7 @@ func (x *QuestStateUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestStateUpdate.ProtoReflect.Descriptor instead.
 func (*QuestStateUpdate) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{15}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{17}
 }
 
 var File_sarnaut_v1_envelope_proto protoreflect.FileDescriptor
@@ -1359,11 +1642,27 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x10victim_entity_id\x18\x01 \x01(\x04R\x0evictimEntityId\x12(\n" +
 	"\x10killer_entity_id\x18\x02 \x01(\x04R\x0ekillerEntityId\x12!\n" +
 	"\fvictim_level\x18\x03 \x01(\rR\vvictimLevel\x12.\n" +
-	"\x13corpse_despawn_tick\x18\x04 \x01(\x04R\x11corpseDespawnTick\"\v\n" +
-	"\tLootOffer\"\f\n" +
+	"\x13corpse_despawn_tick\x18\x04 \x01(\x04R\x11corpseDespawnTick\"9\n" +
+	"\bLootItem\x12\x17\n" +
+	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x05R\x05count\"w\n" +
+	"\tLootOffer\x12(\n" +
+	"\x10corpse_entity_id\x18\x01 \x01(\x04R\x0ecorpseEntityId\x12\x14\n" +
+	"\x05money\x18\x02 \x01(\x03R\x05money\x12*\n" +
+	"\x05items\x18\x03 \x03(\v2\x14.sarnaut.v1.LootItemR\x05items\"\xab\x01\n" +
 	"\n" +
-	"LootResult\"\x11\n" +
-	"\x0fInventoryUpdate\"\x12\n" +
+	"LootResult\x12(\n" +
+	"\x10corpse_entity_id\x18\x01 \x01(\x04R\x0ecorpseEntityId\x121\n" +
+	"\arefusal\x18\x02 \x01(\x0e2\x17.sarnaut.v1.LootRefusalR\arefusal\x12\x14\n" +
+	"\x05money\x18\x03 \x01(\x03R\x05money\x12*\n" +
+	"\x05items\x18\x04 \x03(\v2\x14.sarnaut.v1.LootItemR\x05items\"R\n" +
+	"\rInventorySlot\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\x05R\x04slot\x12\x17\n" +
+	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12\x14\n" +
+	"\x05count\x18\x03 \x01(\x05R\x05count\"^\n" +
+	"\x0fInventoryUpdate\x12/\n" +
+	"\x05slots\x18\x01 \x03(\v2\x19.sarnaut.v1.InventorySlotR\x05slots\x12\x1a\n" +
+	"\bcurrency\x18\x02 \x01(\x03R\bcurrency\"\x12\n" +
 	"\x10QuestStateUpdate*\xfd\x01\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12\"\n" +
@@ -1382,7 +1681,16 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x1dABILITY_REJECTION_TARGET_DEAD\x10\x04\x12\"\n" +
 	"\x1eABILITY_REJECTION_OUT_OF_RANGE\x10\x05\x12!\n" +
 	"\x1dABILITY_REJECTION_ON_COOLDOWN\x10\x06\x12%\n" +
-	"!ABILITY_REJECTION_UNKNOWN_ABILITY\x10\aBNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
+	"!ABILITY_REJECTION_UNKNOWN_ABILITY\x10\a*\xf3\x01\n" +
+	"\vLootRefusal\x12\x1c\n" +
+	"\x18LOOT_REFUSAL_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11LOOT_REFUSAL_NONE\x10\x01\x12\x1a\n" +
+	"\x16LOOT_REFUSAL_NO_CORPSE\x10\x02\x12\x1e\n" +
+	"\x1aLOOT_REFUSAL_NOT_YOUR_LOOT\x10\x03\x12\x1f\n" +
+	"\x1bLOOT_REFUSAL_ALREADY_LOOTED\x10\x04\x12\x19\n" +
+	"\x15LOOT_REFUSAL_BAG_FULL\x10\x05\x12\x1c\n" +
+	"\x18LOOT_REFUSAL_IN_PROGRESS\x10\x06\x12\x19\n" +
+	"\x15LOOT_REFUSAL_INTERNAL\x10\aBNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
 
 var (
 	file_sarnaut_v1_envelope_proto_rawDescOnce sync.Once
@@ -1396,54 +1704,61 @@ func file_sarnaut_v1_envelope_proto_rawDescGZIP() []byte {
 	return file_sarnaut_v1_envelope_proto_rawDescData
 }
 
-var file_sarnaut_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_sarnaut_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_sarnaut_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_sarnaut_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_sarnaut_v1_envelope_proto_goTypes = []any{
 	(ErrorCode)(0),           // 0: sarnaut.v1.ErrorCode
 	(AbilityRejection)(0),    // 1: sarnaut.v1.AbilityRejection
-	(*ClientMessage)(nil),    // 2: sarnaut.v1.ClientMessage
-	(*ServerMessage)(nil),    // 3: sarnaut.v1.ServerMessage
-	(*Error)(nil),            // 4: sarnaut.v1.Error
-	(*AbilityUse)(nil),       // 5: sarnaut.v1.AbilityUse
-	(*Interact)(nil),         // 6: sarnaut.v1.Interact
-	(*LootTake)(nil),         // 7: sarnaut.v1.LootTake
-	(*QuestAccept)(nil),      // 8: sarnaut.v1.QuestAccept
-	(*QuestTurnIn)(nil),      // 9: sarnaut.v1.QuestTurnIn
-	(*QuestAbandon)(nil),     // 10: sarnaut.v1.QuestAbandon
-	(*Logout)(nil),           // 11: sarnaut.v1.Logout
-	(*CombatEvent)(nil),      // 12: sarnaut.v1.CombatEvent
-	(*DeathEvent)(nil),       // 13: sarnaut.v1.DeathEvent
-	(*LootOffer)(nil),        // 14: sarnaut.v1.LootOffer
-	(*LootResult)(nil),       // 15: sarnaut.v1.LootResult
-	(*InventoryUpdate)(nil),  // 16: sarnaut.v1.InventoryUpdate
-	(*QuestStateUpdate)(nil), // 17: sarnaut.v1.QuestStateUpdate
-	(*ClientMoveIntent)(nil), // 18: sarnaut.v1.ClientMoveIntent
-	(*SnapshotBatch)(nil),    // 19: sarnaut.v1.SnapshotBatch
+	(LootRefusal)(0),         // 2: sarnaut.v1.LootRefusal
+	(*ClientMessage)(nil),    // 3: sarnaut.v1.ClientMessage
+	(*ServerMessage)(nil),    // 4: sarnaut.v1.ServerMessage
+	(*Error)(nil),            // 5: sarnaut.v1.Error
+	(*AbilityUse)(nil),       // 6: sarnaut.v1.AbilityUse
+	(*Interact)(nil),         // 7: sarnaut.v1.Interact
+	(*LootTake)(nil),         // 8: sarnaut.v1.LootTake
+	(*QuestAccept)(nil),      // 9: sarnaut.v1.QuestAccept
+	(*QuestTurnIn)(nil),      // 10: sarnaut.v1.QuestTurnIn
+	(*QuestAbandon)(nil),     // 11: sarnaut.v1.QuestAbandon
+	(*Logout)(nil),           // 12: sarnaut.v1.Logout
+	(*CombatEvent)(nil),      // 13: sarnaut.v1.CombatEvent
+	(*DeathEvent)(nil),       // 14: sarnaut.v1.DeathEvent
+	(*LootItem)(nil),         // 15: sarnaut.v1.LootItem
+	(*LootOffer)(nil),        // 16: sarnaut.v1.LootOffer
+	(*LootResult)(nil),       // 17: sarnaut.v1.LootResult
+	(*InventorySlot)(nil),    // 18: sarnaut.v1.InventorySlot
+	(*InventoryUpdate)(nil),  // 19: sarnaut.v1.InventoryUpdate
+	(*QuestStateUpdate)(nil), // 20: sarnaut.v1.QuestStateUpdate
+	(*ClientMoveIntent)(nil), // 21: sarnaut.v1.ClientMoveIntent
+	(*SnapshotBatch)(nil),    // 22: sarnaut.v1.SnapshotBatch
 }
 var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
-	18, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
-	5,  // 1: sarnaut.v1.ClientMessage.ability_use:type_name -> sarnaut.v1.AbilityUse
-	6,  // 2: sarnaut.v1.ClientMessage.interact:type_name -> sarnaut.v1.Interact
-	7,  // 3: sarnaut.v1.ClientMessage.loot_take:type_name -> sarnaut.v1.LootTake
-	8,  // 4: sarnaut.v1.ClientMessage.quest_accept:type_name -> sarnaut.v1.QuestAccept
-	9,  // 5: sarnaut.v1.ClientMessage.quest_turn_in:type_name -> sarnaut.v1.QuestTurnIn
-	10, // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
-	11, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
-	19, // 8: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
-	12, // 9: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
-	13, // 10: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
-	14, // 11: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
-	15, // 12: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
-	16, // 13: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
-	17, // 14: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
-	4,  // 15: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
+	21, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
+	6,  // 1: sarnaut.v1.ClientMessage.ability_use:type_name -> sarnaut.v1.AbilityUse
+	7,  // 2: sarnaut.v1.ClientMessage.interact:type_name -> sarnaut.v1.Interact
+	8,  // 3: sarnaut.v1.ClientMessage.loot_take:type_name -> sarnaut.v1.LootTake
+	9,  // 4: sarnaut.v1.ClientMessage.quest_accept:type_name -> sarnaut.v1.QuestAccept
+	10, // 5: sarnaut.v1.ClientMessage.quest_turn_in:type_name -> sarnaut.v1.QuestTurnIn
+	11, // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
+	12, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
+	22, // 8: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
+	13, // 9: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
+	14, // 10: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
+	16, // 11: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
+	17, // 12: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
+	19, // 13: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
+	20, // 14: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
+	5,  // 15: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
 	0,  // 16: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
 	1,  // 17: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	15, // 18: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
+	2,  // 19: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
+	15, // 20: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
+	18, // 21: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_v1_envelope_proto_init() }
@@ -1478,8 +1793,8 @@ func file_sarnaut_v1_envelope_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_v1_envelope_proto_rawDesc), len(file_sarnaut_v1_envelope_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   16,
+			NumEnums:      3,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

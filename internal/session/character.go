@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,15 +34,22 @@ type CharacterStore interface {
 //
 // It exists so that "build a snapshot from what the zone has now" is written
 // once. Position, heading, level and health come from the zone under its own
-// mutex; inventory and quests come from the load, because in M2 nothing else
-// changes them yet.
+// mutex; inventory, purse and quests come from the load, and from whatever has
+// committed a change to them since.
+//
+// That last clause is why there is a mutex here. A loot take commits the bag
+// and the purse from the reliable reader's goroutine, and the periodic saver
+// builds a snapshot on its own; without the lock the saver would race the take
+// and could write the pre-loot bag back over it.
 type characterSession struct {
 	characterID uuid.UUID
 	zoneID      string
-	loaded      store.Snapshot
-	// saveSeq is only ever touched by the goroutine that owns the session: the
-	// handler before the loops start, the periodic saver while they run, and
-	// the handler again in teardown after they have stopped.
+
+	mu     sync.Mutex
+	loaded store.Snapshot
+	// saveSeq is the sequence this session's next checkpoint will use. It is
+	// advanced by every checkpoint and re-synchronised by [adopt] when some
+	// other unit of work commits at a higher one.
 	saveSeq int64
 }
 
@@ -57,6 +65,8 @@ func newCharacterSession(admission Admission, zoneID string, loaded store.Snapsh
 // spawn is where the world entity is placed: the loaded position, which for a
 // character that has never logged in is the chargen option's spawn.
 func (character *characterSession) spawn() (world.Vec3, float32) {
+	character.mu.Lock()
+	defer character.mu.Unlock()
 	return world.Vec3{
 		X: character.loaded.State.Position.X,
 		Y: character.loaded.State.Position.Y,
@@ -69,6 +79,8 @@ func (character *characterSession) spawn() (world.Vec3, float32) {
 // is rejected, which is what stops a slow write from a dying session clobbering
 // a newer write from a reconnect (ADR 0031 §6).
 func (character *characterSession) snapshotFrom(view world.CharacterSnapshot) store.Snapshot {
+	character.mu.Lock()
+	defer character.mu.Unlock()
 	character.saveSeq++
 	state := character.loaded.State
 	state.CharacterID = character.characterID
@@ -84,6 +96,25 @@ func (character *characterSession) snapshotFrom(view world.CharacterSnapshot) st
 		State:     state,
 		Inventory: character.loaded.Inventory,
 		Quests:    character.loaded.Quests,
+	}
+}
+
+// adopt re-synchronises this view with a write some other unit of work already
+// committed: the bag and purse a loot take wrote, and the sequence it wrote
+// them at (mechanics/loot.md rule 5.6).
+//
+// Without it the session would keep checkpointing the inventory it loaded at
+// zone entry, and the first periodic save after a loot would either be rejected
+// as stale or, worse, overwrite the looted bag with the empty one. The sequence
+// only ever moves forward: two writers racing both try to advance to the same
+// number, and the anti-clobber rule of ADR 0031 §6 decides which one wins.
+func (character *characterSession) adopt(inventory []store.InventoryItem, currency, saveSeq int64) {
+	character.mu.Lock()
+	defer character.mu.Unlock()
+	character.loaded.Inventory = inventory
+	character.loaded.State.Currency = currency
+	if saveSeq > character.saveSeq {
+		character.saveSeq = saveSeq
 	}
 }
 
