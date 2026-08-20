@@ -25,6 +25,7 @@ type ClientHello struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ProtocolVersion ProtocolVersion        `protobuf:"varint,1,opt,name=protocol_version,json=protocolVersion,proto3,enum=sarnaut.v1.ProtocolVersion" json:"protocol_version,omitempty"`
 	BuildId         string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
+	PackId          string                 `protobuf:"bytes,3,opt,name=pack_id,json=packId,proto3" json:"pack_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -73,10 +74,18 @@ func (x *ClientHello) GetBuildId() string {
 	return ""
 }
 
+func (x *ClientHello) GetPackId() string {
+	if x != nil {
+		return x.PackId
+	}
+	return ""
+}
+
 type ServerHello struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ProtocolVersion ProtocolVersion        `protobuf:"varint,1,opt,name=protocol_version,json=protocolVersion,proto3,enum=sarnaut.v1.ProtocolVersion" json:"protocol_version,omitempty"`
 	BuildId         string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
+	PackId          string                 `protobuf:"bytes,3,opt,name=pack_id,json=packId,proto3" json:"pack_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -125,18 +134,27 @@ func (x *ServerHello) GetBuildId() string {
 	return ""
 }
 
+func (x *ServerHello) GetPackId() string {
+	if x != nil {
+		return x.PackId
+	}
+	return ""
+}
+
 var File_sarnaut_v1_handshake_proto protoreflect.FileDescriptor
 
 const file_sarnaut_v1_handshake_proto_rawDesc = "" +
 	"\n" +
 	"\x1asarnaut/v1/handshake.proto\x12\n" +
-	"sarnaut.v1\x1a\x17sarnaut/v1/common.proto\"p\n" +
+	"sarnaut.v1\x1a\x17sarnaut/v1/common.proto\"\x89\x01\n" +
 	"\vClientHello\x12F\n" +
 	"\x10protocol_version\x18\x01 \x01(\x0e2\x1b.sarnaut.v1.ProtocolVersionR\x0fprotocolVersion\x12\x19\n" +
-	"\bbuild_id\x18\x02 \x01(\tR\abuildId\"p\n" +
+	"\bbuild_id\x18\x02 \x01(\tR\abuildId\x12\x17\n" +
+	"\apack_id\x18\x03 \x01(\tR\x06packId\"\x89\x01\n" +
 	"\vServerHello\x12F\n" +
 	"\x10protocol_version\x18\x01 \x01(\x0e2\x1b.sarnaut.v1.ProtocolVersionR\x0fprotocolVersion\x12\x19\n" +
-	"\bbuild_id\x18\x02 \x01(\tR\abuildIdB8Z6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1b\x06proto3"
+	"\bbuild_id\x18\x02 \x01(\tR\abuildId\x12\x17\n" +
+	"\apack_id\x18\x03 \x01(\tR\x06packIdBNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
 
 var (
 	file_sarnaut_v1_handshake_proto_rawDescOnce sync.Once

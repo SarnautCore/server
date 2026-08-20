@@ -3,6 +3,7 @@ syntax = "proto3";
 package sarnaut.v1;
 
 option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+option csharp_namespace = "Sarnaut.Protocol.V1";
 
 message Vec3 {
   float x = 1;

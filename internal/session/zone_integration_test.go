@@ -35,7 +35,9 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 		}, spawn.Heading)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Generous, because this test now runs a whole session — join, replicate,
+	// move, log out — over real QUIC under -race on shared CI hardware.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	go zone.Run(ctx)
 
@@ -78,6 +80,18 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	}
 
 	waitForNPC(t, ctx, client, connection)
+
+	// A reliable verb the shard understands but does not handle yet must not
+	// disturb the datagram move path, and it must not go unread: the reliable
+	// reader runs even though datagrams were negotiated.
+	if err := client.SendCommand(connection, &sarnautv1.ClientMessage{
+		ClientSeq: 1,
+		Payload: &sarnautv1.ClientMessage_AbilityUse{
+			AbilityUse: &sarnautv1.AbilityUse{TargetId: 1},
+		},
+	}); err != nil {
+		t.Fatalf("SendCommand() error = %v", err)
+	}
 	if err := client.SendMoveIntent(connection, &sarnautv1.ClientMoveIntent{
 		Seq:       1,
 		Input:     &sarnautv1.Vec3{X: 1},
@@ -87,6 +101,11 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 		t.Fatalf("SendMoveIntent() error = %v", err)
 	}
 	waitForAdvance(t, ctx, client, connection, entered.GetOwnEntityId(), entered.GetSpawnPosition().GetX())
+
+	if err := client.Logout(connection); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	waitForSessionEnd(t, ctx, client, connection)
 
 	cancel()
 	select {
@@ -151,9 +170,37 @@ func waitForNPC(
 			t.Fatalf("ReadSnapshot() error = %v", err)
 		}
 		for _, entity := range snapshot.GetEntities() {
-			if entity.GetKind() == sarnautv1.EntityKind_ENTITY_KIND_NPC {
-				return
+			if entity.GetKind() != sarnautv1.EntityKind_ENTITY_KIND_NPC {
+				continue
 			}
+			if !entity.GetAlive() {
+				t.Error("alive = false, want true for a fixture NPC")
+			}
+			if entity.GetLevel() == 0 || entity.GetMaxHealth() == 0 {
+				t.Errorf("level = %d, max_health = %d, want both set",
+					entity.GetLevel(), entity.GetMaxHealth())
+			}
+			return
+		}
+	}
+}
+
+// waitForSessionEnd asserts that a clean logout ends the session rather than
+// leaving the connection open until the client gives up.
+func waitForSessionEnd(
+	t *testing.T,
+	ctx context.Context,
+	client session.Client,
+	connection transport.Connection,
+) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := client.ReadSnapshot(ctx, connection); err != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the session stayed open after logout")
 		}
 	}
 }

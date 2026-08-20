@@ -164,7 +164,7 @@ const file_sarnaut_v1_movement_proto_rawDesc = "" +
 	"\x05input\x18\x02 \x01(\v2\x10.sarnaut.v1.Vec3R\x05input\x12\x18\n" +
 	"\aheading\x18\x03 \x01(\x02R\aheading\x12\x1d\n" +
 	"\n" +
-	"dt_seconds\x18\x04 \x01(\x02R\tdtSecondsB8Z6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1b\x06proto3"
+	"dt_seconds\x18\x04 \x01(\x02R\tdtSecondsBNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
 
 var (
 	file_sarnaut_v1_movement_proto_rawDescOnce sync.Once

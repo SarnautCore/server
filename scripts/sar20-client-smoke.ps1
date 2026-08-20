@@ -12,6 +12,21 @@ if (-not (Test-Path -LiteralPath $smokeProject -PathType Leaf)) {
     throw "SAR-20 smoke client was not found at $smokeProject"
 }
 
+# The smoke is the only place the two repositories meet at runtime. There is no
+# transition period in which both framings are accepted (ADR 0026), so a client
+# whose proto tree has drifted from this server would mis-parse rather than
+# fail, which is exactly the failure the envelope exists to prevent.
+$syncScript = Join-Path $clientRepositoryPath "scripts\sync-proto.ps1"
+if (-not (Test-Path -LiteralPath $syncScript -PathType Leaf)) {
+    throw "The client repository at $clientRepositoryPath has no scripts/sync-proto.ps1 (ADR 0027)."
+}
+try {
+    & $syncScript -ServerRepo $serverRepository -Check
+}
+catch {
+    throw "The client proto tree differs from $serverRepository. Run client/scripts/sync-proto.ps1. $_"
+}
+
 $goCommand = Get-Command go -ErrorAction SilentlyContinue
 $goExecutable = if ($null -ne $goCommand) { $goCommand.Source } else { $null }
 if ($null -eq $goCommand -and $IsWindows) {
@@ -22,6 +37,21 @@ if ($null -eq $goCommand -and $IsWindows) {
 }
 if ($null -eq $goExecutable) {
     throw "Go was not found on PATH. Install the version from go.mod."
+}
+
+# A shard left running on these ports answers /readyz and accepts the
+# connection, so the smoke would report on someone else's binary — and on the
+# wire format that binary was built with. Refuse instead of guessing.
+$quicPort = [int]($Address -split ":")[-1]
+$healthPort = [int]($HealthAddress -split ":")[-1]
+foreach ($occupied in @(
+    (Get-NetUDPEndpoint -LocalPort $quicPort -ErrorAction SilentlyContinue),
+    (Get-NetTCPConnection -LocalPort $healthPort -State Listen -ErrorAction SilentlyContinue)
+)) {
+    if ($null -ne $occupied) {
+        $owner = ($occupied | Select-Object -First 1).OwningProcess
+        throw "Port $quicPort or $healthPort is already held by process $owner. Stop it, or pass -Address and -HealthAddress."
+    }
 }
 
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("sarnaut-sar20-" + [Guid]::NewGuid().ToString("N"))

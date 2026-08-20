@@ -1,0 +1,33 @@
+{
+  "schema": "sarnaut.replication-baseline.v1",
+  "captured_at": "2026-08-20",
+  "captured_on_commit": "fbf974ab06a1eebad9ccf6502396e37298ece581",
+  "describes": "Pre-ADR-0026 replication cost: bare SnapshotBatch frames and an EntitySnapshot without content_id, name_key, level, faction, health, max_health or alive.",
+  "host": {
+    "goos": "windows",
+    "goarch": "amd64",
+    "go_version": "go1.26.7",
+    "num_cpu": 32
+  },
+  "zone": {
+    "entity_count": 288,
+    "player_count": 1,
+    "npc_count": 287,
+    "subscriber_count": 1,
+    "tick_interval_ms": 33.333333,
+    "snapshot_interval_ms": 66.666666
+  },
+  "snapshot": {
+    "batch_bytes": 7907,
+    "bytes_per_entity": 27.45486111111111,
+    "bytes_per_second": 118605.00118605001
+  },
+  "step": {
+    "samples": 300,
+    "window_steps": 2000,
+    "p50_ns": 1250,
+    "p99_ns": 2003,
+    "max_ns": 2253
+  },
+  "methodology": "One subscriber, all-entities interest. snapshot.batch_bytes is proto.Size of the published SnapshotBatch; bytes_per_second scales it by 1000/snapshot_interval_ms. step percentiles are per-step nanoseconds over 300 samples, each timing a window of 2000 consecutive Zone.step() calls, because the Windows monotonic clock rounds one step to zero. A move intent is applied before each window, so roughly the first seven steps of a window integrate the player and the rest walk the registry only."
+}

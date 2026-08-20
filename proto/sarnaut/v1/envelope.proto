@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package sarnaut.v1;
+
+import "sarnaut/v1/movement.proto";
+import "sarnaut/v1/replication.proto";
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+option csharp_namespace = "Sarnaut.Protocol.V1";
+
+// Every post-handshake frame in either direction is a ClientMessage or a
+// ServerMessage and nothing else, on either carrier: a datagram carries a whole
+// envelope, not a bare submessage (ADR 0026).
+//
+// Payload field numbers start at 10 so envelope-level fields can grow in the
+// 1-9 block. A retired case is reserved; case numbers are never renumbered or
+// reused. Adding a case is an additive change that does not bump
+// ProtocolVersion (ADR 0027).
+
+message ClientMessage {
+  uint64 client_seq = 1;
+  oneof payload {
+    ClientMoveIntent move_intent = 10;
+    AbilityUse ability_use = 11;
+    Interact interact = 12;
+    LootTake loot_take = 13;
+    QuestAccept quest_accept = 14;
+    QuestTurnIn quest_turn_in = 15;
+    QuestAbandon quest_abandon = 16;
+    Logout logout = 17;
+  }
+}
+
+message ServerMessage {
+  uint64 server_tick = 1;
+  oneof payload {
+    SnapshotBatch snapshot_batch = 10;
+    CombatEvent combat_event = 11;
+    DeathEvent death_event = 12;
+    LootOffer loot_offer = 13;
+    LootResult loot_result = 14;
+    InventoryUpdate inventory_update = 15;
+    QuestStateUpdate quest_state_update = 16;
+    Error error = 17;
+  }
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_UNSUPPORTED_MESSAGE = 1;
+  ERROR_CODE_MALFORMED_PAYLOAD = 2;
+  ERROR_CODE_UNAUTHENTICATED = 3;
+  ERROR_CODE_NOT_IN_ZONE = 4;
+  ERROR_CODE_RATE_LIMITED = 5;
+  ERROR_CODE_PACK_MISMATCH = 6;
+  ERROR_CODE_INTERNAL = 7;
+}
+
+// Error is a typed refusal, never a bare string. It always travels on the
+// reliable channel.
+message Error {
+  ErrorCode code = 1;
+  string detail = 2;
+}
+
+// AbilityUse activates the caster's ability against one target. caster_id is
+// advisory and ignored: the server derives the actor from the session
+// (session.md rule 5.2.6). Shape fixed by mechanics/combat.md section 4.
+message AbilityUse {
+  uint64 caster_id = 1;
+  uint64 target_id = 2;
+  uint64 client_tick = 3;
+}
+
+// Interact is the generic "use the thing I am looking at" verb: quest starters
+// and finishers, and corpses before looting.
+message Interact {
+  uint64 target_entity_id = 1;
+}
+
+// LootTake asks for the whole drop on one corpse. Looting is all or nothing
+// (mechanics/loot.md rule 5.6.3), so there is no per-item selector.
+message LootTake {
+  uint64 corpse_entity_id = 1;
+}
+
+message QuestAccept {
+  string quest_id = 1;
+  uint64 starter_entity_id = 2;
+}
+
+message QuestTurnIn {
+  string quest_id = 1;
+  uint64 finisher_entity_id = 2;
+}
+
+// QuestAbandon drives mechanics/quests.md transitions T14 and T15, which were
+// specified before any client verb could reach them (2026-08-20 amendment to
+// ADR 0026).
+message QuestAbandon {
+  string quest_id = 1;
+}
+
+// Logout is a clean exit. It exists so the session's save checkpoint runs
+// before the connection goes away rather than racing it (2026-08-20 amendment
+// to ADR 0026). It carries no fields: the actor is the session.
+message Logout {}
+
+// CombatEvent, DeathEvent, LootOffer, LootResult, InventoryUpdate and
+// QuestStateUpdate are declared here so the envelope holds the complete M2 case
+// list from the first commit. Their fields land with the task that implements
+// the matching mechanics spec; adding fields to them is additive and does not
+// bump ProtocolVersion.
+
+// TODO(m2-combat): fields per mechanics/combat.md sections 5.5 and 5.6.
+message CombatEvent {}
+
+// TODO(m2-combat): fields per mechanics/combat.md rule 5.9.
+message DeathEvent {}
+
+// TODO(m2-loot): fields per mechanics/loot.md rule 5.6.
+message LootOffer {}
+
+// TODO(m2-loot): fields per mechanics/loot.md rule 5.6.
+message LootResult {}
+
+// TODO(m2-loot): fields per mechanics/loot.md rule 5.7.
+message InventoryUpdate {}
+
+// QuestStateUpdate is the server's report of one quest instance changing state.
+// It is named for the message, not for the QuestState enum in
+// mechanics/quests.md rule 5.1, which the quest task adds separately; the wire
+// case is quest_state_update so the two never collide (2026-08-20 amendment to
+// ADR 0026).
+//
+// TODO(m2-quests): fields per mechanics/quests.md rule 5.2.
+message QuestStateUpdate {}

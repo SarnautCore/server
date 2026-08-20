@@ -16,15 +16,17 @@ func main() {
 	address := flag.String("address", "127.0.0.1:4242", "shard QUIC address")
 	zoneID := flag.String("zone", "InstLeague1", "zone to enter")
 	duration := flag.Duration("duration", 5*time.Second, "probe duration")
+	packID := flag.String("pack", "", "runtime pack digest to claim in the hello")
+	ticket := flag.String("ticket", "", "shard ticket to present on enter zone")
 	flag.Parse()
 
-	if err := run(*address, *zoneID, *duration); err != nil {
+	if err := run(*address, *zoneID, *packID, *ticket, *duration); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "probe: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(address, zoneID string, duration time.Duration) error {
+func run(address, zoneID, packID, ticket string, duration time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 	connection, err := transport.DialQUIC(ctx, address, transport.NewDevClientTLSConfig())
@@ -36,18 +38,27 @@ func run(address, zoneID string, duration time.Duration) error {
 	client := session.Client{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "probe",
+		PackID:          packID,
+		Ticket:          ticket,
 	}
-	if _, err := client.Handshake(ctx, connection); err != nil {
+	hello, err := client.Handshake(ctx, connection)
+	if err != nil {
 		return err
 	}
 	entered, err := client.EnterZone(connection, zoneID)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("entered zone=%s entity=%d datagrams=%t\n", entered.GetZoneId(), entered.GetOwnEntityId(), connection.SupportsUnreliable())
+	fmt.Printf(
+		"entered zone=%s entity=%d datagrams=%t server_pack=%q\n",
+		entered.GetZoneId(),
+		entered.GetOwnEntityId(),
+		connection.SupportsUnreliable(),
+		hello.GetPackId(),
+	)
 
 	go sendMovement(ctx, client, connection)
-	var snapshots, entities int
+	var snapshots, entities, named int
 	var lastTick uint64
 	for ctx.Err() == nil {
 		snapshot, err := client.ReadSnapshot(ctx, connection)
@@ -60,8 +71,24 @@ func run(address, zoneID string, duration time.Duration) error {
 		snapshots++
 		entities += len(snapshot.GetEntities())
 		lastTick = snapshot.GetServerTick()
+		for _, entity := range snapshot.GetEntities() {
+			if entity.GetContentId() != "" {
+				named++
+			}
+		}
 	}
-	fmt.Printf("snapshots=%d entity_records=%d last_server_tick=%d\n", snapshots, entities, lastTick)
+	fmt.Printf(
+		"snapshots=%d entity_records=%d content_identified=%d last_server_tick=%d\n",
+		snapshots,
+		entities,
+		named,
+		lastTick,
+	)
+	// A clean exit, so the shard's teardown runs ahead of the disconnect rather
+	// than racing it.
+	if err := client.Logout(connection); err != nil {
+		return err
+	}
 	return nil
 }
 
