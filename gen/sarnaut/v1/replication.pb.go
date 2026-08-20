@@ -266,9 +266,22 @@ func (x *EntitySnapshot) GetAlive() bool {
 }
 
 type SnapshotBatch struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServerTick    uint64                 `protobuf:"varint,1,opt,name=server_tick,json=serverTick,proto3" json:"server_tick,omitempty"`
-	Entities      []*EntitySnapshot      `protobuf:"bytes,2,rep,name=entities,proto3" json:"entities,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	ServerTick uint64                 `protobuf:"varint,1,opt,name=server_tick,json=serverTick,proto3" json:"server_tick,omitempty"`
+	Entities   []*EntitySnapshot      `protobuf:"bytes,2,rep,name=entities,proto3" json:"entities,omitempty"`
+	// Datagram chunking (protocol/session.md rule 5.5.7). A snapshot too large for
+	// one datagram is split into chunk_count parts that all carry the same
+	// server_tick, and a receiver must hold them until it has all chunk_count of
+	// them before publishing the tick: a chunk on its own is a fragment of the
+	// world, not a view of it, and acting on one alone despawns every entity that
+	// landed in a sibling chunk.
+	//
+	// chunk_count is 1 for a whole snapshot, including every batch on the reliable
+	// fallback, so the receiving rule is uniform rather than conditional on the
+	// carrier. chunk_index is 0-based and the chunks of one tick partition its
+	// entities in order.
+	ChunkIndex    uint32 `protobuf:"varint,3,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
+	ChunkCount    uint32 `protobuf:"varint,4,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -315,6 +328,20 @@ func (x *SnapshotBatch) GetEntities() []*EntitySnapshot {
 		return x.Entities
 	}
 	return nil
+}
+
+func (x *SnapshotBatch) GetChunkIndex() uint32 {
+	if x != nil {
+		return x.ChunkIndex
+	}
+	return 0
+}
+
+func (x *SnapshotBatch) GetChunkCount() uint32 {
+	if x != nil {
+		return x.ChunkCount
+	}
+	return 0
 }
 
 type EnterZoneRequest struct {
@@ -456,11 +483,15 @@ const file_sarnaut_v1_replication_proto_rawDesc = "" +
 	"\x06health\x18\v \x01(\x05R\x06health\x12\x1d\n" +
 	"\n" +
 	"max_health\x18\f \x01(\x05R\tmaxHealth\x12\x14\n" +
-	"\x05alive\x18\r \x01(\bR\x05alive\"h\n" +
+	"\x05alive\x18\r \x01(\bR\x05alive\"\xaa\x01\n" +
 	"\rSnapshotBatch\x12\x1f\n" +
 	"\vserver_tick\x18\x01 \x01(\x04R\n" +
 	"serverTick\x126\n" +
-	"\bentities\x18\x02 \x03(\v2\x1a.sarnaut.v1.EntitySnapshotR\bentities\"C\n" +
+	"\bentities\x18\x02 \x03(\v2\x1a.sarnaut.v1.EntitySnapshotR\bentities\x12\x1f\n" +
+	"\vchunk_index\x18\x03 \x01(\rR\n" +
+	"chunkIndex\x12\x1f\n" +
+	"\vchunk_count\x18\x04 \x01(\rR\n" +
+	"chunkCount\"C\n" +
 	"\x10EnterZoneRequest\x12\x17\n" +
 	"\azone_id\x18\x01 \x01(\tR\x06zoneId\x12\x16\n" +
 	"\x06ticket\x18\x02 \x01(\tR\x06ticket\"\x89\x01\n" +

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +17,15 @@ import (
 // the index and by nothing else (ADR 0032 §3), so this is the only place that
 // answers "was the name taken".
 const uniqueViolation = "23505"
+
+// The other two SQLSTATEs the schema can raise on a write: a CHECK the row
+// fails, and a foreign key with nothing to point at. Both are mapped onto
+// [ErrConstraintViolated] so a caller reads the same answer from either
+// implementation (see `constraints.go`).
+const (
+	foreignKeyViolation = "23503"
+	checkViolation      = "23514"
+)
 
 // querier is the intersection of *pgxpool.Pool and pgx.Tx, which is what lets
 // every statement below be written once and run either directly or inside a
@@ -72,6 +82,12 @@ func (store *postgresStore) RunInTx(ctx context.Context, fn func(ctx context.Con
 // runAndRecover converts a panic inside fn into an error so that the caller's
 // rollback still runs. Without it a panic leaves the transaction open until the
 // connection is reaped.
+//
+// The stack goes into the error text. A nil-map write or an index out of range
+// inside a transaction is a bug, not a database outcome, and turning it into a
+// bare "panic in transaction: ..." erases the only evidence of where it
+// happened — the error surfaces in a log line that names the caller and nothing
+// else, and the bug reads as an ordinary failed save.
 func runAndRecover(
 	ctx context.Context,
 	scoped Repository,
@@ -79,7 +95,7 @@ func runAndRecover(
 ) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic in transaction: %v", recovered)
+			err = fmt.Errorf("panic in transaction: %v\n%s", recovered, debug.Stack())
 		}
 	}()
 	return fn(ctx, scoped)
@@ -172,10 +188,7 @@ func (store *postgresStore) CreateCharacter(ctx context.Context, character Chara
 	if isUniqueViolation(err, "characters_name_normalized_key") {
 		return ErrNameTaken
 	}
-	if err != nil {
-		return fmt.Errorf("insert character: %w", err)
-	}
-	return nil
+	return classifyConstraint(err, "insert character")
 }
 
 func (store *postgresStore) CharacterByID(ctx context.Context, characterID uuid.UUID) (Character, error) {
@@ -354,7 +367,7 @@ func (store *postgresStore) SaveCharacterState(ctx context.Context, state Charac
 		state.SaveSeq,
 	)
 	if err != nil {
-		return fmt.Errorf("save character state: %w", err)
+		return classifyConstraint(err, "save character state")
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrStaleSave
@@ -392,8 +405,8 @@ func (store *postgresStore) LoadCharacterState(ctx context.Context, characterID 
 }
 
 func (store *postgresStore) PutItem(ctx context.Context, characterID uuid.UUID, item InventoryItem) error {
-	if item.Quantity <= 0 {
-		return errQuantity(item.Quantity)
+	if err := validateInventoryItem(item); err != nil {
+		return err
 	}
 
 	// The conflict branch stacks only when the slot already holds the same item.
@@ -525,11 +538,12 @@ func (store *postgresStore) insertItems(ctx context.Context, characterID uuid.UU
 		VALUES ($1, $2, $3, $4)`
 
 	for _, item := range items {
-		if item.Quantity <= 0 {
-			return errQuantity(item.Quantity)
+		if err := validateInventoryItem(item); err != nil {
+			return err
 		}
-		if _, err := store.db.Exec(ctx, statement, characterID, item.Slot, item.ItemID, item.Quantity); err != nil {
-			return fmt.Errorf("insert inventory item in slot %d: %w", item.Slot, err)
+		_, err := store.db.Exec(ctx, statement, characterID, item.Slot, item.ItemID, item.Quantity)
+		if err != nil {
+			return classifyConstraint(err, fmt.Sprintf("insert inventory item in slot %d", item.Slot))
 		}
 	}
 	return nil
@@ -623,4 +637,23 @@ func isUniqueViolation(err error, constraint string) bool {
 		return false
 	}
 	return pgErr.Code == uniqueViolation && pgErr.ConstraintName == constraint
+}
+
+// classifyConstraint turns a CHECK or FOREIGN KEY violation into
+// [ErrConstraintViolated], naming the constraint the database named.
+//
+// Without it, a level of zero or an orphan account_id arrives at the caller as
+// an opaque wrapped driver error while the in-memory store returns a sentinel
+// for the same input — the two implementations disagreeing about the same row is
+// exactly what the shared conformance suite exists to prevent. Any other error
+// is returned unchanged, wrapped by `context`.
+func classifyConstraint(err error, context string) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (pgErr.Code == checkViolation || pgErr.Code == foreignKeyViolation) {
+		return fmt.Errorf("%w: %s rejected by %s", ErrConstraintViolated, context, pgErr.ConstraintName)
+	}
+	return fmt.Errorf("%s: %w", context, err)
 }

@@ -20,6 +20,12 @@ content:
   # Refuse packs built with --keep-extra unless this is true. Those carry
   # verbatim MY.GAMES attribute names, so keep it off outside mapping work.
   allow_extra: false
+  # Admit a client whose ClientHello names no pack at all (protocol/session.md
+  # rule 5.1.4). A client that names a *different* pack is refused either way.
+  # Turn it on for a dev shard talking to a client that has not shipped a pack of
+  # its own yet; leave it off anywhere a wrong content table would be expensive
+  # to diagnose, which is everywhere else.
+  allow_unverified_pack: false
 
 # `auth` and `shard` require all three of these and refuse to start without
 # them: accounts and character state have nowhere else to live (ADR 0031), and

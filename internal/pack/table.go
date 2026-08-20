@@ -69,20 +69,26 @@ func openTable(name string, payload []byte) (*table, error) {
 	}
 	rowDataBytes := binary.LittleEndian.Uint32(payload[28:])
 
+	// Every region length is computed in uint64. In uint32 the products wrap:
+	// row_count 0x40000000 makes the key index 12*row_count = 0 bytes long and
+	// the row index 4*(row_count+1) = 4, both of which fit a 48-byte file, and
+	// the row-index walk below then runs off the end of the payload. The Rust
+	// verifier uses checked arithmetic for the same reason, and the two readers
+	// must accept exactly the same set of files.
 	regions := []struct {
 		name   string
 		offset uint32
-		length uint32
+		length uint64
 	}{
-		{"key index", loaded.keyIndexOffset, tableKeyEntrySize * loaded.rowCount},
-		{"row index", loaded.rowIndexOffset, 4 * (loaded.rowCount + 1)},
-		{"row data", loaded.rowDataOffset, rowDataBytes},
+		{"key index", loaded.keyIndexOffset, uint64(tableKeyEntrySize) * uint64(loaded.rowCount)},
+		{"row index", loaded.rowIndexOffset, 4 * (uint64(loaded.rowCount) + 1)},
+		{"row data", loaded.rowDataOffset, uint64(rowDataBytes)},
 	}
 	for _, region := range regions {
 		if region.offset < tableHeaderBytes {
 			return fail("%s at offset %d overlaps the header", region.name, region.offset)
 		}
-		end := uint64(region.offset) + uint64(region.length)
+		end := uint64(region.offset) + region.length
 		if end > uint64(len(payload)) {
 			return fail("%s ends at %d, past the %d byte file", region.name, end, len(payload))
 		}
@@ -92,7 +98,8 @@ func openTable(name string, payload []byte) (*table, error) {
 		if first.length == 0 || second.length == 0 {
 			continue
 		}
-		if first.offset < second.offset+second.length && second.offset < first.offset+first.length {
+		if uint64(first.offset) < uint64(second.offset)+second.length &&
+			uint64(second.offset) < uint64(first.offset)+first.length {
 			return fail("%s and %s regions overlap", first.name, second.name)
 		}
 	}

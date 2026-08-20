@@ -385,6 +385,81 @@ func TestLoadRejectsMalformedTables(t *testing.T) {
 	}
 }
 
+// openTable's doc comment promises that every failure is an ErrMalformedTable,
+// and its own bounds checks are what make the rest of the reader safe to index
+// blind. In uint32 the region lengths wrap: with row_count 0x40000000 the key
+// index is 12*row_count = 0 bytes long and the row index is 4*(row_count+1) = 4,
+// both of which fit inside a 48-byte file, and the row-index walk then reads off
+// the end of the payload and panics. The Rust twin uses checked arithmetic, so
+// this is also the difference between `sarnaut-pack verify` and the shard
+// accepting the same set of files.
+func TestOpenTableRefusesARowCountThatOverflowsTheRegionArithmetic(t *testing.T) {
+	t.Parallel()
+
+	payload := make([]byte, 48)
+	copy(payload, tableMagic)
+	binary.LittleEndian.PutUint16(payload[4:], tableFormatV1)
+	binary.LittleEndian.PutUint16(payload[6:], tableFlagKeyIndex)
+	binary.LittleEndian.PutUint32(payload[12:], 0x40000000) // row_count
+	binary.LittleEndian.PutUint32(payload[16:], 40)         // key_index_offset
+	binary.LittleEndian.PutUint32(payload[20:], 40)         // row_index_offset
+	binary.LittleEndian.PutUint32(payload[24:], 44)         // row_data_offset
+	binary.LittleEndian.PutUint32(payload[28:], 4)          // row_data_bytes
+
+	_, err := openTable("crafted", payload)
+	if !errors.Is(err, ErrMalformedTable) {
+		t.Fatalf("openTable() error = %v, want ErrMalformedTable rather than a panic", err)
+	}
+}
+
+// A manifest is data, and a reader that follows it out of its own directory is
+// an arbitrary-file oracle: the size and BLAKE3 of the named file come back in
+// the digest-mismatch error.
+func TestLoadRefusesAManifestFileEntryThatEscapesThePackDirectory(t *testing.T) {
+	t.Parallel()
+
+	for _, escape := range []string{
+		"../../../../etc/shadow",
+		"tables/../../outside.sptbl",
+		"/etc/shadow",
+	} {
+		t.Run(escape, func(t *testing.T) {
+			t.Parallel()
+
+			directory := copyFixture(t)
+			document := loadManifest(t, directory)
+			document.Tables[0].File = escape
+			saveManifest(t, directory, document)
+
+			_, err := Load(directory, Options{})
+			if !errors.Is(err, ErrMalformedTable) {
+				t.Fatalf("Load() error = %v, want ErrMalformedTable", err)
+			}
+			if strings.Contains(err.Error(), "bytes") {
+				t.Errorf("Load() error %q reports the escaped file's size", err)
+			}
+		})
+	}
+}
+
+// Two directories that differ only by an unlisted table would otherwise share a
+// pack_id, so a stale file left by a partial rebuild is silently loaded past.
+// `sarnaut-pack verify` refuses exactly this, and the two readers have to agree.
+func TestLoadRejectsATableTheManifestDoesNotList(t *testing.T) {
+	t.Parallel()
+
+	directory := copyFixture(t)
+	writeFile(t, filepath.Join(directory, "tables", "stowaway.sptbl"), []byte("SPK1"))
+
+	_, err := Load(directory, Options{})
+	if !errors.Is(err, ErrMalformedTable) {
+		t.Fatalf("Load() error = %v, want ErrMalformedTable", err)
+	}
+	if !strings.Contains(err.Error(), "stowaway.sptbl") {
+		t.Errorf("Load() error %q does not name the unlisted file", err)
+	}
+}
+
 func TestLoadRejectsARowCountThatDisagreesWithTheManifest(t *testing.T) {
 	t.Parallel()
 

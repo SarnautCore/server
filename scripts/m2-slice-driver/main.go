@@ -85,12 +85,18 @@ func (driver *driver) fail(step string, format string, arguments ...any) {
 }
 
 func (driver *driver) run(ctx context.Context, address, packPath, zoneID, targetMob, abilityID, ticket string) error {
+	// packID is what this run claims in its ClientHello. The in-process shard
+	// states the digest of the pack it loaded and refuses a client that names a
+	// different one, so the slice exercises the ADR 0027 gate rather than
+	// stepping around it. Against an external shard it stays empty, which that
+	// shard accepts only under content.allow_unverified_pack.
+	var packID string
 	if address == "" {
 		hosted, err := startInProcessShard(ctx, packPath, zoneID, targetMob)
 		if err != nil {
 			return err
 		}
-		address, zoneID, ticket = hosted.address, hosted.zoneID, hosted.ticket
+		address, zoneID, ticket, packID = hosted.address, hosted.zoneID, hosted.ticket, hosted.packID
 		driver.pass("host", "in-process shard on %s, zone %s, pack %s", address, zoneID, hosted.packID)
 	}
 
@@ -103,6 +109,7 @@ func (driver *driver) run(ctx context.Context, address, packPath, zoneID, target
 	client := session.Client{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "m2-slice-driver",
+		PackID:          packID,
 		Ticket:          ticket,
 	}
 	hello, err := client.Handshake(ctx, connection)
@@ -319,6 +326,7 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "m2-slice-driver",
+		PackID:          content.ID(),
 		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
 		Authority:       authority,
 		Characters:      characters,

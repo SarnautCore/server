@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sort"
 	"sync"
@@ -195,6 +196,15 @@ func (store *memoryStore) CreateCharacter(ctx context.Context, character Charact
 	}
 	defer done()
 
+	if err := validateCharacter(character); err != nil {
+		return err
+	}
+	if _, exists := state.accounts[character.AccountID]; !exists {
+		// auth.characters.account_id REFERENCES auth.accounts. Postgres answers
+		// 23503 here; answering ErrNotFound instead would make an orphan row look
+		// like a missing lookup.
+		return fmt.Errorf("%w: no account %s", ErrConstraintViolated, character.AccountID)
+	}
 	if character.NameNormalized == "" {
 		character.NameNormalized = NormalizeCharacterName(character.Name)
 	}
@@ -320,6 +330,9 @@ func (store *memoryStore) SaveCharacterState(ctx context.Context, incoming Chara
 	}
 	defer done()
 
+	if err := validateCharacterState(incoming); err != nil {
+		return err
+	}
 	if stored, ok := state.states[incoming.CharacterID]; ok && stored.SaveSeq >= incoming.SaveSeq {
 		return ErrStaleSave
 	}
@@ -349,8 +362,8 @@ func (store *memoryStore) PutItem(ctx context.Context, characterID uuid.UUID, it
 	}
 	defer done()
 
-	if item.Quantity <= 0 {
-		return errQuantity(item.Quantity)
+	if err := validateInventoryItem(item); err != nil {
+		return err
 	}
 	slots := state.inventorySlots(characterID)
 	existing, occupied := slots[item.Slot]
@@ -410,8 +423,8 @@ func (store *memoryStore) ReplaceInventory(ctx context.Context, characterID uuid
 
 	slots := make(map[int32]InventoryItem, len(items))
 	for _, item := range items {
-		if item.Quantity <= 0 {
-			return errQuantity(item.Quantity)
+		if err := validateInventoryItem(item); err != nil {
+			return err
 		}
 		slots[item.Slot] = item
 	}

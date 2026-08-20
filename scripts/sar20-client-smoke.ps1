@@ -93,6 +93,10 @@ $environment = @{
     SARNAUT_QUIC_LISTEN_ADDRESS = $Address
     SARNAUT_HEALTH_ADDRESS = $HealthAddress
     SARNAUT_CONTENT_PACK = $contentPack
+    # The .NET client ships no runtime pack, so it names none in its ClientHello
+    # and a shard that states its own would refuse it (protocol/session.md rule
+    # 5.1.4). This smoke is about the client, not about content identity.
+    SARNAUT_CONTENT_ALLOW_UNVERIFIED_PACK = "true"
     SARNAUT_WORLD_ZONE_ID = "InstLeague1"
     SARNAUT_NATS_URL = $NatsUrl
     SARNAUT_POSTGRES_DSN = $PostgresDsn

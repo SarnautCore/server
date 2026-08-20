@@ -13,7 +13,11 @@
 //
 // Both are held to the same behaviour by the shared suite in
 // `conformance_test.go`, so a test that passes against memory is evidence about
-// Postgres rather than a separate universe.
+// Postgres rather than a separate universe. That extends to the schema's own
+// CHECK and FOREIGN KEY constraints: `constraints.go` restates them for the
+// in-memory store and the Postgres one maps their SQLSTATEs onto the same
+// [ErrConstraintViolated], because an in-memory store that accepts rows the
+// database refuses is worse than no in-memory store at all.
 package store
 
 import (
@@ -48,6 +52,14 @@ var (
 	// ErrSlotOccupied reports an inventory write aimed at a slot that already
 	// holds a different item.
 	ErrSlotOccupied = errors.New("store: inventory slot occupied")
+
+	// ErrConstraintViolated reports a write the schema itself refuses: a
+	// character name outside 3–16 characters, an account_id with no account, a
+	// level below 1, a negative experience, save_seq or slot. Postgres raises it
+	// from SQLSTATE 23514 or 23503; the in-memory store raises it from the same
+	// rules restated in `constraints.go`, which is what keeps the two honest
+	// about each other.
+	ErrConstraintViolated = errors.New("store: constraint violated")
 )
 
 // Account is a row of auth.accounts. The password hash is a PHC string

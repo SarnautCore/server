@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
@@ -14,6 +15,7 @@ import (
 	"github.com/SarnautCore/server/internal/world"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -185,13 +187,22 @@ func (client Client) ReadReliableMessage(
 	return message, nil
 }
 
-// ReadSnapshot receives server envelopes until one carries a snapshot batch. A
+// ReadSnapshot receives server envelopes until a whole tick has arrived. A
 // typed refusal is returned as an error; any other case is skipped, because a
 // snapshot reader is not the place to handle combat.
+//
+// A tick the shard had to split across datagrams arrives as chunk_count batches
+// sharing one server_tick (protocol/session.md rule 5.5.7). They are merged here
+// rather than handed up one at a time: a chunk is a fragment of the world, and a
+// caller that treated one as the world would conclude every entity in a sibling
+// chunk had vanished. An incomplete tick is abandoned the moment a newer one
+// starts, because snapshot delivery is lossy by design and waiting for a lost
+// chunk would stall replication behind it.
 func (client Client) ReadSnapshot(
 	ctx context.Context,
 	connection transport.Connection,
 ) (*sarnautv1.SnapshotBatch, error) {
+	assembly := new(snapshotAssembly)
 	for {
 		message, err := client.ReadServerMessage(ctx, connection)
 		if err != nil {
@@ -199,7 +210,9 @@ func (client Client) ReadSnapshot(
 		}
 		switch payload := message.GetPayload().(type) {
 		case *sarnautv1.ServerMessage_SnapshotBatch:
-			return payload.SnapshotBatch, nil
+			if whole := assembly.add(payload.SnapshotBatch); whole != nil {
+				return whole, nil
+			}
 		case *sarnautv1.ServerMessage_Error:
 			return nil, &ProtocolViolation{
 				Code:   payload.Error.GetCode(),
@@ -211,16 +224,77 @@ func (client Client) ReadSnapshot(
 	}
 }
 
+// snapshotAssembly reassembles one tick's chunks. It holds at most one
+// in-progress tick: chunks of an older tick are worthless once a newer one has
+// started, so there is nothing to age out and no unbounded buffer for a peer to
+// grow by sending chunk_index values it never completes.
+type snapshotAssembly struct {
+	tick   uint64
+	count  uint32
+	chunks map[uint32]*sarnautv1.SnapshotBatch
+}
+
+// add takes one batch and returns the whole tick once every chunk of it has
+// arrived, or nil while it is still incomplete.
+func (assembly *snapshotAssembly) add(batch *sarnautv1.SnapshotBatch) *sarnautv1.SnapshotBatch {
+	// A count of 0 comes from a batch that was never chunked at all, which is
+	// every batch the reliable fallback carries and every snapshot that fits in
+	// one datagram. Treating it as a one-chunk tick keeps one code path.
+	count := batch.GetChunkCount()
+	if count <= 1 {
+		// A whole tick. Anything half-assembled is stale the moment one arrives.
+		assembly.chunks = nil
+		return batch
+	}
+	if assembly.chunks != nil && batch.GetServerTick() < assembly.tick {
+		// A chunk of a tick that has already been overtaken. Datagrams reorder;
+		// resurrecting the older tick would publish the world backwards.
+		return nil
+	}
+	if assembly.chunks == nil || batch.GetServerTick() != assembly.tick {
+		assembly.tick = batch.GetServerTick()
+		assembly.count = count
+		assembly.chunks = make(map[uint32]*sarnautv1.SnapshotBatch, count)
+	}
+	if batch.GetChunkIndex() >= count {
+		// A chunk that claims to be past the end of its own tick. Dropping it is
+		// the conservative read: the tick simply never completes and the next one
+		// replaces it.
+		return nil
+	}
+	assembly.chunks[batch.GetChunkIndex()] = batch
+	if uint32(len(assembly.chunks)) != assembly.count {
+		return nil
+	}
+
+	whole := &sarnautv1.SnapshotBatch{ServerTick: assembly.tick, ChunkCount: 1}
+	for index := uint32(0); index < assembly.count; index++ {
+		whole.Entities = append(whole.Entities, assembly.chunks[index].GetEntities()...)
+	}
+	assembly.chunks = nil
+	return whole
+}
+
 // Server accepts sessions and binds admitted players to configured zones.
 type Server struct {
 	ProtocolVersion sarnautv1.ProtocolVersion
 	BuildID         string
 
-	// PackID is the runtime pack digest this shard loaded (ADR 0029). While it
-	// is empty the shard makes no content-identity claim and gates nothing.
-	// TODO(m2-pack-v0): populate from config and honour
-	// content.allow_unverified_pack.
+	// PackID is the runtime pack digest this shard loaded (ADR 0029). The shard
+	// binary sets it from the pack it actually opened. While it is empty the
+	// shard makes no content-identity claim and gates nothing, which is what the
+	// transport-level tests rely on; a shard that leaves it empty while serving
+	// real content also answers ServerHello with an empty pack_id, and every
+	// client that names its own pack then refuses the handshake.
 	PackID string
+
+	// AllowUnverifiedPack admits a client that names no pack at all while this
+	// shard names one (protocol/session.md rule 5.1.4). Default false: two peers
+	// that agree on message shape and disagree on content tables produce
+	// plausible-looking wrong gameplay, which costs far more to diagnose than a
+	// refused connection. It has no effect on a client that names a *different*
+	// pack, which is always refused.
+	AllowUnverifiedPack bool
 
 	Zones map[string]ZoneBinding
 
@@ -238,6 +312,11 @@ type Server struct {
 	// SaveInterval is checkpoint S2's cadence. Zero means
 	// [DefaultSaveInterval].
 	SaveInterval time.Duration
+
+	// AdmissionTimeout bounds how long an unidentified peer may hold a
+	// connection: hello through ticket redemption. Zero means
+	// [DefaultAdmissionTimeout].
+	AdmissionTimeout time.Duration
 
 	Logger *slog.Logger
 
@@ -262,10 +341,39 @@ type ZoneBinding struct {
 // ceiling on progress an unclean shard exit can destroy.
 const DefaultSaveInterval = 60 * time.Second
 
+// DefaultAdmissionTimeout is how long an unidentified peer may take to get from
+// an accepted connection to a redeemed ticket. It is generous by the standards
+// of the exchange — two writes and a NATS round trip — and finite by the
+// standards of an attacker, which is the whole point.
+const DefaultAdmissionTimeout = 10 * time.Second
+
 // refusalDrainGrace is how long a refused connection is left half-closed so the
-// peer can read the refusal frame. It is short: the alternative to closing at
-// all is letting a rejected peer hold a connection until the idle timeout.
-const refusalDrainGrace = 250 * time.Millisecond
+// peer can read the refusal frame. It is a full second because it has to cover a
+// loaded client on a real network, not a local read that was already scheduled;
+// it is only a second because the alternative to closing at all is letting a
+// rejected peer hold a connection until the idle timeout.
+const refusalDrainGrace = time.Second
+
+// closeAfterRefusal ends a connection, giving a typed refusal a window to reach
+// the peer first.
+//
+// A QUIC CONNECTION_CLOSE does not wait for queued stream data to be read, so
+// closing outright immediately after writing a ServerMessage.error discards the
+// reason and leaves the peer with an opaque connection abort. Half-closing
+// flushes the FIN behind the frame; the grace period is what gives the peer time
+// to read it. Every other cause closes at once — a healthy session has nothing
+// left to say, and a peer that is already gone must not hold a goroutine.
+func closeAfterRefusal(ctx context.Context, connection transport.Connection, cause error) {
+	var violation *ProtocolViolation
+	if errors.As(cause, &violation) {
+		_ = connection.CloseWrite()
+		select {
+		case <-time.After(refusalDrainGrace):
+		case <-ctx.Done():
+		}
+	}
+	_ = connection.Close()
+}
 
 func (server Server) logger() *slog.Logger {
 	if server.Logger != nil {
@@ -294,20 +402,7 @@ func (server Server) Serve(ctx context.Context, listener transport.Listener) err
 				_ = connection.CloseWrite()
 				return
 			}
-			var violation *ProtocolViolation
-			if errors.As(err, &violation) {
-				// The refusal is already on the wire. Closing the connection
-				// outright here would discard it — a QUIC CONNECTION_CLOSE does
-				// not wait for stream data to be read — and the peer would see a
-				// dropped connection instead of the reason. Half-close, let it
-				// drain, then close.
-				_ = connection.CloseWrite()
-				select {
-				case <-time.After(refusalDrainGrace):
-				case <-ctx.Done():
-				}
-			}
-			_ = connection.Close()
+			closeAfterRefusal(ctx, connection, err)
 		}()
 	}
 }
@@ -321,6 +416,45 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	ctx, span := tracer.Start(ctx, "session.server")
 	defer span.End()
 	span.SetAttributes(attribute.String("network.peer.address", connection.RemoteAddr().String()))
+
+	// Nothing below observes a context on its own: a transport read blocks on the
+	// QUIC stream and cancellation does not touch it, so closing the connection
+	// is the only way to unblock one. Both guards are armed here, before the
+	// first read, and not after admission as they used to be — the pre-admission
+	// reads are exactly the ones an unauthenticated peer controls.
+	sessionCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-finished:
+			// handle returned under its own power; it owns the close, including
+			// the drain window a typed refusal needs.
+			return
+		case <-sessionCtx.Done():
+		}
+		// `finished` is closed before the deferred cancel runs, so a cancel that
+		// came from handle's own return is always visible here by now. The second
+		// check is not redundant: both channels are ready on that path, and a
+		// plain two-case select would pick between them at random and close the
+		// connection out from under a refusal half the time.
+		select {
+		case <-finished:
+		default:
+			_ = connection.Close()
+		}
+	}()
+	// A peer that completes the QUIC handshake and then never writes a
+	// ClientHello keeps its connection alive with PING frames — quic-go's idle
+	// timeout is reset by any packet — and would otherwise pin this goroutine for
+	// the life of the process, unbounded and unauthenticated. Admission gets a
+	// deadline of its own. A live session does not need one: by then the peer is
+	// identified and the zone's own rules apply.
+	admissionTimer := time.AfterFunc(server.admissionTimeout(), func() {
+		_ = connection.Close()
+	})
+	defer admissionTimer.Stop()
 
 	if err := server.exchangeHello(connection); err != nil {
 		return err
@@ -342,6 +476,9 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if err != nil {
 		return err
 	}
+	// The peer is identified. Everything past this point is either shard work or
+	// a session the zone supervises, so the admission deadline is spent.
+	admissionTimer.Stop()
 
 	// L1: the character's saved snapshot, or a fresh one materialized from the
 	// chargen table. It runs before the entity is created because the entity
@@ -359,8 +496,6 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	}
 	character := newCharacterSession(admission, zone.ID(), loaded)
 
-	sessionCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	// One live session per character. The newer connection wins, and the older
 	// one is fully torn down before this one creates its entity, so the zone
 	// never holds two entities for one character.
@@ -418,7 +553,7 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	}
 
 	writer := newReliableWriter(connection)
-	sender := newSnapshotSender(connection, writer)
+	sender := newSnapshotSender(connection, writer, span)
 	events := newEventSender(writer, span)
 	if binding.Combat != nil {
 		binding.Combat.Subscribe(entityID, events)
@@ -426,13 +561,6 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if err := zone.Subscribe(entityID, sender); err != nil {
 		return err
 	}
-
-	// stream.Read does not observe a context, so cancellation alone cannot
-	// unblock the reliable reader. Closing the connection can.
-	go func() {
-		<-sessionCtx.Done()
-		_ = connection.Close()
-	}()
 
 	reader := &commandReader{
 		connection: connection,
@@ -469,8 +597,11 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	}
 
 	first := <-results
+	// The close comes before the cancel, not after it: cancelling first would
+	// wake the watchdog, and its unconditional Close would discard a refusal
+	// this session has only just written.
+	closeAfterRefusal(ctx, connection, first)
 	cancel()
-	_ = connection.Close()
 	for pending := 1; pending < running; pending++ {
 		<-results
 	}
@@ -487,6 +618,13 @@ func (server Server) saveInterval() time.Duration {
 		return server.SaveInterval
 	}
 	return DefaultSaveInterval
+}
+
+func (server Server) admissionTimeout() time.Duration {
+	if server.AdmissionTimeout > 0 {
+		return server.AdmissionTimeout
+	}
+	return DefaultAdmissionTimeout
 }
 
 // admit redeems the ticket an EnterZoneRequest carried.
@@ -619,6 +757,18 @@ func (server Server) exchangeHello(connection transport.Connection) error {
 	// written its own hello, so the client can display both digests rather than
 	// guessing why the connection went away (ADR 0027).
 	if server.PackID != "" && hello.GetPackId() != server.PackID {
+		if hello.GetPackId() == "" && server.AllowUnverifiedPack {
+			// The peer makes no content claim and this shard was configured to
+			// take it anyway (protocol/session.md rule 5.1.4). It is logged every
+			// time: a shard admitting clients whose content it cannot vouch for is
+			// a fact an operator should be able to find in the log rather than in
+			// a bug report about impossible gameplay.
+			server.logger().Warn("admitted a client that claims no content pack",
+				"shard_pack_id", server.PackID,
+				"build_id", hello.GetBuildId(),
+			)
+			return nil
+		}
 		detail := fmt.Sprintf(
 			"client content pack %q does not match shard pack %q",
 			hello.GetPackId(),
@@ -647,13 +797,25 @@ type snapshotSender struct {
 	connection transport.Connection
 	writer     *reliableWriter
 	queue      chan world.Snapshot
+	span       trace.Span
+
+	// oversized counts entities dropped because one entity's own envelope did
+	// not fit a datagram. It is a counter rather than an error because the
+	// alternative — emitting the datagram anyway — ends the session for every
+	// player in the zone over one long content string.
+	oversized atomic.Uint64
 }
 
-func newSnapshotSender(connection transport.Connection, writer *reliableWriter) *snapshotSender {
+func newSnapshotSender(
+	connection transport.Connection,
+	writer *reliableWriter,
+	span trace.Span,
+) *snapshotSender {
 	return &snapshotSender{
 		connection: connection,
 		writer:     writer,
 		queue:      make(chan world.Snapshot, 1),
+		span:       span,
 	}
 }
 
@@ -706,7 +868,17 @@ func (sender *snapshotSender) send(snapshot world.Snapshot) error {
 		}
 		return nil
 	}
-	for _, chunk := range splitSnapshot(batch) {
+	chunks, dropped := splitSnapshot(batch)
+	if len(dropped) > 0 {
+		sender.oversized.Add(uint64(len(dropped)))
+		if sender.span != nil {
+			sender.span.AddEvent("session.snapshot.entity_oversized", trace.WithAttributes(
+				attribute.Int("sarnaut.entities.dropped", len(dropped)),
+				attribute.Int64("sarnaut.entity_id", int64(dropped[0])),
+			))
+		}
+	}
+	for _, chunk := range chunks {
 		payload, err := transport.MarshalUnreliable(chunk)
 		if err != nil {
 			return fmt.Errorf("marshal snapshot: %w", err)
@@ -725,33 +897,62 @@ func snapshotMessage(batch *sarnautv1.SnapshotBatch) *sarnautv1.ServerMessage {
 	}
 }
 
+// chunkHeaderReserve is the room kept free in every measured chunk for the
+// chunk_index/chunk_count pair. Both are uint32 varints behind a one-byte tag,
+// so twelve bytes is the worst case, and reserving it unconditionally lets the
+// split run before the number of chunks — which is what those fields carry — is
+// known. Twelve bytes of a 1100-byte datagram is the price of not having to
+// re-run the split after stamping.
+const chunkHeaderReserve = 12
+
 // splitSnapshot chunks a batch so that each datagram stays under the packet
-// limit. The measurement is of the encoded ServerMessage, not of the bare
-// batch: a datagram carries an envelope, so measuring the payload alone
-// produces datagrams over the cap by exactly the envelope overhead
-// (protocol/session.md rule 5.5.7).
-func splitSnapshot(snapshot *sarnautv1.SnapshotBatch) []*sarnautv1.ServerMessage {
+// limit, and stamps every chunk with its index and the chunk count so the
+// receiver can put the tick back together (protocol/session.md rule 5.5.7).
+//
+// The measurement is of the encoded ServerMessage, not of the bare batch: a
+// datagram carries an envelope, so measuring the payload alone produces
+// datagrams over the cap by exactly the envelope overhead.
+//
+// An entity whose own single-entity envelope will not fit is returned in
+// `dropped` instead of being emitted. content_id, name_key and faction are
+// unbounded pack strings, so this is reachable from content alone; emitting the
+// datagram anyway would fail MarshalUnreliable and take the whole session down
+// over one entity nobody could have seen anyway.
+func splitSnapshot(snapshot *sarnautv1.SnapshotBatch) (chunks []*sarnautv1.ServerMessage, dropped []uint64) {
+	const limit = transport.MaxUnreliableMessageSize - chunkHeaderReserve
+
 	tick := snapshot.GetServerTick()
 	current := &sarnautv1.SnapshotBatch{ServerTick: tick}
 	envelope := snapshotMessage(current)
-	result := make([]*sarnautv1.ServerMessage, 0, 1)
+	chunks = make([]*sarnautv1.ServerMessage, 0, 1)
 	for _, entity := range snapshot.GetEntities() {
 		current.Entities = append(current.Entities, entity)
-		if proto.Size(envelope) <= transport.MaxUnreliableMessageSize {
+		if proto.Size(envelope) <= limit {
 			continue
 		}
+		// The entity does not fit in this chunk. Close the chunk if it holds
+		// anything and retry the entity in a fresh one; an entity that does not
+		// fit even alone is one no datagram can carry.
 		current.Entities = current.Entities[:len(current.Entities)-1]
 		if len(current.Entities) > 0 {
-			result = append(result, envelope)
+			chunks = append(chunks, envelope)
+			current = &sarnautv1.SnapshotBatch{ServerTick: tick}
+			envelope = snapshotMessage(current)
+			current.Entities = append(current.Entities, entity)
+			if proto.Size(envelope) <= limit {
+				continue
+			}
+			current.Entities = current.Entities[:0]
 		}
-		current = &sarnautv1.SnapshotBatch{
-			ServerTick: tick,
-			Entities:   []*sarnautv1.EntitySnapshot{entity},
-		}
-		envelope = snapshotMessage(current)
+		dropped = append(dropped, entity.GetEntityId())
 	}
-	if len(current.Entities) > 0 || len(result) == 0 {
-		result = append(result, envelope)
+	if len(current.Entities) > 0 || len(chunks) == 0 {
+		chunks = append(chunks, envelope)
 	}
-	return result
+	for index, chunk := range chunks {
+		batch := chunk.GetSnapshotBatch()
+		batch.ChunkIndex = uint32(index)
+		batch.ChunkCount = uint32(len(chunks))
+	}
+	return chunks, dropped
 }
