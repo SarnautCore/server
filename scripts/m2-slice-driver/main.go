@@ -22,14 +22,17 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
+	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
+	"github.com/google/uuid"
 )
 
 // defaultPack is the vendored fixture, relative to the repository root. The
@@ -50,6 +53,7 @@ func main() {
 	zoneID := flag.String("zone", "M2Slice", "zone to enter when the shard is started in process")
 	targetMob := flag.String("target", defaultTarget, "canonical id of the mob to kill")
 	abilityID := flag.String("ability", "", "canonical id of the ability to cast; empty uses the caster's first")
+	ticket := flag.String("ticket", "", "shard ticket to present to an already-running shard; the in-process shard mints its own")
 	timeout := flag.Duration("timeout", 90*time.Second, "give up after this long")
 	flag.Parse()
 
@@ -57,7 +61,7 @@ func main() {
 	defer cancel()
 
 	driver := &driver{out: os.Stdout}
-	err := driver.run(ctx, *address, *packPath, *zoneID, *targetMob, *abilityID)
+	err := driver.run(ctx, *address, *packPath, *zoneID, *targetMob, *abilityID, *ticket)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "m2-slice-driver: %v\n", err)
 	}
@@ -80,13 +84,13 @@ func (driver *driver) fail(step string, format string, arguments ...any) {
 	_, _ = fmt.Fprintf(driver.out, "FAIL %-8s %s\n", step, fmt.Sprintf(format, arguments...))
 }
 
-func (driver *driver) run(ctx context.Context, address, packPath, zoneID, targetMob, abilityID string) error {
+func (driver *driver) run(ctx context.Context, address, packPath, zoneID, targetMob, abilityID, ticket string) error {
 	if address == "" {
 		hosted, err := startInProcessShard(ctx, packPath, zoneID, targetMob)
 		if err != nil {
 			return err
 		}
-		address, zoneID = hosted.address, hosted.zoneID
+		address, zoneID, ticket = hosted.address, hosted.zoneID, hosted.ticket
 		driver.pass("host", "in-process shard on %s, zone %s, pack %s", address, zoneID, hosted.packID)
 	}
 
@@ -99,6 +103,7 @@ func (driver *driver) run(ctx context.Context, address, packPath, zoneID, target
 	client := session.Client{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "m2-slice-driver",
+		Ticket:          ticket,
 	}
 	hello, err := client.Handshake(ctx, connection)
 	if err != nil {
@@ -247,6 +252,9 @@ type hostedShard struct {
 	address string
 	zoneID  string
 	packID  string
+	// ticket is the single-use shard ticket the in-process authority minted for
+	// this run. The shard admits nobody without one (ADR 0030).
+	ticket string
 }
 
 // startInProcessShard is the same composition as `cmd/shard`, minus the
@@ -291,14 +299,35 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 	if err != nil {
 		return hostedShard{}, err
 	}
+	// Admission, composed the way `cmd/shard` composes it but over the
+	// in-memory repository: the shard refuses a peer with no ticket, so the
+	// driver has to mint one rather than skip the check it is meant to cover.
+	worker := store.NewSaveWorker(store.NewMemory(), logger, 0, 0)
+	characters := store.NewCharacterService(
+		store.NewMemory(),
+		sliceTemplates{spawn: store.Vec3{
+			X: anchor.X + castDistance,
+			Y: anchor.Y,
+			Z: anchor.Z,
+		}},
+		worker,
+		logger,
+		0,
+	)
+	authority := newSliceAuthority()
+
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "m2-slice-driver",
 		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
+		Authority:       authority,
+		Characters:      characters,
+		Logger:          logger,
 	}
 
 	go zone.Run(ctx)
 	go combatModule.Run(ctx)
+	go worker.Run(ctx)
 	go func() {
 		if err := server.Serve(ctx, listener); err != nil {
 			logger.Error("slice shard stopped", "error", err)
@@ -313,8 +342,61 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 		address: listener.Addr().String(),
 		zoneID:  zone.ID(),
 		packID:  content.ID(),
+		ticket:  authority.ticket,
 	}, nil
 }
+
+// sliceTemplates materializes the driver's character next to the target.
+//
+// `cmd/shard` reads the spawn out of the pack's chargen row; the driver
+// overrides it for the same reason it overrides the zone's player spawn, which
+// is that the worked example starts six metres from the mob and the driver has
+// no pathfinder to walk there.
+type sliceTemplates struct {
+	spawn store.Vec3
+}
+
+func (templates sliceTemplates) Template(string) (store.Snapshot, bool) {
+	return store.Snapshot{
+		State: store.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
+	}, true
+}
+
+// sliceAuthority is the auth service for one run: one ticket, redeemable once,
+// and a play lock nobody contends. The real service is a separate process with
+// a database; standing one up would make the driver need infrastructure, which
+// is the one thing it promises not to need.
+type sliceAuthority struct {
+	ticket string
+
+	mu       sync.Mutex
+	redeemed bool
+}
+
+func newSliceAuthority() *sliceAuthority {
+	return &sliceAuthority{ticket: "sarnaut_tk_m2-slice-driver"}
+}
+
+func (authority *sliceAuthority) RedeemTicket(_ context.Context, ticket string) (session.Admission, error) {
+	authority.mu.Lock()
+	defer authority.mu.Unlock()
+	if ticket != authority.ticket || authority.redeemed {
+		return session.Admission{}, &session.Refusal{Reason: session.ReasonUnknownTicket}
+	}
+	authority.redeemed = true
+	return session.Admission{
+		AccountID:       uuid.MustParse("019200f0-0000-7000-8000-00000000e001"),
+		CharacterID:     uuid.MustParse("019200f0-0000-7000-8000-00000000f001"),
+		CharacterName:   "Slice",
+		ChargenOptionID: "chargen.league.warrior",
+	}, nil
+}
+
+func (authority *sliceAuthority) RenewPlayLock(context.Context, uuid.UUID) (bool, error) {
+	return true, nil
+}
+
+func (authority *sliceAuthority) ReleasePlayLock(context.Context, uuid.UUID) error { return nil }
 
 func anchorOf(content *pack.Pack, mobID string) (world.Vec3, error) {
 	for _, spawn := range content.NPCSpawns() {

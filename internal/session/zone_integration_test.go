@@ -11,6 +11,7 @@ import (
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
+	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -60,10 +61,21 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	}
 	defer func() { _ = listener.Close() }()
 
+	// A fresh character materializes at the chargen spawn, which in the fixture
+	// is not the zone's configured PlayerSpawn: this test pins the pack's zone
+	// spawn, so the template says so explicitly.
+	spawn := store.Vec3{
+		X: content.Zone().PlayerSpawn.X,
+		Y: content.Zone().PlayerSpawn.Y,
+		Z: content.Zone().PlayerSpawn.Z,
+	}
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "shard-test",
 		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
+		Authority:       new(stubAuthority),
+		Characters:      newStubCharacters(integrationTemplate(spawn)),
+		Logger:          slog.New(slog.DiscardHandler),
 	}
 	serveErrors := make(chan error, 1)
 	go func() { serveErrors <- server.Serve(ctx, listener) }()
@@ -76,6 +88,7 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	client := session.Client{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "client-test",
+		Ticket:          stubTicket,
 	}
 	if _, err := client.Handshake(ctx, connection); err != nil {
 		t.Fatalf("Handshake() error = %v", err)

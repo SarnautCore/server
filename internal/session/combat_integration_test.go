@@ -10,6 +10,7 @@ import (
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
+	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -76,6 +77,18 @@ func TestKillLoopOverQUIC(t *testing.T) {
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "kill-loop-test",
 		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
+		// The shard admits nobody without a ticket, so even a combat test has to
+		// come through admission (ADR 0030). The character materializes six
+		// metres from the mob because that is the worked example's scenario
+		// input: with admission in place it is the chargen spawn that decides
+		// where a fresh character stands, not the zone's configured one.
+		Authority: new(stubAuthority),
+		Characters: newStubCharacters(integrationTemplate(store.Vec3{
+			X: anchor.X + 6,
+			Y: anchor.Y,
+			Z: anchor.Z,
+		})),
+		Logger: slog.New(slog.DiscardHandler),
 	}
 	serveErrors := make(chan error, 1)
 	go func() { serveErrors <- server.Serve(ctx, listener) }()
@@ -88,6 +101,7 @@ func TestKillLoopOverQUIC(t *testing.T) {
 	client := session.Client{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "kill-loop-client",
+		Ticket:          stubTicket,
 	}
 	if _, err := client.Handshake(ctx, connection); err != nil {
 		t.Fatalf("Handshake() error = %v", err)

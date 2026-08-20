@@ -42,6 +42,7 @@ const (
 	tableZone        = "zone"
 	tablePlacements  = "placements"
 	tableSpawnTables = "spawn-tables"
+	tableChargen     = "chargen"
 )
 
 // spawnTimeNever marks an authored object as inert: it exists in the pack, and
@@ -73,6 +74,46 @@ type NPCSpawn struct {
 	RespawnMax time.Duration
 }
 
+// StatValue is one starting stat of a chargen option.
+type StatValue struct {
+	Stat  string
+	Value float32
+}
+
+// LoadoutItem is one item a fresh character of a chargen option is created
+// with. Slot is an equipment slot, or `bag`.
+type LoadoutItem struct {
+	ItemID   string
+	Quantity uint32
+	Slot     string
+}
+
+// ChargenOption is one selectable character-creation option (ADR 0032).
+//
+// Every field here is a fact the auth service would otherwise have to hold as a
+// Go constant: the race and class a player may pick, where the character
+// spawns, what it starts with. Adding the second playable option is a data
+// change.
+type ChargenOption struct {
+	ID              string
+	Race            string
+	Class           string
+	Sex             string
+	Faction         string
+	Enabled         bool
+	NameKey         string
+	DescriptionKey  string
+	VisualRef       string
+	SpawnZoneID     string
+	SpawnPosition   Vec3
+	SpawnHeading    float32
+	StartingLevel   uint32
+	StartingStats   []StatValue
+	StartingLoadout []LoadoutItem
+	StartingAbility []string
+	StartingQuests  []string
+}
+
 // Zone is what a pack says about the zone it describes.
 type Zone struct {
 	ID                 string
@@ -100,6 +141,7 @@ type Pack struct {
 	abilityIDs []string
 	factions   map[string]Faction
 	mobs       map[string]Mob
+	chargen    []ChargenOption
 }
 
 // Load reads, validates and resolves the pack directory at `directory`.
@@ -190,6 +232,10 @@ func Load(directory string, options Options) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	chargen, err := readChargen(tables)
+	if err != nil {
+		return nil, err
+	}
 	return &Pack{
 		id:         document.PackID,
 		directory:  directory,
@@ -200,6 +246,7 @@ func Load(directory string, options Options) (*Pack, error) {
 		abilityIDs: abilityIDs,
 		factions:   factions,
 		mobs:       mobs,
+		chargen:    chargen,
 	}, nil
 }
 
@@ -222,6 +269,63 @@ func (p *Pack) NPCSpawns() []NPCSpawn {
 	result := make([]NPCSpawn, len(p.npcs))
 	copy(result, p.npcs)
 	return result
+}
+
+// ChargenOptions lists every character-creation option the pack carries, in
+// canonical id order, enabled or not. A pack that carries no chargen table
+// returns none: the auth service is what refuses to start without options, so
+// that a shard-only pack still loads (ADR 0032).
+func (p *Pack) ChargenOptions() []ChargenOption {
+	result := make([]ChargenOption, len(p.chargen))
+	copy(result, p.chargen)
+	return result
+}
+
+func readChargen(tables map[string]*table) ([]ChargenOption, error) {
+	loaded, ok := tables[tableChargen]
+	if !ok {
+		return nil, nil
+	}
+	options := make([]ChargenOption, 0, loaded.rowCount)
+	for _, encoded := range loaded.rows() {
+		var row contentv1.ChargenOption
+		if err := proto.Unmarshal(encoded, &row); err != nil {
+			return nil, fmt.Errorf("%w: decode chargen row: %w", ErrMalformedTable, err)
+		}
+		option := ChargenOption{
+			ID:              row.GetId(),
+			Race:            row.GetRace(),
+			Class:           row.GetClass(),
+			Sex:             row.GetSex(),
+			Faction:         row.GetFaction(),
+			Enabled:         row.GetEnabled(),
+			NameKey:         row.GetNameKey(),
+			DescriptionKey:  row.GetDescriptionKey(),
+			VisualRef:       row.GetVisualRef(),
+			SpawnZoneID:     row.GetSpawnZoneId(),
+			SpawnPosition:   vec3(row.GetSpawnPosition()),
+			SpawnHeading:    row.GetSpawnHeading(),
+			StartingLevel:   row.GetStartingLevel(),
+			StartingAbility: row.GetStartingAbilities(),
+			StartingQuests:  row.GetStartingQuests(),
+		}
+		for _, stat := range row.GetStartingStats() {
+			option.StartingStats = append(option.StartingStats, StatValue{
+				Stat:  stat.GetStat(),
+				Value: stat.GetValue(),
+			})
+		}
+		for _, item := range row.GetStartingLoadout() {
+			option.StartingLoadout = append(option.StartingLoadout, LoadoutItem{
+				ItemID:   item.GetItemId(),
+				Quantity: item.GetQuantity(),
+				Slot:     item.GetSlot(),
+			})
+		}
+		options = append(options, option)
+	}
+	sort.Slice(options, func(left, right int) bool { return options[left].ID < options[right].ID })
+	return options, nil
 }
 
 func readZone(tables map[string]*table) (Zone, error) {

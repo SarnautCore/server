@@ -8,6 +8,8 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/account"
+	"github.com/SarnautCore/server/internal/account/secret"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/transport"
 )
@@ -18,17 +20,70 @@ func main() {
 	duration := flag.Duration("duration", 5*time.Second, "probe duration")
 	packID := flag.String("pack", "", "runtime pack digest to claim in the hello")
 	ticket := flag.String("ticket", "", "shard ticket to present on enter zone")
+	authURL := flag.String("auth", "", "auth service base URL; when set, the probe registers, logs in and mints its own ticket")
+	email := flag.String("email", "probe@example.invalid", "account to register or log in as, with -auth")
+	password := flag.String("password", "probe-password", "account password, with -auth")
+	character := flag.String("character", "Probeling", "character to use or create, with -auth")
+	expectRefusal := flag.Bool("expect-refusal", false, "succeed only if the shard refuses admission; for proving an unauthenticated connection cannot enter a zone")
 	flag.Parse()
 
-	if err := run(*address, *zoneID, *packID, *ticket, *duration); err != nil {
+	options := probeOptions{
+		address:       *address,
+		zoneID:        *zoneID,
+		packID:        *packID,
+		ticket:        *ticket,
+		authURL:       *authURL,
+		email:         *email,
+		password:      *password,
+		character:     *character,
+		expectRefusal: *expectRefusal,
+		duration:      *duration,
+	}
+	if err := run(options); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "probe: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(address, zoneID, packID, ticket string, duration time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
+// probeOptions is what one probe run needs. It is a struct because the flag
+// list crossed the point where positional arguments stop being readable.
+type probeOptions struct {
+	address       string
+	zoneID        string
+	packID        string
+	ticket        string
+	authURL       string
+	email         string
+	password      string
+	character     string
+	expectRefusal bool
+	duration      time.Duration
+}
+
+func run(options probeOptions) error {
+	ctx, cancel := context.WithTimeout(context.Background(), options.duration)
 	defer cancel()
+
+	address, zoneID, packID := options.address, options.zoneID, options.packID
+	ticket := options.ticket
+	// The shard admits nobody without a ticket (ADR 0030), and a ticket is
+	// minted out of band. The probe does that flow itself so a smoke run is one
+	// command rather than a shell pipeline of curl calls.
+	if ticket == "" && options.authURL != "" {
+		client := account.Client{BaseURL: options.authURL}
+		minted, characterID, err := client.EnsureTicket(
+			ctx,
+			secret.New(options.email),
+			secret.New(options.password),
+			options.character,
+		)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("authenticated character=%s id=%s\n", options.character, characterID)
+		ticket = minted.Reveal()
+	}
+
 	connection, err := transport.DialQUIC(ctx, address, transport.NewDevClientTLSConfig())
 	if err != nil {
 		return err
@@ -46,13 +101,29 @@ func run(address, zoneID, packID, ticket string, duration time.Duration) error {
 		return err
 	}
 	entered, err := client.EnterZone(connection, zoneID)
+	if options.expectRefusal {
+		// The point of this mode is that admission fails. Reporting the refusal
+		// as success is what lets a script prove the shard is closed rather
+		// than merely observing that something went wrong.
+		if err == nil {
+			return fmt.Errorf("the shard admitted a connection with no valid ticket")
+		}
+		fmt.Printf("refused as expected: %v\n", err)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
+	// The spawn is printed because it is an assertion a script can make: the
+	// server's answer is authoritative, and on a first login it is the chargen
+	// option's spawn rather than the zone's configured one (ADR 0032).
 	fmt.Printf(
-		"entered zone=%s entity=%d datagrams=%t server_pack=%q\n",
+		"entered zone=%s entity=%d spawn=%g,%g,%g datagrams=%t server_pack=%q\n",
 		entered.GetZoneId(),
 		entered.GetOwnEntityId(),
+		entered.GetSpawnPosition().GetX(),
+		entered.GetSpawnPosition().GetY(),
+		entered.GetSpawnPosition().GetZ(),
 		connection.SupportsUnreliable(),
 		hello.GetPackId(),
 	)

@@ -58,6 +58,26 @@ func (repository *failingRepository) CharactersByAccount(context.Context, uuid.U
 	return nil, nil
 }
 
+func (repository *failingRepository) CharacterByNormalizedName(context.Context, string) (store.Character, error) {
+	repository.fail("CharacterByNormalizedName")
+	return store.Character{}, nil
+}
+
+func (repository *failingRepository) DeleteCharacter(context.Context, uuid.UUID, uuid.UUID) error {
+	repository.fail("DeleteCharacter")
+	return nil
+}
+
+func (repository *failingRepository) ReserveName(context.Context, store.NameReservation) error {
+	repository.fail("ReserveName")
+	return nil
+}
+
+func (repository *failingRepository) ReleaseNameReservation(context.Context, string, uuid.UUID) error {
+	repository.fail("ReleaseNameReservation")
+	return nil
+}
+
 func (repository *failingRepository) SaveCharacterState(context.Context, store.CharacterState) error {
 	repository.fail("SaveCharacterState")
 	return nil

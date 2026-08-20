@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"github.com/SarnautCore/server/internal/observability"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
+	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -147,12 +149,60 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	go worldModule.Run(ctx)
 	go combatModule.Run(ctx)
 
+	// Persistence and admission. Both are required: a shard that cannot save
+	// loses progress silently, and a shard that cannot redeem a ticket would
+	// have to admit anonymous peers, which is the one thing it must never do
+	// (ADR 0030, ADR 0031).
+	pool, err := clients.RequirePostgres()
+	if err != nil {
+		return err
+	}
+	repository, err := store.NewPostgres(pool)
+	if err != nil {
+		return err
+	}
+	if clients.NATS == nil {
+		return errors.New(
+			"no NATS configured: the shard redeems ADR 0030 tickets over NATS request/reply. " +
+				"Set SARNAUT_NATS_URL",
+		)
+	}
+
+	worker := store.NewSaveWorker(
+		repository,
+		logger,
+		settings.Persistence.SaveQueueSize,
+		settings.Persistence.SaveTimeout,
+	)
+	go worker.Run(ctx)
+
+	templates, err := chargenTemplates(content, zoneContent.PlayerSpawn)
+	if err != nil {
+		return err
+	}
+	characters := store.NewCharacterService(
+		repository,
+		templates,
+		worker,
+		logger,
+		settings.Persistence.SaveTimeout,
+	)
+	instanceID := shardInstanceID(settings.Auth.InstanceID)
+	logger.Info("shard admission wired",
+		"instance_id", instanceID,
+		"chargen_options", sortedOptionIDs(templates),
+	)
+
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         settings.BuildID,
 		Zones: map[string]session.ZoneBinding{
 			zone.ID(): {World: zone, Combat: combatModule},
 		},
+		Authority:    session.NewNATSAuthority(clients.NATS, instanceID, settings.Auth.RequestTimeout),
+		Characters:   characters,
+		SaveInterval: settings.Persistence.SaveInterval,
+		Logger:       logger,
 	}
 	sessionErrors := make(chan error, 1)
 	go func() {

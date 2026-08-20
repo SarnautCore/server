@@ -21,7 +21,10 @@ content:
   # verbatim MY.GAMES attribute names, so keep it off outside mapping work.
   allow_extra: false
 
-# Leave these empty to run without the Docker-managed development services.
+# `auth` and `shard` require all three of these and refuse to start without
+# them: accounts and character state have nowhere else to live (ADR 0031), and
+# sessions, tickets and play locks have no fallback (ADR 0030). The gateway
+# still runs with them empty.
 nats:
   url: ""
 
@@ -32,6 +35,21 @@ valkey:
   address: ""
   password: ""
   db: 0
+
+auth:
+  # The account HTTP API, on its own listener rather than the health one.
+  listen_address: 127.0.0.1:8083
+  # Normalized substrings a character name may not contain (ADR 0032 section 3).
+  # M2 ships impersonation prefixes and nothing else: real moderation policy is
+  # not an M2 problem, and a half-hearted profanity list is worse than an honest
+  # empty one.
+  name_blocklist: [gm, admin, sarnaut]
+  # This shard's play-lock holder id. Empty derives one from the host name and
+  # pid, so two shards on one host do not claim to be each other.
+  instance_id: ""
+  # One shard-to-auth request, with no retry: a retried ticket redemption cannot
+  # succeed after the service has burned it.
+  request_timeout: 2s
 
 otel:
   endpoint: ""

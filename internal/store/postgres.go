@@ -237,6 +237,86 @@ func (store *postgresStore) CharactersByAccount(ctx context.Context, accountID u
 	return characters, nil
 }
 
+func (store *postgresStore) CharacterByNormalizedName(ctx context.Context, nameNormalized string) (Character, error) {
+	const statement = `
+		SELECT character_id, account_id, name, name_normalized, chargen_option_id, created_at, deleted_at
+		FROM auth.characters WHERE name_normalized = $1`
+
+	var character Character
+	err := store.db.QueryRow(ctx, statement, nameNormalized).Scan(
+		&character.CharacterID,
+		&character.AccountID,
+		&character.Name,
+		&character.NameNormalized,
+		&character.ChargenOptionID,
+		&character.CreatedAt,
+		&character.DeletedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Character{}, ErrNotFound
+	}
+	if err != nil {
+		return Character{}, fmt.Errorf("scan character by name: %w", err)
+	}
+	return character, nil
+}
+
+func (store *postgresStore) DeleteCharacter(ctx context.Context, accountID, characterID uuid.UUID) error {
+	// The account_id predicate is the authorization: a character of another
+	// account matches nothing, which is the same answer as one that does not
+	// exist. The name stays taken indefinitely (ADR 0032 §3).
+	const statement = `
+		UPDATE auth.characters SET deleted_at = now()
+		WHERE character_id = $1 AND account_id = $2 AND deleted_at IS NULL`
+
+	tag, err := store.db.Exec(ctx, statement, characterID, accountID)
+	if err != nil {
+		return fmt.Errorf("delete character: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (store *postgresStore) ReserveName(ctx context.Context, reservation NameReservation) error {
+	// The conflict branch takes the row only when the existing reservation has
+	// expired or already belongs to this account, so a live reservation held by
+	// somebody else updates nothing and zero affected rows is the refusal.
+	const statement = `
+		INSERT INTO auth.name_reservations (name_normalized, account_id, reserved_until)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (name_normalized) DO UPDATE SET
+			account_id     = EXCLUDED.account_id,
+			reserved_until = EXCLUDED.reserved_until
+		WHERE name_reservations.reserved_until <= now()
+		   OR name_reservations.account_id = EXCLUDED.account_id`
+
+	tag, err := store.db.Exec(
+		ctx,
+		statement,
+		reservation.NameNormalized,
+		reservation.AccountID,
+		reservation.ReservedUntil,
+	)
+	if err != nil {
+		return fmt.Errorf("reserve character name: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNameTaken
+	}
+	return nil
+}
+
+func (store *postgresStore) ReleaseNameReservation(ctx context.Context, nameNormalized string, accountID uuid.UUID) error {
+	const statement = `
+		DELETE FROM auth.name_reservations WHERE name_normalized = $1 AND account_id = $2`
+	if _, err := store.db.Exec(ctx, statement, nameNormalized, accountID); err != nil {
+		return fmt.Errorf("release name reservation: %w", err)
+	}
+	return nil
+}
+
 func (store *postgresStore) SaveCharacterState(ctx context.Context, state CharacterState) error {
 	// The WHERE clause on the conflict branch is the anti-clobber rule of
 	// ADR 0031 §6 expressed in one place: a save that does not advance save_seq

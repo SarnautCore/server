@@ -57,25 +57,39 @@ func writeFull(writer io.Writer, payload []byte) error {
 
 // ReadMessage reads a length-prefixed protobuf message from a byte stream.
 func ReadMessage(reader io.Reader, message proto.Message) error {
-	var header [4]byte
-	if _, err := io.ReadFull(reader, header[:]); err != nil {
-		return fmt.Errorf("read frame length: %w", err)
-	}
-
-	length := binary.BigEndian.Uint32(header[:])
-	if length > MaxFrameSize {
-		return fmt.Errorf("%w: %d bytes", ErrFrameTooLarge, length)
-	}
-
-	payload := make([]byte, length)
-	if _, err := io.ReadFull(reader, payload); err != nil {
-		return fmt.Errorf("read frame payload: %w", err)
+	payload, err := ReadFrame(reader)
+	if err != nil {
+		return err
 	}
 	if err := proto.Unmarshal(payload, message); err != nil {
 		return fmt.Errorf("unmarshal protobuf message: %w", err)
 	}
-
 	return nil
+}
+
+// ReadFrame reads one length-prefixed frame and returns its bytes undecoded.
+//
+// It exists for the one position on the wire where two message types are
+// possible: a client that asked to enter a zone gets either an
+// EnterZoneResponse or a refusal envelope, and protobuf is not self-describing,
+// so the caller has to try both against the same bytes rather than guess from a
+// half-decoded message.
+func ReadFrame(reader io.Reader) ([]byte, error) {
+	var header [4]byte
+	if _, err := io.ReadFull(reader, header[:]); err != nil {
+		return nil, fmt.Errorf("read frame length: %w", err)
+	}
+
+	length := binary.BigEndian.Uint32(header[:])
+	if length > MaxFrameSize {
+		return nil, fmt.Errorf("%w: %d bytes", ErrFrameTooLarge, length)
+	}
+
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return nil, fmt.Errorf("read frame payload: %w", err)
+	}
+	return payload, nil
 }
 
 // MarshalUnreliable serializes a protobuf message for an unreliable packet.

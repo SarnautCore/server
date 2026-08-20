@@ -106,5 +106,10 @@ jobs:
           go run ./cmd/migrate up
           go run ./cmd/migrate status
 
+      # `internal/account` joins the store here because what its integration
+      # tests cover is the database's behaviour, not the service's: the citext
+      # unique index on email, the unique index on name_normalized that decides
+      # NAME_TAKEN, and the soft delete that keeps a name taken. An in-memory
+      # store can imitate all three, and imitating them is not evidence.
       - name: Integration tests
-        run: go test -tags=integration -count=1 ./internal/store/...
+        run: go test -tags=integration -count=1 ./internal/store/... ./internal/account/...

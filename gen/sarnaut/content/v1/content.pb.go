@@ -38,16 +38,14 @@ const (
 type RowType int32
 
 const (
-	RowType_ROW_TYPE_UNSPECIFIED RowType = 0
-	RowType_ROW_TYPE_ZONE        RowType = 1
-	RowType_ROW_TYPE_PLACEMENT   RowType = 2
-	RowType_ROW_TYPE_SPAWN_TABLE RowType = 3
-	// 4 belongs to the chargen row type, which is in flight on its own branch.
-	// Numbers are claimed once and never reused, so the combat rows start at 5
-	// rather than filling the gap.
-	RowType_ROW_TYPE_ABILITY RowType = 5
-	RowType_ROW_TYPE_FACTION RowType = 6
-	RowType_ROW_TYPE_MOB     RowType = 7
+	RowType_ROW_TYPE_UNSPECIFIED    RowType = 0
+	RowType_ROW_TYPE_ZONE           RowType = 1
+	RowType_ROW_TYPE_PLACEMENT      RowType = 2
+	RowType_ROW_TYPE_SPAWN_TABLE    RowType = 3
+	RowType_ROW_TYPE_CHARGEN_OPTION RowType = 4
+	RowType_ROW_TYPE_ABILITY        RowType = 5
+	RowType_ROW_TYPE_FACTION        RowType = 6
+	RowType_ROW_TYPE_MOB            RowType = 7
 )
 
 // Enum value maps for RowType.
@@ -57,18 +55,20 @@ var (
 		1: "ROW_TYPE_ZONE",
 		2: "ROW_TYPE_PLACEMENT",
 		3: "ROW_TYPE_SPAWN_TABLE",
+		4: "ROW_TYPE_CHARGEN_OPTION",
 		5: "ROW_TYPE_ABILITY",
 		6: "ROW_TYPE_FACTION",
 		7: "ROW_TYPE_MOB",
 	}
 	RowType_value = map[string]int32{
-		"ROW_TYPE_UNSPECIFIED": 0,
-		"ROW_TYPE_ZONE":        1,
-		"ROW_TYPE_PLACEMENT":   2,
-		"ROW_TYPE_SPAWN_TABLE": 3,
-		"ROW_TYPE_ABILITY":     5,
-		"ROW_TYPE_FACTION":     6,
-		"ROW_TYPE_MOB":         7,
+		"ROW_TYPE_UNSPECIFIED":    0,
+		"ROW_TYPE_ZONE":           1,
+		"ROW_TYPE_PLACEMENT":      2,
+		"ROW_TYPE_SPAWN_TABLE":    3,
+		"ROW_TYPE_CHARGEN_OPTION": 4,
+		"ROW_TYPE_ABILITY":        5,
+		"ROW_TYPE_FACTION":        6,
+		"ROW_TYPE_MOB":            7,
 	}
 )
 
@@ -1036,6 +1036,324 @@ func (x *Mob) GetExtra() map[string]string {
 	return nil
 }
 
+// StatEntry is one authored starting stat, mirroring `statEntry` in
+// `common.schema.json`.
+type StatEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical stat name, for example `strength`.
+	Stat          string  `protobuf:"bytes,1,opt,name=stat,proto3" json:"stat,omitempty"`
+	Value         float32 `protobuf:"fixed32,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StatEntry) Reset() {
+	*x = StatEntry{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StatEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StatEntry) ProtoMessage() {}
+
+func (x *StatEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StatEntry.ProtoReflect.Descriptor instead.
+func (*StatEntry) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *StatEntry) GetStat() string {
+	if x != nil {
+		return x.Stat
+	}
+	return ""
+}
+
+func (x *StatEntry) GetValue() float32 {
+	if x != nil {
+		return x.Value
+	}
+	return 0
+}
+
+// LoadoutEntry is one item a character of a chargen option starts with.
+type LoadoutEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical item id, for example `item.consumable.harbor-tonic`.
+	ItemId   string `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	Quantity uint32 `protobuf:"varint,2,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	// An equipment slot, or `bag` for anything not equipped at first spawn.
+	Slot          string `protobuf:"bytes,3,opt,name=slot,proto3" json:"slot,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LoadoutEntry) Reset() {
+	*x = LoadoutEntry{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LoadoutEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LoadoutEntry) ProtoMessage() {}
+
+func (x *LoadoutEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LoadoutEntry.ProtoReflect.Descriptor instead.
+func (*LoadoutEntry) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *LoadoutEntry) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *LoadoutEntry) GetQuantity() uint32 {
+	if x != nil {
+		return x.Quantity
+	}
+	return 0
+}
+
+func (x *LoadoutEntry) GetSlot() string {
+	if x != nil {
+		return x.Slot
+	}
+	return ""
+}
+
+// ChargenOption is one selectable character-creation option (ADR 0032).
+//
+// Every starting item, stat, ability and spawn coordinate is a field here
+// precisely so that none of them lives in client or server source: adding the
+// second playable option is a data change, not a rebuild.
+type ChargenOption struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `chargen.league.warrior`.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Canonical race id, for example `race.human`.
+	Race string `protobuf:"bytes,2,opt,name=race,proto3" json:"race,omitempty"`
+	// Canonical class id, for example `class.warrior`.
+	Class string `protobuf:"bytes,3,opt,name=class,proto3" json:"class,omitempty"`
+	// The body variant this option renders with: `female` or `male`. It is a
+	// property of the option, not a customization axis (ADR 0032 section 4).
+	Sex string `protobuf:"bytes,4,opt,name=sex,proto3" json:"sex,omitempty"`
+	// Canonical faction id, for example `faction.league`.
+	Faction string `protobuf:"bytes,5,opt,name=faction,proto3" json:"faction,omitempty"`
+	// Whether the option may be offered. Options that are not playable yet ship
+	// with `enabled: false` rather than being absent.
+	Enabled bool `protobuf:"varint,6,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// Localization keys for the display name and description (ADR 0007).
+	NameKey        string `protobuf:"bytes,7,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	DescriptionKey string `protobuf:"bytes,8,opt,name=description_key,json=descriptionKey,proto3" json:"description_key,omitempty"`
+	// The model and material every character of this option renders with.
+	VisualRef string `protobuf:"bytes,9,opt,name=visual_ref,json=visualRef,proto3" json:"visual_ref,omitempty"`
+	// Where a fresh character of this option is placed.
+	SpawnZoneId   string `protobuf:"bytes,10,opt,name=spawn_zone_id,json=spawnZoneId,proto3" json:"spawn_zone_id,omitempty"`
+	SpawnPosition *Vec3  `protobuf:"bytes,11,opt,name=spawn_position,json=spawnPosition,proto3" json:"spawn_position,omitempty"`
+	// Facing of a fresh character, in the unit the authored document uses.
+	SpawnHeading  float32      `protobuf:"fixed32,12,opt,name=spawn_heading,json=spawnHeading,proto3" json:"spawn_heading,omitempty"`
+	StartingLevel uint32       `protobuf:"varint,13,opt,name=starting_level,json=startingLevel,proto3" json:"starting_level,omitempty"`
+	StartingStats []*StatEntry `protobuf:"bytes,14,rep,name=starting_stats,json=startingStats,proto3" json:"starting_stats,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra           map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	StartingLoadout []*LoadoutEntry   `protobuf:"bytes,16,rep,name=starting_loadout,json=startingLoadout,proto3" json:"starting_loadout,omitempty"`
+	// Canonical ability ids granted at creation.
+	StartingAbilities []string `protobuf:"bytes,17,rep,name=starting_abilities,json=startingAbilities,proto3" json:"starting_abilities,omitempty"`
+	// Canonical quest ids granted at first spawn.
+	StartingQuests []string `protobuf:"bytes,18,rep,name=starting_quests,json=startingQuests,proto3" json:"starting_quests,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ChargenOption) Reset() {
+	*x = ChargenOption{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChargenOption) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChargenOption) ProtoMessage() {}
+
+func (x *ChargenOption) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChargenOption.ProtoReflect.Descriptor instead.
+func (*ChargenOption) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ChargenOption) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ChargenOption) GetRace() string {
+	if x != nil {
+		return x.Race
+	}
+	return ""
+}
+
+func (x *ChargenOption) GetClass() string {
+	if x != nil {
+		return x.Class
+	}
+	return ""
+}
+
+func (x *ChargenOption) GetSex() string {
+	if x != nil {
+		return x.Sex
+	}
+	return ""
+}
+
+func (x *ChargenOption) GetFaction() string {
+	if x != nil {
+		return x.Faction
+	}
+	return ""
+}
+
+func (x *ChargenOption) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *ChargenOption) GetNameKey() string {
+	if x != nil {
+		return x.NameKey
+	}
+	return ""
+}
+
+func (x *ChargenOption) GetDescriptionKey() string {
+	if x != nil {
+		return x.DescriptionKey
+	}
+	return ""
+}
+
+func (x *ChargenOption) GetVisualRef() string {
+	if x != nil {
+		return x.VisualRef
+	}
+	return ""
+}
+
+func (x *ChargenOption) GetSpawnZoneId() string {
+	if x != nil {
+		return x.SpawnZoneId
+	}
+	return ""
+}
+
+func (x *ChargenOption) GetSpawnPosition() *Vec3 {
+	if x != nil {
+		return x.SpawnPosition
+	}
+	return nil
+}
+
+func (x *ChargenOption) GetSpawnHeading() float32 {
+	if x != nil {
+		return x.SpawnHeading
+	}
+	return 0
+}
+
+func (x *ChargenOption) GetStartingLevel() uint32 {
+	if x != nil {
+		return x.StartingLevel
+	}
+	return 0
+}
+
+func (x *ChargenOption) GetStartingStats() []*StatEntry {
+	if x != nil {
+		return x.StartingStats
+	}
+	return nil
+}
+
+func (x *ChargenOption) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+func (x *ChargenOption) GetStartingLoadout() []*LoadoutEntry {
+	if x != nil {
+		return x.StartingLoadout
+	}
+	return nil
+}
+
+func (x *ChargenOption) GetStartingAbilities() []string {
+	if x != nil {
+		return x.StartingAbilities
+	}
+	return nil
+}
+
+func (x *ChargenOption) GetStartingQuests() []string {
+	if x != nil {
+		return x.StartingQuests
+	}
+	return nil
+}
+
 var File_sarnaut_content_v1_content_proto protoreflect.FileDescriptor
 
 const file_sarnaut_content_v1_content_proto_rawDesc = "" +
@@ -1151,12 +1469,45 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xa6\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"5\n" +
+	"\tStatEntry\x12\x12\n" +
+	"\x04stat\x18\x01 \x01(\tR\x04stat\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x02R\x05value\"W\n" +
+	"\fLoadoutEntry\x12\x17\n" +
+	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\x1a\n" +
+	"\bquantity\x18\x02 \x01(\rR\bquantity\x12\x12\n" +
+	"\x04slot\x18\x03 \x01(\tR\x04slot\"\x8c\x06\n" +
+	"\rChargenOption\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04race\x18\x02 \x01(\tR\x04race\x12\x14\n" +
+	"\x05class\x18\x03 \x01(\tR\x05class\x12\x10\n" +
+	"\x03sex\x18\x04 \x01(\tR\x03sex\x12\x18\n" +
+	"\afaction\x18\x05 \x01(\tR\afaction\x12\x18\n" +
+	"\aenabled\x18\x06 \x01(\bR\aenabled\x12\x19\n" +
+	"\bname_key\x18\a \x01(\tR\anameKey\x12'\n" +
+	"\x0fdescription_key\x18\b \x01(\tR\x0edescriptionKey\x12\x1d\n" +
+	"\n" +
+	"visual_ref\x18\t \x01(\tR\tvisualRef\x12\"\n" +
+	"\rspawn_zone_id\x18\n" +
+	" \x01(\tR\vspawnZoneId\x12?\n" +
+	"\x0espawn_position\x18\v \x01(\v2\x18.sarnaut.content.v1.Vec3R\rspawnPosition\x12#\n" +
+	"\rspawn_heading\x18\f \x01(\x02R\fspawnHeading\x12%\n" +
+	"\x0estarting_level\x18\r \x01(\rR\rstartingLevel\x12D\n" +
+	"\x0estarting_stats\x18\x0e \x03(\v2\x1d.sarnaut.content.v1.StatEntryR\rstartingStats\x12B\n" +
+	"\x05extra\x18\x0f \x03(\v2,.sarnaut.content.v1.ChargenOption.ExtraEntryR\x05extra\x12K\n" +
+	"\x10starting_loadout\x18\x10 \x03(\v2 .sarnaut.content.v1.LoadoutEntryR\x0fstartingLoadout\x12-\n" +
+	"\x12starting_abilities\x18\x11 \x03(\tR\x11startingAbilities\x12'\n" +
+	"\x0fstarting_quests\x18\x12 \x03(\tR\x0estartingQuests\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xc3\x01\n" +
 	"\aRowType\x12\x18\n" +
 	"\x14ROW_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rROW_TYPE_ZONE\x10\x01\x12\x16\n" +
 	"\x12ROW_TYPE_PLACEMENT\x10\x02\x12\x18\n" +
-	"\x14ROW_TYPE_SPAWN_TABLE\x10\x03\x12\x14\n" +
+	"\x14ROW_TYPE_SPAWN_TABLE\x10\x03\x12\x1b\n" +
+	"\x17ROW_TYPE_CHARGEN_OPTION\x10\x04\x12\x14\n" +
 	"\x10ROW_TYPE_ABILITY\x10\x05\x12\x14\n" +
 	"\x10ROW_TYPE_FACTION\x10\x06\x12\x10\n" +
 	"\fROW_TYPE_MOB\x10\aB@Z>github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1b\x06proto3"
@@ -1174,7 +1525,7 @@ func file_sarnaut_content_v1_content_proto_rawDescGZIP() []byte {
 }
 
 var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_sarnaut_content_v1_content_proto_goTypes = []any{
 	(RowType)(0),            // 0: sarnaut.content.v1.RowType
 	(*Vec3)(nil),            // 1: sarnaut.content.v1.Vec3
@@ -1187,30 +1538,38 @@ var file_sarnaut_content_v1_content_proto_goTypes = []any{
 	(*FactionRelation)(nil), // 8: sarnaut.content.v1.FactionRelation
 	(*Faction)(nil),         // 9: sarnaut.content.v1.Faction
 	(*Mob)(nil),             // 10: sarnaut.content.v1.Mob
-	nil,                     // 11: sarnaut.content.v1.Zone.ExtraEntry
-	nil,                     // 12: sarnaut.content.v1.Placement.ExtraEntry
-	nil,                     // 13: sarnaut.content.v1.SpawnTable.ExtraEntry
-	nil,                     // 14: sarnaut.content.v1.Ability.ExtraEntry
-	nil,                     // 15: sarnaut.content.v1.Faction.ExtraEntry
-	nil,                     // 16: sarnaut.content.v1.Mob.ExtraEntry
+	(*StatEntry)(nil),       // 11: sarnaut.content.v1.StatEntry
+	(*LoadoutEntry)(nil),    // 12: sarnaut.content.v1.LoadoutEntry
+	(*ChargenOption)(nil),   // 13: sarnaut.content.v1.ChargenOption
+	nil,                     // 14: sarnaut.content.v1.Zone.ExtraEntry
+	nil,                     // 15: sarnaut.content.v1.Placement.ExtraEntry
+	nil,                     // 16: sarnaut.content.v1.SpawnTable.ExtraEntry
+	nil,                     // 17: sarnaut.content.v1.Ability.ExtraEntry
+	nil,                     // 18: sarnaut.content.v1.Faction.ExtraEntry
+	nil,                     // 19: sarnaut.content.v1.Mob.ExtraEntry
+	nil,                     // 20: sarnaut.content.v1.ChargenOption.ExtraEntry
 }
 var file_sarnaut_content_v1_content_proto_depIdxs = []int32{
 	1,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
-	11, // 1: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
+	14, // 1: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
 	1,  // 2: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
-	12, // 3: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
+	15, // 3: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
 	4,  // 4: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
-	13, // 5: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
+	16, // 5: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
 	6,  // 6: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
-	14, // 7: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
+	17, // 7: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
 	8,  // 8: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
-	15, // 9: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
-	16, // 10: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	18, // 9: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
+	19, // 10: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
+	1,  // 11: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
+	11, // 12: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
+	20, // 13: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
+	12, // 14: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_content_v1_content_proto_init() }
@@ -1224,7 +1583,7 @@ func file_sarnaut_content_v1_content_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_content_v1_content_proto_rawDesc), len(file_sarnaut_content_v1_content_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

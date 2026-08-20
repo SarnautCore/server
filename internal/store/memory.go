@@ -14,36 +14,39 @@ import (
 // copied, which is what gives the in-memory [Repository] real rollback instead
 // of a comment claiming rollback.
 type memoryState struct {
-	accounts   map[uuid.UUID]Account
-	emails     map[string]uuid.UUID
-	characters map[uuid.UUID]Character
-	names      map[string]uuid.UUID
-	states     map[uuid.UUID]CharacterState
-	inventory  map[uuid.UUID]map[int32]InventoryItem
-	quests     map[uuid.UUID]map[string]QuestState
+	accounts     map[uuid.UUID]Account
+	emails       map[string]uuid.UUID
+	characters   map[uuid.UUID]Character
+	names        map[string]uuid.UUID
+	reservations map[string]NameReservation
+	states       map[uuid.UUID]CharacterState
+	inventory    map[uuid.UUID]map[int32]InventoryItem
+	quests       map[uuid.UUID]map[string]QuestState
 }
 
 func newMemoryState() *memoryState {
 	return &memoryState{
-		accounts:   make(map[uuid.UUID]Account),
-		emails:     make(map[string]uuid.UUID),
-		characters: make(map[uuid.UUID]Character),
-		names:      make(map[string]uuid.UUID),
-		states:     make(map[uuid.UUID]CharacterState),
-		inventory:  make(map[uuid.UUID]map[int32]InventoryItem),
-		quests:     make(map[uuid.UUID]map[string]QuestState),
+		accounts:     make(map[uuid.UUID]Account),
+		emails:       make(map[string]uuid.UUID),
+		characters:   make(map[uuid.UUID]Character),
+		names:        make(map[string]uuid.UUID),
+		reservations: make(map[string]NameReservation),
+		states:       make(map[uuid.UUID]CharacterState),
+		inventory:    make(map[uuid.UUID]map[int32]InventoryItem),
+		quests:       make(map[uuid.UUID]map[string]QuestState),
 	}
 }
 
 func (state *memoryState) clone() *memoryState {
 	copied := &memoryState{
-		accounts:   copyMap(state.accounts),
-		emails:     copyMap(state.emails),
-		characters: copyMap(state.characters),
-		names:      copyMap(state.names),
-		states:     copyMap(state.states),
-		inventory:  make(map[uuid.UUID]map[int32]InventoryItem, len(state.inventory)),
-		quests:     make(map[uuid.UUID]map[string]QuestState, len(state.quests)),
+		accounts:     copyMap(state.accounts),
+		emails:       copyMap(state.emails),
+		characters:   copyMap(state.characters),
+		names:        copyMap(state.names),
+		reservations: copyMap(state.reservations),
+		states:       copyMap(state.states),
+		inventory:    make(map[uuid.UUID]map[int32]InventoryItem, len(state.inventory)),
+		quests:       make(map[uuid.UUID]map[string]QuestState, len(state.quests)),
 	}
 	for characterID, slots := range state.inventory {
 		copied.inventory[characterID] = copyMap(slots)
@@ -84,7 +87,18 @@ type memoryStore struct {
 // behaviour as the Postgres one, including name-uniqueness rejection, save
 // sequence rejection and transaction rollback.
 func NewMemory() Repository {
-	return &memoryStore{state: newMemoryState(), now: time.Now}
+	return NewMemoryWithClock(time.Now)
+}
+
+// NewMemoryWithClock is [NewMemory] with an injectable clock, so a test that is
+// about expiry — a name reservation running out — advances a clock instead of
+// sleeping. The Postgres implementation reads the database's `now()` and has no
+// equivalent seam, which is why this one is named for what it is.
+func NewMemoryWithClock(now func() time.Time) Repository {
+	if now == nil {
+		now = time.Now
+	}
+	return &memoryStore{state: newMemoryState(), now: now}
 }
 
 func (store *memoryStore) begin(ctx context.Context) (*memoryState, func(), error) {
@@ -184,6 +198,11 @@ func (store *memoryStore) CreateCharacter(ctx context.Context, character Charact
 	if character.NameNormalized == "" {
 		character.NameNormalized = NormalizeCharacterName(character.Name)
 	}
+	if _, exists := state.characters[character.CharacterID]; exists {
+		// The primary key would refuse this. Silently overwriting instead is
+		// how an in-memory store stops being evidence about the real one.
+		return ErrNameTaken
+	}
 	if _, exists := state.names[character.NameNormalized]; exists {
 		return ErrNameTaken
 	}
@@ -229,6 +248,69 @@ func (store *memoryStore) CharactersByAccount(ctx context.Context, accountID uui
 		return characters[left].CharacterID.String() < characters[right].CharacterID.String()
 	})
 	return characters, nil
+}
+
+func (store *memoryStore) CharacterByNormalizedName(ctx context.Context, nameNormalized string) (Character, error) {
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return Character{}, err
+	}
+	defer done()
+
+	characterID, ok := state.names[nameNormalized]
+	if !ok {
+		return Character{}, ErrNotFound
+	}
+	return state.characters[characterID], nil
+}
+
+func (store *memoryStore) DeleteCharacter(ctx context.Context, accountID, characterID uuid.UUID) error {
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	character, ok := state.characters[characterID]
+	if !ok || character.AccountID != accountID || character.DeletedAt != nil {
+		return ErrNotFound
+	}
+	// The name stays in state.names: a deleted character's name is taken
+	// indefinitely in M2, exactly as the unique index keeps it.
+	deletedAt := store.timestamp()
+	character.DeletedAt = &deletedAt
+	state.characters[characterID] = character
+	return nil
+}
+
+func (store *memoryStore) ReserveName(ctx context.Context, reservation NameReservation) error {
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	existing, held := state.reservations[reservation.NameNormalized]
+	if held &&
+		existing.AccountID != reservation.AccountID &&
+		existing.ReservedUntil.After(store.timestamp()) {
+		return ErrNameTaken
+	}
+	state.reservations[reservation.NameNormalized] = reservation
+	return nil
+}
+
+func (store *memoryStore) ReleaseNameReservation(ctx context.Context, nameNormalized string, accountID uuid.UUID) error {
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	if existing, held := state.reservations[nameNormalized]; held && existing.AccountID == accountID {
+		delete(state.reservations, nameNormalized)
+	}
+	return nil
 }
 
 func (store *memoryStore) SaveCharacterState(ctx context.Context, incoming CharacterState) error {

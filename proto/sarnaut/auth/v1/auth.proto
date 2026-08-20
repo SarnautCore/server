@@ -1,0 +1,120 @@
+// Service messages between the auth service and a shard (ADR 0030 section 3).
+//
+// This package sits outside the `sarnaut.v1` wire tree deliberately: ADR 0027's
+// `PROTO_LOCK.sha256` and the client's `sync-proto.ps1` cover
+// `proto/sarnaut/v1/*.proto` only, and nothing here is ever sent to a client.
+// These messages travel over NATS request/reply on an internal network.
+syntax = "proto3";
+
+package sarnaut.auth.v1;
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/auth/v1;authv1";
+
+// TicketError is why a redemption was refused. The shard logs the reason and
+// answers the client with one opaque UNAUTHENTICATED either way: a peer that
+// learns whether a ticket expired or never existed learns something about
+// another account.
+enum TicketError {
+  TICKET_ERROR_UNSPECIFIED = 0;
+  // The ticket is not a ticket: wrong prefix, wrong length, or malformed.
+  TICKET_ERROR_MALFORMED = 1;
+  // No such ticket. Expiry and single-use redemption are indistinguishable
+  // here on purpose: both are a key that is no longer in Valkey.
+  TICKET_ERROR_UNKNOWN = 2;
+  // The character named by the ticket no longer exists or was deleted.
+  TICKET_ERROR_CHARACTER_NOT_FOUND = 3;
+  // The character is not owned by the account the ticket was minted for.
+  // Minting refuses this already; redemption re-checks, because ownership is
+  // the one thing worth verifying twice.
+  TICKET_ERROR_NOT_OWNED = 4;
+  // Another shard instance holds the play lock for this character.
+  TICKET_ERROR_PLAY_LOCK_HELD = 5;
+  // The auth service could not answer. Distinct from a refusal.
+  TICKET_ERROR_INTERNAL = 6;
+}
+
+// CharacterError is why a character request was refused.
+enum CharacterError {
+  CHARACTER_ERROR_UNSPECIFIED = 0;
+  CHARACTER_ERROR_UNAUTHENTICATED = 1;
+  CHARACTER_ERROR_NAME_INVALID = 2;
+  CHARACTER_ERROR_NAME_TAKEN = 3;
+  CHARACTER_ERROR_NAME_BLOCKED = 4;
+  CHARACTER_ERROR_UNKNOWN_OPTION = 5;
+  CHARACTER_ERROR_OPTION_DISABLED = 6;
+  CHARACTER_ERROR_NOT_FOUND = 7;
+  CHARACTER_ERROR_INTERNAL = 8;
+}
+
+// RedeemTicketRequest burns one shard ticket. Redemption is a single GETDEL, so
+// there is no retry: a retried request cannot succeed.
+message RedeemTicketRequest {
+  // The opaque `sarnaut_tk_…` credential the client presented.
+  string ticket = 1;
+  // The shard instance that will hold the play lock. Empty means the caller
+  // wants no lock, which only a diagnostic tool does.
+  string holder = 2;
+}
+
+message RedeemTicketResponse {
+  string account_id = 1;
+  string character_id = 2;
+  string character_name = 3;
+  string chargen_option_id = 4;
+  // Unset on success.
+  TicketError error = 5;
+}
+
+message ListCharactersRequest {
+  string session_token = 1;
+}
+
+// Character is one row of an account's roster. It carries no secret.
+message Character {
+  string character_id = 1;
+  string name = 2;
+  string chargen_option_id = 3;
+}
+
+message ListCharactersResponse {
+  repeated Character characters = 1;
+  CharacterError error = 2;
+}
+
+message CreateCharacterRequest {
+  string session_token = 1;
+  string name = 2;
+  string chargen_option_id = 3;
+}
+
+message CreateCharacterResponse {
+  string character_id = 1;
+  CharacterError error_code = 2;
+}
+
+// RenewPlayLockRequest extends the Valkey play lock a redemption took. The
+// shard renews every 20 seconds; the 60-second TTL is what frees a character
+// whose shard died without releasing.
+message RenewPlayLockRequest {
+  string character_id = 1;
+  string holder = 2;
+}
+
+message RenewPlayLockResponse {
+  bool granted = 1;
+}
+
+message ReleasePlayLockRequest {
+  string character_id = 1;
+  string holder = 2;
+}
+
+message ReleasePlayLockResponse {}
+
+// SessionRevoked is published with no queue group: every shard must see it and
+// drop matching connections.
+message SessionRevoked {
+  string account_id = 1;
+  string character_id = 2;
+  string reason = 3;
+}
