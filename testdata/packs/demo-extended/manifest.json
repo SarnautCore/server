@@ -2,7 +2,7 @@
   "schema_version": 1,
   "ruleset": "classic",
   "zone": "paper-harbor",
-  "pack_id": "994858a279eb00925f2cb84d16a7659ae3a06610ab391529ec962627e297551a",
+  "pack_id": "23fefe04f497cafd152192a211e7bd657313f75e153b752324aeb498e8693983",
   "builder": {
     "name": "sarnaut-pack",
     "version": "0.1.0"
@@ -23,6 +23,14 @@
       "rows": 2,
       "bytes": 262,
       "blake3": "8ca9914fd3dd92b2d91c4bb6c036948b34b5c2ea2f15ac0039f98ddfaa7f6c8f"
+    },
+    {
+      "name": "chargen",
+      "file": "tables/chargen.sptbl",
+      "row_type": "ROW_TYPE_CHARGEN_OPTION",
+      "rows": 1,
+      "bytes": 437,
+      "blake3": "7c3ee48bd7dc2389d849e56949694821bfd9e6e3fb59a1071d60c47de202565e"
     },
     {
       "name": "factions",

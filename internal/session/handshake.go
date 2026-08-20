@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
@@ -81,14 +83,28 @@ func (client Client) EnterZone(
 	if err := transport.WriteMessage(connection, request); err != nil {
 		return nil, fmt.Errorf("write enter zone request: %w", err)
 	}
-	response := new(sarnautv1.EnterZoneResponse)
-	if err := transport.ReadMessage(connection, response); err != nil {
+	payload, err := transport.ReadFrame(connection)
+	if err != nil {
 		return nil, fmt.Errorf("read enter zone response: %w", err)
 	}
-	if response.GetZoneId() != zoneID {
-		return nil, fmt.Errorf("server entered zone %q, want %q", response.GetZoneId(), zoneID)
+
+	response := new(sarnautv1.EnterZoneResponse)
+	if err := proto.Unmarshal(payload, response); err == nil && response.GetZoneId() == zoneID {
+		return response, nil
 	}
-	return response, nil
+	// Two message types are possible at this position: the response, or the
+	// refusal the shard writes when admission fails (protocol/session.md rule
+	// 5.4.3). Protobuf is not self-describing, so the same bytes are tried
+	// against both rather than reported as a zone-id mismatch, which is what a
+	// refused client used to see.
+	refusal := new(sarnautv1.ServerMessage)
+	if err := proto.Unmarshal(payload, refusal); err == nil && refusal.GetError() != nil {
+		return nil, &ProtocolViolation{
+			Code:   refusal.GetError().GetCode(),
+			Detail: refusal.GetError().GetDetail(),
+		}
+	}
+	return nil, fmt.Errorf("server entered zone %q, want %q", response.GetZoneId(), zoneID)
 }
 
 // SendMoveIntent sends movement as a QUIC datagram when both peers support it.
@@ -207,6 +223,27 @@ type Server struct {
 	PackID string
 
 	Zones map[string]ZoneBinding
+
+	// Authority redeems the ticket an EnterZoneRequest carries (ADR 0030,
+	// ADR 0033 §3). A Server with no Authority admits nobody: identity is not
+	// something a shard is allowed to assume, and failing closed is the only
+	// safe default for a security check.
+	Authority Authority
+
+	// Characters loads a character at zone entry and takes the checkpoints of
+	// protocol/session.md §5.7. Required for the same reason: a session with
+	// nowhere to save is a session that loses the player's progress silently.
+	Characters CharacterStore
+
+	// SaveInterval is checkpoint S2's cadence. Zero means
+	// [DefaultSaveInterval].
+	SaveInterval time.Duration
+
+	Logger *slog.Logger
+
+	// sessions arbitrates two connections for one character. It is created by
+	// Serve, so every handler a Serve call spawns shares one registry.
+	sessions *sessionRegistry
 }
 
 // ZoneBinding is the set of modules that serve one hosted zone.
@@ -221,8 +258,27 @@ type ZoneBinding struct {
 	Combat *combat.Module
 }
 
+// DefaultSaveInterval is protocol/session.md's PERIODIC_SAVE_INTERVAL_S: the
+// ceiling on progress an unclean shard exit can destroy.
+const DefaultSaveInterval = 60 * time.Second
+
+// refusalDrainGrace is how long a refused connection is left half-closed so the
+// peer can read the refusal frame. It is short: the alternative to closing at
+// all is letting a rejected peer hold a connection until the idle timeout.
+const refusalDrainGrace = 250 * time.Millisecond
+
+func (server Server) logger() *slog.Logger {
+	if server.Logger != nil {
+		return server.Logger
+	}
+	return slog.Default()
+}
+
 // Serve handles connections until the context ends or the listener fails.
 func (server Server) Serve(ctx context.Context, listener transport.Listener) error {
+	if server.sessions == nil {
+		server.sessions = newSessionRegistry()
+	}
 	for {
 		connection, err := listener.Accept(ctx)
 		if err != nil {
@@ -233,11 +289,25 @@ func (server Server) Serve(ctx context.Context, listener transport.Listener) err
 		}
 
 		go func() {
-			if err := server.handle(ctx, connection); err != nil {
-				_ = connection.Close()
+			err := server.handle(ctx, connection)
+			if err == nil {
+				_ = connection.CloseWrite()
 				return
 			}
-			_ = connection.CloseWrite()
+			var violation *ProtocolViolation
+			if errors.As(err, &violation) {
+				// The refusal is already on the wire. Closing the connection
+				// outright here would discard it — a QUIC CONNECTION_CLOSE does
+				// not wait for stream data to be read — and the peer would see a
+				// dropped connection instead of the reason. Half-close, let it
+				// drain, then close.
+				_ = connection.CloseWrite()
+				select {
+				case <-time.After(refusalDrainGrace):
+				case <-ctx.Done():
+				}
+			}
+			_ = connection.Close()
 		}()
 	}
 }
@@ -264,20 +334,76 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		return fmt.Errorf("zone %q is not hosted by this shard", request.GetZoneId())
 	}
 	zone := binding.World
-	// TODO(m2-auth): redeem request.GetTicket() over NATS before the entity is
-	// created, and derive account_id and character_id from the reply
-	// (ADR 0030, protocol/session.md rule 5.2).
 
-	entityID, spawn := zone.Join()
-	defer zone.Leave(entityID)
+	// Admission runs before anything else in EnterZone. A session that fails
+	// redemption never reaches CharacterBound and never touches the zone, so no
+	// entity exists to clean up on this path (protocol/session.md rule 5.4.3).
+	admission, err := server.admit(ctx, connection, request.GetTicket())
+	if err != nil {
+		return err
+	}
+
+	// L1: the character's saved snapshot, or a fresh one materialized from the
+	// chargen table. It runs before the entity is created because the entity
+	// needs the loaded position, and before the response is written so that a
+	// load failure is still reportable while the session is healthy.
+	loaded, err := server.Characters.Load(ctx, admission.CharacterID, admission.ChargenOptionID, zone.ID())
+	if err != nil {
+		server.logger().ErrorContext(ctx, "character load failed",
+			"character_id", admission.CharacterID.String(),
+			"zone_id", zone.ID(),
+			"error", err,
+		)
+		return server.refuseEnterZone(connection, sarnautv1.ErrorCode_ERROR_CODE_INTERNAL,
+			"the character could not be loaded")
+	}
+	character := newCharacterSession(admission, zone.ID(), loaded)
+
+	sessionCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// One live session per character. The newer connection wins, and the older
+	// one is fully torn down before this one creates its entity, so the zone
+	// never holds two entities for one character.
+	release := server.sessions.claim(ctx, admission.CharacterID, cancel)
+	defer release()
+	if sessionCtx.Err() != nil {
+		// Evicted while waiting for our own predecessor: a third connection
+		// arrived. It wins; this one stops before touching the zone.
+		return sessionCtx.Err()
+	}
+
+	position, heading := character.spawn()
+	entityID, spawn := zone.JoinAt(position, heading)
+	// Teardown is armed the moment the entity exists, in the same statement
+	// sequence — not after the response is written and not after the
+	// subscription succeeds (protocol/session.md rule 5.4.5). It runs S1 from a
+	// snapshot taken while the entity still exists and only then evicts, which
+	// is why it is one deferred function rather than two: `Zone.Leave` stays a
+	// pure in-memory eviction and the ordering is stated here instead of being
+	// inferred from the order two defers were armed (ADR 0031 §8).
+	defer server.teardown(zone, entityID, character, admission)
 	// The entity is not replicated until Subscribe, so its combat identity is
-	// in place before any peer sees it.
+	// in place before any peer sees it — and before S0, which persists the
+	// level and health the combat module just gave it.
 	if binding.Combat != nil {
 		if err := binding.Combat.Admit(entityID); err != nil {
 			return err
 		}
 		defer binding.Combat.Release(entityID)
 	}
+
+	// S0 stamps the zone this character is now in. It is not a redundant
+	// write-back of what L1 just read: a later load and any operator
+	// inspection depend on it.
+	character.checkpoint(zone, entityID, server.Characters, server.logger(), "S0")
+
+	server.logger().InfoContext(ctx, "character entered zone",
+		"account_id", admission.AccountID.String(),
+		"character_id", admission.CharacterID.String(),
+		"zone_id", zone.ID(),
+		"entity_id", entityID,
+	)
+
 	response := &sarnautv1.EnterZoneResponse{
 		ZoneId:      zone.ID(),
 		OwnEntityId: entityID,
@@ -301,8 +427,6 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		return err
 	}
 
-	sessionCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	// stream.Read does not observe a context, so cancellation alone cannot
 	// unblock the reliable reader. Closing the connection can.
 	go func() {
@@ -319,13 +443,28 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		datagrams:  connection.SupportsUnreliable(),
 		span:       span,
 	}
-	results := make(chan error, 4)
-	running := 3
+	// Every goroutine below reports exactly once into results, and handle does
+	// not return until it has read all of them: the deferred teardown must not
+	// run while a sender still holds the sink (ADR 0026). The buffer is sized to
+	// the maximum so none of them blocks on a send after the first error.
+	results := make(chan error, 5)
+	running := 4
 	go func() { results <- sender.run(sessionCtx) }()
 	go func() { results <- events.run(sessionCtx) }()
 	go func() { results <- reader.readReliable(sessionCtx) }()
+	go func() {
+		results <- character.runPeriodicSaves(
+			sessionCtx,
+			zone,
+			entityID,
+			server.Characters,
+			server.Authority,
+			server.saveInterval(),
+			server.logger(),
+		)
+	}()
 	if reader.datagrams {
-		running = 4
+		running = 5
 		go func() { results <- reader.readUnreliable(sessionCtx) }()
 	}
 
@@ -342,6 +481,119 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	}
 	return first
 }
+
+func (server Server) saveInterval() time.Duration {
+	if server.SaveInterval > 0 {
+		return server.SaveInterval
+	}
+	return DefaultSaveInterval
+}
+
+// admit redeems the ticket an EnterZoneRequest carried.
+//
+// Every refusal is logged with its own reason and answered with the same
+// opaque UNAUTHENTICATED: the log is where an operator can tell an expired
+// ticket from somebody else's character, and the wire is not. No entity exists
+// on any path out of here.
+func (server Server) admit(
+	ctx context.Context,
+	connection transport.Connection,
+	ticket string,
+) (Admission, error) {
+	if server.Authority == nil || server.Characters == nil {
+		// A misconfigured shard refuses rather than admitting anonymously.
+		server.logger().ErrorContext(ctx, "session refused",
+			"reason", "shard_has_no_auth_wiring",
+		)
+		return Admission{}, server.refuseEnterZone(connection,
+			sarnautv1.ErrorCode_ERROR_CODE_INTERNAL, "this shard cannot admit sessions")
+	}
+	if ticket == "" {
+		server.logger().InfoContext(ctx, "session refused",
+			"reason", ReasonNoTicket,
+			"peer", connection.RemoteAddr().String(),
+		)
+		return Admission{}, server.refuseEnterZone(connection,
+			sarnautv1.ErrorCode_ERROR_CODE_UNAUTHENTICATED, "a shard ticket is required")
+	}
+
+	admission, err := server.Authority.RedeemTicket(ctx, ticket)
+	if err != nil {
+		reason := refusalReason(err)
+		if reason == "" {
+			reason = ReasonAuthUnavailable
+		}
+		server.logger().InfoContext(ctx, "session refused",
+			"reason", reason,
+			"peer", connection.RemoteAddr().String(),
+		)
+		return Admission{}, server.refuseEnterZone(connection,
+			sarnautv1.ErrorCode_ERROR_CODE_UNAUTHENTICATED, "the shard ticket was refused")
+	}
+	return admission, nil
+}
+
+// refuseEnterZone writes a typed error and returns it, so the caller's `return`
+// both closes the connection and reports why.
+func (server Server) refuseEnterZone(
+	connection transport.Connection,
+	code sarnautv1.ErrorCode,
+	detail string,
+) error {
+	violation := &ProtocolViolation{Code: code, Detail: detail}
+	message := &sarnautv1.ServerMessage{
+		Payload: &sarnautv1.ServerMessage_Error{
+			Error: &sarnautv1.Error{Code: code, Detail: detail},
+		},
+	}
+	if err := transport.WriteMessage(connection, message); err != nil {
+		return errors.Join(violation, fmt.Errorf("write admission refusal: %w", err))
+	}
+	return violation
+}
+
+// teardown is checkpoint S1 followed by eviction, in that order and in one
+// deferred call (protocol/session.md rule 5.7.5).
+//
+// The snapshot is read first, because Zone.Leave deletes the entity and a read
+// afterwards would find nothing and save a stale position. The save itself goes
+// through the bounded worker, whose context is the shard's lifetime rather than
+// this connection's: the disconnect path is frequently reached *because* the
+// connection context was cancelled, and a save issued on that context would
+// fail every time, on exactly the shutdown that most needs it to succeed.
+func (server Server) teardown(
+	zone *world.Zone,
+	entityID uint64,
+	character *characterSession,
+	admission Admission,
+) {
+	saved := character.checkpoint(zone, entityID, server.Characters, server.logger(), "S1")
+	zone.Leave(entityID)
+
+	// The play lock is released on a context of its own for the same reason the
+	// save is: the connection's context is already cancelled here. A release
+	// that fails is not fatal — the lock's TTL frees the character within a
+	// minute either way.
+	releaseCtx, cancel := context.WithTimeout(context.Background(), playLockReleaseTimeout)
+	defer cancel()
+	if err := server.Authority.ReleasePlayLock(releaseCtx, admission.CharacterID); err != nil {
+		server.logger().Warn("play lock release failed",
+			"character_id", admission.CharacterID.String(),
+			"error", err,
+		)
+	}
+	server.logger().Info("character left zone",
+		"character_id", admission.CharacterID.String(),
+		"zone_id", zone.ID(),
+		"entity_id", entityID,
+		"final_save_enqueued", saved,
+	)
+}
+
+// playLockReleaseTimeout bounds the disconnect-path release. It is short: the
+// TTL is the real guarantee, and a slow release must not hold a goroutine open
+// through shutdown.
+const playLockReleaseTimeout = 2 * time.Second
 
 func (server Server) exchangeHello(connection transport.Connection) error {
 	hello := new(sarnautv1.ClientHello)

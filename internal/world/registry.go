@@ -71,6 +71,8 @@ func (r *registry) add(entity *Entity) *Entity {
 
 func (r *registry) get(id uint64) *Entity { return r.entities[id] }
 
+func (r *registry) count() int { return len(r.entities) }
+
 func (r *registry) remove(id uint64) {
 	entity, ok := r.entities[id]
 	if !ok {

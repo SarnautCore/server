@@ -15,7 +15,7 @@ import (
 // fixturePackID pins the digest of the vendored golden fixture. A silent change
 // to the pack format, to the compiler, or to the demo dataset fails this test
 // rather than surfacing as a mismatched handshake at connect time.
-const fixturePackID = "93d786dce705d20cf806d26e1f059577da8b5638b6a15786187dd46f4f25a527"
+const fixturePackID = "f43d6e93a863a7e6f23d9b437dfbfbde29ee5c2fa283b1cacb3b27f1bdb032e0"
 
 // fixtureDirectory is the vendored pack every server test shares. It is
 // compiled from `data-schemas/demo`, which is invented content, so no
@@ -173,6 +173,76 @@ func TestCombatTablesCarryTheRulesTheSpecReads(t *testing.T) {
 	}
 	if sparrow.AggroRadiusM == mob.AggroRadiusM || sparrow.HPMod == mob.HPMod {
 		t.Errorf("the two fixture mobs do not differ: %+v and %+v", sparrow, mob)
+	}
+}
+
+func TestChargenOptionsCarryTheWholeStartingCharacter(t *testing.T) {
+	t.Parallel()
+
+	loaded, err := Load(fixtureDirectory, Options{})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	options := loaded.ChargenOptions()
+	if len(options) != 1 {
+		t.Fatalf("ChargenOptions() returned %d options, want 1", len(options))
+	}
+	option := options[0]
+	if option.ID != "chargen.league.warrior" || !option.Enabled {
+		t.Fatalf("ChargenOptions()[0] = %+v", option)
+	}
+	if option.Race != "race.human" || option.Class != "class.warrior" || option.Faction != "faction.league" {
+		t.Errorf("option taxonomy = %q/%q/%q", option.Race, option.Class, option.Faction)
+	}
+	// The spawn a created character gets comes from the option, not from the
+	// zone's PlayerSpawn, which is why the two differ in the fixture (ADR 0032).
+	if option.SpawnZoneID != loaded.Zone().ID {
+		t.Errorf("SpawnZoneID = %q, want %q", option.SpawnZoneID, loaded.Zone().ID)
+	}
+	if option.SpawnPosition == (Vec3{}) || option.SpawnPosition == loaded.Zone().PlayerSpawn {
+		t.Errorf("SpawnPosition = %+v; the option must carry its own spawn", option.SpawnPosition)
+	}
+	if option.StartingLevel != 1 {
+		t.Errorf("StartingLevel = %d, want 1", option.StartingLevel)
+	}
+	if len(option.StartingStats) == 0 || len(option.StartingLoadout) == 0 {
+		t.Fatalf("option carries no stats or no loadout: %+v", option)
+	}
+	if option.StartingLoadout[0].Quantity == 0 || option.StartingLoadout[0].Slot == "" {
+		t.Errorf("loadout entry = %+v", option.StartingLoadout[0])
+	}
+	if len(option.StartingQuests) == 0 || len(option.StartingAbility) == 0 {
+		t.Errorf("option grants no starting quest or ability: %+v", option)
+	}
+}
+
+func TestChargenOptionsAreAbsentFromAPackWithoutTheTable(t *testing.T) {
+	t.Parallel()
+
+	directory := copyFixture(t)
+	document := loadManifest(t, directory)
+	kept := document.Tables[:0]
+	for _, entry := range document.Tables {
+		if entry.Name != tableChargen {
+			kept = append(kept, entry)
+		}
+	}
+	document.Tables = kept
+	saveManifest(t, directory, document)
+	if err := os.Remove(filepath.Join(directory, "tables", tableChargen+".sptbl")); err != nil {
+		t.Fatalf("remove chargen table: %v", err)
+	}
+	reseal(t, directory)
+
+	// A pack with no chargen table still loads: only the auth service needs
+	// options, and a shard-only pack is a legitimate artifact.
+	loaded, err := Load(directory, Options{})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := loaded.ChargenOptions(); len(got) != 0 {
+		t.Errorf("ChargenOptions() = %v, want none", got)
 	}
 }
 

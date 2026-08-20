@@ -122,24 +122,97 @@ func (zone *Zone) spawnNPCLocked(spec NPCSpec) *Entity {
 	})
 }
 
-// Join adds a player and returns its entity id and authoritative spawn.
+// Join adds a player at the zone's configured spawn.
+//
+// It survives for debug tools and for entities no character owns. A session
+// admitting a real player calls [Zone.JoinAt] with the position checkpoint L1
+// loaded, because the configured spawn is right for a fresh character and wrong
+// for a returning one (protocol/session.md rule 5.4.4.3).
+func (zone *Zone) Join() (uint64, Vec3) {
+	return zone.JoinAt(zone.config.PlayerSpawn, 0)
+}
+
+// JoinAt adds a player at a loaded position and heading, and returns the entity
+// id together with the position the zone actually placed it at. That return is
+// what the client is told to snap to: it is the server's answer, not a
+// confirmation of a request.
 //
 // The entity is not replicated yet: its combat identity is filled in by the
 // combat module and it becomes visible at Subscribe. Publishing a player with
 // no level and no health, however briefly, would be a lie the client has to
 // correct.
-func (zone *Zone) Join() (uint64, Vec3) {
+func (zone *Zone) JoinAt(position Vec3, heading float32) (uint64, Vec3) {
+	if !position.Finite() || !finite(heading) {
+		// A stored position that is not a number would put an entity nowhere
+		// the simulation can reason about, so the zone falls back rather than
+		// admitting it.
+		position, heading = zone.config.PlayerSpawn, 0
+	}
 	zone.mu.Lock()
 	defer zone.mu.Unlock()
 	entity := zone.registry.add(&Entity{
-		Kind:       EntityKindPlayer,
-		Alive:      true,
-		Animation:  AnimationStateIdle,
-		Origin:     zone.config.PlayerSpawn,
-		Replicated: false,
-		position:   zone.config.PlayerSpawn,
+		Kind:          EntityKindPlayer,
+		Alive:         true,
+		Heading:       heading,
+		Animation:     AnimationStateIdle,
+		Origin:        position,
+		OriginHeading: heading,
+		Replicated:    false,
+		position:      position,
 	})
-	return entity.ID, zone.config.PlayerSpawn
+	return entity.ID, position
+}
+
+// CharacterSnapshot is one player entity copied out of the zone. It is what a
+// save checkpoint writes about the simulation, and nothing more: inventory and
+// quests belong to their own modules.
+type CharacterSnapshot struct {
+	EntityID  uint64
+	Position  Vec3
+	Heading   float32
+	Level     uint32
+	Health    int32
+	MaxHealth int32
+	Alive     bool
+}
+
+// SnapshotCharacter copies one player entity under a single acquisition of the
+// zone mutex.
+//
+// It is a zone method rather than session code reaching into zone state for one
+// reason: the tick loop mutates position under this mutex 30 times a second, so
+// a field-by-field read from outside can persist a torn mix of two ticks — a
+// position the player was never at (protocol/session.md rule 5.7.5.2).
+//
+// It reports false for an unknown entity, which is the ordinary answer for a
+// session whose entity has already been evicted.
+func (zone *Zone) SnapshotCharacter(entityID uint64) (CharacterSnapshot, bool) {
+	zone.mu.Lock()
+	defer zone.mu.Unlock()
+	current := zone.registry.get(entityID)
+	if current == nil || current.Kind != EntityKindPlayer {
+		return CharacterSnapshot{}, false
+	}
+	return CharacterSnapshot{
+		EntityID:  current.ID,
+		Position:  current.position,
+		Heading:   current.Heading,
+		Level:     current.Level,
+		Health:    current.Health,
+		MaxHealth: current.MaxHealth,
+		Alive:     current.Alive,
+	}, true
+}
+
+// EntityCount reports how many entities the zone holds.
+//
+// It is a diagnostic, not a simulation input: an operator asking how full a
+// zone is, and the tests that assert a refused admission created nothing and
+// that a replaced session left exactly one entity behind.
+func (zone *Zone) EntityCount() int {
+	zone.mu.Lock()
+	defer zone.mu.Unlock()
+	return zone.registry.count()
 }
 
 // Subscribe starts snapshot delivery for an admitted player.

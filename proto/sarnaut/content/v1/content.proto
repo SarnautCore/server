@@ -22,9 +22,7 @@ enum RowType {
   ROW_TYPE_ZONE = 1;
   ROW_TYPE_PLACEMENT = 2;
   ROW_TYPE_SPAWN_TABLE = 3;
-  // 4 belongs to the chargen row type, which is in flight on its own branch.
-  // Numbers are claimed once and never reused, so the combat rows start at 5
-  // rather than filling the gap.
+  ROW_TYPE_CHARGEN_OPTION = 4;
   ROW_TYPE_ABILITY = 5;
   ROW_TYPE_FACTION = 6;
   ROW_TYPE_MOB = 7;
@@ -194,4 +192,62 @@ message Mob {
   string loot_table_id = 12;
   // Untyped passthrough; see Zone.extra.
   map<string, string> extra = 15;
+}
+
+// StatEntry is one authored starting stat, mirroring `statEntry` in
+// `common.schema.json`.
+message StatEntry {
+  // Canonical stat name, for example `strength`.
+  string stat = 1;
+  float value = 2;
+}
+
+// LoadoutEntry is one item a character of a chargen option starts with.
+message LoadoutEntry {
+  // Canonical item id, for example `item.consumable.harbor-tonic`.
+  string item_id = 1;
+  uint32 quantity = 2;
+  // An equipment slot, or `bag` for anything not equipped at first spawn.
+  string slot = 3;
+}
+
+// ChargenOption is one selectable character-creation option (ADR 0032).
+//
+// Every starting item, stat, ability and spawn coordinate is a field here
+// precisely so that none of them lives in client or server source: adding the
+// second playable option is a data change, not a rebuild.
+message ChargenOption {
+  // Canonical id, for example `chargen.league.warrior`.
+  string id = 1;
+  // Canonical race id, for example `race.human`.
+  string race = 2;
+  // Canonical class id, for example `class.warrior`.
+  string class = 3;
+  // The body variant this option renders with: `female` or `male`. It is a
+  // property of the option, not a customization axis (ADR 0032 section 4).
+  string sex = 4;
+  // Canonical faction id, for example `faction.league`.
+  string faction = 5;
+  // Whether the option may be offered. Options that are not playable yet ship
+  // with `enabled: false` rather than being absent.
+  bool enabled = 6;
+  // Localization keys for the display name and description (ADR 0007).
+  string name_key = 7;
+  string description_key = 8;
+  // The model and material every character of this option renders with.
+  string visual_ref = 9;
+  // Where a fresh character of this option is placed.
+  string spawn_zone_id = 10;
+  Vec3 spawn_position = 11;
+  // Facing of a fresh character, in the unit the authored document uses.
+  float spawn_heading = 12;
+  uint32 starting_level = 13;
+  repeated StatEntry starting_stats = 14;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+  repeated LoadoutEntry starting_loadout = 16;
+  // Canonical ability ids granted at creation.
+  repeated string starting_abilities = 17;
+  // Canonical quest ids granted at first spawn.
+  repeated string starting_quests = 18;
 }

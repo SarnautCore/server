@@ -173,3 +173,77 @@ func TestDefaultsCarryNoPrivatePath(t *testing.T) {
 		t.Error("Content.AllowExtra defaults to true, want false")
 	}
 }
+
+func TestLoadDefaultsAuthToTheADRValues(t *testing.T) {
+	t.Setenv("SARNAUT_CONFIG", "")
+
+	got, err := config.Load("auth")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.Auth.ListenAddress == "" || got.Auth.ListenAddress == got.HealthAddress {
+		t.Errorf("Auth.ListenAddress = %q; the account API must not share the health listener", got.Auth.ListenAddress)
+	}
+	if got.Auth.RequestTimeout != 2*time.Second {
+		t.Errorf("Auth.RequestTimeout = %s, want the ADR 0030 two seconds", got.Auth.RequestTimeout)
+	}
+	// ADR 0032 §3's M2 blocklist: impersonation prefixes and nothing else.
+	if strings.Join(got.Auth.NameBlocklist, ",") != "gm,admin,sarnaut" {
+		t.Errorf("Auth.NameBlocklist = %v, want the ADR 0032 list", got.Auth.NameBlocklist)
+	}
+	if got.Auth.InstanceID != "" {
+		t.Errorf("Auth.InstanceID = %q, want empty so the process derives one", got.Auth.InstanceID)
+	}
+}
+
+func TestLoadReadsAuthFromYAMLAndEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := []byte(
+		"content:\n  pack_path: fixture-pack\n" +
+			"auth:\n  listen_address: 127.0.0.1:9999\n  name_blocklist: [gm, mod]\n" +
+			"  instance_id: shard-a\n  request_timeout: 750ms\n",
+	)
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatalf("write test config: %v", err)
+	}
+	t.Setenv("SARNAUT_CONFIG", path)
+
+	got, err := config.Load("shard")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.Auth.ListenAddress != "127.0.0.1:9999" || got.Auth.InstanceID != "shard-a" {
+		t.Errorf("Auth = %+v, want the YAML values", got.Auth)
+	}
+	if got.Auth.RequestTimeout != 750*time.Millisecond {
+		t.Errorf("Auth.RequestTimeout = %s, want 750ms", got.Auth.RequestTimeout)
+	}
+	if strings.Join(got.Auth.NameBlocklist, ",") != "gm,mod" {
+		t.Errorf("Auth.NameBlocklist = %v, want the YAML list", got.Auth.NameBlocklist)
+	}
+
+	// The environment wins, and a trailing comma is not a blocklist entry that
+	// matches every name.
+	t.Setenv("SARNAUT_AUTH_NAME_BLOCKLIST", "gm, admin,")
+	t.Setenv("SARNAUT_SHARD_INSTANCE_ID", "shard-b")
+	got, err = config.Load("shard")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if strings.Join(got.Auth.NameBlocklist, ",") != "gm,admin" {
+		t.Errorf("Auth.NameBlocklist = %v, want the environment list", got.Auth.NameBlocklist)
+	}
+	if got.Auth.InstanceID != "shard-b" {
+		t.Errorf("Auth.InstanceID = %q, want shard-b", got.Auth.InstanceID)
+	}
+
+	// An explicit "-" is how a test says "no blocklist at all".
+	t.Setenv("SARNAUT_AUTH_NAME_BLOCKLIST", "-")
+	got, err = config.Load("shard")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(got.Auth.NameBlocklist) != 0 {
+		t.Errorf("Auth.NameBlocklist = %v, want empty", got.Auth.NameBlocklist)
+	}
+}

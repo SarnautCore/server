@@ -136,6 +136,42 @@ type Characters interface {
 	CreateCharacter(ctx context.Context, character Character) error
 	CharacterByID(ctx context.Context, characterID uuid.UUID) (Character, error)
 	CharactersByAccount(ctx context.Context, accountID uuid.UUID) ([]Character, error)
+
+	// CharacterByNormalizedName resolves a name that is already normalized.
+	// It exists for the creation form's courtesy check and for diagnostics;
+	// it is never a precondition of an insert, because check-then-insert is a
+	// race and the unique index is the only authority (ADR 0032 §3).
+	// Soft-deleted characters are still returned: their names stay taken.
+	CharacterByNormalizedName(ctx context.Context, nameNormalized string) (Character, error)
+
+	// DeleteCharacter soft-deletes one character of one account, stamping
+	// deleted_at. It returns [ErrNotFound] when the character does not exist,
+	// is already deleted, or belongs to another account — the three answers a
+	// caller must not be able to tell apart, because distinguishing them
+	// discloses somebody else's roster.
+	DeleteCharacter(ctx context.Context, accountID, characterID uuid.UUID) error
+}
+
+// NameReservation is a row of auth.name_reservations: a courtesy for the
+// creation form, not an authority. If the reservation table and the unique
+// index ever disagree, the index wins (ADR 0032 §3).
+type NameReservation struct {
+	NameNormalized string
+	AccountID      uuid.UUID
+	ReservedUntil  time.Time
+}
+
+// NameReservations owns auth.name_reservations.
+type NameReservations interface {
+	// ReserveName holds a name for one account until ReservedUntil. An expired
+	// row is ignored and overwritten; a live row held by another account is
+	// refused with [ErrNameTaken].
+	ReserveName(ctx context.Context, reservation NameReservation) error
+
+	// ReleaseNameReservation drops a reservation the same account holds.
+	// Releasing one that is absent or held by somebody else is not an error:
+	// the caller is tidying up, not asserting anything.
+	ReleaseNameReservation(ctx context.Context, nameNormalized string, accountID uuid.UUID) error
 }
 
 // CharacterStates owns shard.character_state.
@@ -177,6 +213,7 @@ type Quests interface {
 type Repository interface {
 	Accounts
 	Characters
+	NameReservations
 	CharacterStates
 	Inventory
 	Quests
