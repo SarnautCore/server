@@ -35,7 +35,9 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 		}, spawn.Heading)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Generous, because this test now runs a whole session — join, replicate,
+	// move, log out — over real QUIC under -race on shared CI hardware.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	go zone.Run(ctx)
 
