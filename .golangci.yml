@@ -45,6 +45,25 @@ linters:
               desc: >-
                 The corpse is the handoff (mechanics/combat.md rule 5.9.4).
                 Loot reads combat's events; combat does not call loot.
+        # The other side of the same boundary. mechanics/quests.md rule 5.4.1
+        # says the quest module consumes combat's MobKilled event and does not
+        # observe combat state, and rule 5.7 puts the reward grant behind an
+        # interface. Both are one import away from being decorative.
+        quests-reach-siblings-by-interface:
+          files:
+            - "**/internal/quests/*.go"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal/combat
+              desc: >-
+                Kill credit arrives as quests.Kill, the value rule 5.9.3
+                publishes. The adapter lives in internal/session.
+            - pkg: github.com/SarnautCore/server/internal/inventory
+              desc: >-
+                The reward grant leaves through the Granter interface, over the
+                plain values in internal/store.
+            - pkg: github.com/SarnautCore/server/internal/loot
+              desc: >-
+                A quest counter and a corpse have nothing to say to each other.
 
 formatters:
   enable:

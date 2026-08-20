@@ -81,8 +81,8 @@ func TestItemsAreResolvedByKeyWithoutReadingTheTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if loaded.ItemCount() != 3 {
-		t.Fatalf("ItemCount() = %d, want the fixture's three items", loaded.ItemCount())
+	if loaded.ItemCount() != 4 {
+		t.Fatalf("ItemCount() = %d, want the fixture's four items", loaded.ItemCount())
 	}
 
 	tonic, ok := loaded.Item("item.consumable.harbor-tonic")

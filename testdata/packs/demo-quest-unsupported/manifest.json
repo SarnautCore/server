@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "ruleset": "classic",
+  "zone": "paper-harbor",
+  "pack_id": "15479b45d60b9807b9827ca0b487bc38d0f9486f6fd30ee5e22a51f0a1cc4c67",
+  "builder": {
+    "name": "sarnaut-pack",
+    "version": "0.1.0"
+  },
+  "source": {
+    "repo": "data-schemas",
+    "commit": "0000000000000000000000000000000000000000",
+    "overlays": [
+      "m2-quest-unsupported"
+    ]
+  },
+  "keep_extra": false,
+  "tables": [
+    {
+      "name": "abilities",
+      "file": "tables/abilities.sptbl",
+      "row_type": "ROW_TYPE_ABILITY",
+      "rows": 1,
+      "bytes": 186,
+      "blake3": "2aa674a5e9cd00cde0243f7c3cefb161ae781b1cf0e7bdfb471e4109efc800a9"
+    },
+    {
+      "name": "chargen",
+      "file": "tables/chargen.sptbl",
+      "row_type": "ROW_TYPE_CHARGEN_OPTION",
+      "rows": 1,
+      "bytes": 437,
+      "blake3": "7c3ee48bd7dc2389d849e56949694821bfd9e6e3fb59a1071d60c47de202565e"
+    },
+    {
+      "name": "factions",
+      "file": "tables/factions.sptbl",
+      "row_type": "ROW_TYPE_FACTION",
+      "rows": 3,
+      "bytes": 455,
+      "blake3": "b811634f29df64de7e5cf00e213aaf4c005f7aa45d8fabbc9d12d622943b62dc"
+    },
+    {
+      "name": "items",
+      "file": "tables/items.sptbl",
+      "row_type": "ROW_TYPE_ITEM",
+      "rows": 4,
+      "bytes": 406,
+      "blake3": "b629fd056b482a5e4cee5a3d022649ef6018163c3815838499a1500203b68e44"
+    },
+    {
+      "name": "level-curve",
+      "file": "tables/level-curve.sptbl",
+      "row_type": "ROW_TYPE_LEVEL_CURVE",
+      "rows": 1,
+      "bytes": 163,
+      "blake3": "45b6d9f50ffe3cf3957042a3e706e4aa7dd14c4cbc7bc7a4ef859385149f1c3c"
+    },
+    {
+      "name": "locale",
+      "file": "tables/locale.sptbl",
+      "row_type": "ROW_TYPE_LOCALE",
+      "rows": 1,
+      "bytes": 3292,
+      "blake3": "d0fb3d88a9603be98b95487b66b1016652a212bcfa9c3145680809425320da57"
+    },
+    {
+      "name": "loot-tables",
+      "file": "tables/loot-tables.sptbl",
+      "row_type": "ROW_TYPE_LOOT_TABLE",
+      "rows": 2,
+      "bytes": 432,
+      "blake3": "dcd7719d5214c190f36c58b1dbacc1cbdf54eff83e0688c3d1c05b6e04354322"
+    },
+    {
+      "name": "mob-kinds",
+      "file": "tables/mob-kinds.sptbl",
+      "row_type": "ROW_TYPE_MOB_KIND",
+      "rows": 4,
+      "bytes": 432,
+      "blake3": "271da96d11ab5eb41fa7319914c416e420e9aa2dd47d240ea4927527a688c1e2"
+    },
+    {
+      "name": "mobs",
+      "file": "tables/mobs.sptbl",
+      "row_type": "ROW_TYPE_MOB",
+      "rows": 3,
+      "bytes": 813,
+      "blake3": "05515f07e423ec24cddfa42c6af608b6b49136c37b40bcec8f334c1c55481d7b"
+    },
+    {
+      "name": "placements",
+      "file": "tables/placements.sptbl",
+      "row_type": "ROW_TYPE_PLACEMENT",
+      "rows": 7,
+      "bytes": 895,
+      "blake3": "7e72d68d6a1263d20f06188fb622e54e3fe302f6d8af36b51f17003377948301"
+    },
+    {
+      "name": "quests",
+      "file": "tables/quests.sptbl",
+      "row_type": "ROW_TYPE_QUEST",
+      "rows": 7,
+      "bytes": 2408,
+      "blake3": "8cd289bf8a841b5feca648ba08e641965777af9a18e806a38c0362df8d9df9b3"
+    },
+    {
+      "name": "routes",
+      "file": "tables/routes.sptbl",
+      "row_type": "ROW_TYPE_ROUTE",
+      "rows": 1,
+      "bytes": 220,
+      "blake3": "79e0698860b01d81b8c0737a940e79f615a7856aff4d84ff9aa1f7ae2dce8489"
+    },
+    {
+      "name": "spawn-tables",
+      "file": "tables/spawn-tables.sptbl",
+      "row_type": "ROW_TYPE_SPAWN_TABLE",
+      "rows": 1,
+      "bytes": 156,
+      "blake3": "857a5e13c894c0d00b747eab60e218e84504871aa63450e6e01111846c4696a3"
+    },
+    {
+      "name": "zone",
+      "file": "tables/zone.sptbl",
+      "row_type": "ROW_TYPE_ZONE",
+      "rows": 1,
+      "bytes": 280,
+      "blake3": "94f4ec1784f86ca04629dbcdefd1d9dbd0d998e12c239f00ece5fdb8ceb82cea"
+    }
+  ]
+}

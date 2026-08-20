@@ -54,7 +54,7 @@ func TestLootSliceOverQUIC(t *testing.T) {
 
 	// The corpse container is a world entity of its own, standing where the mob
 	// died. A client finds it the way it finds anything else: in a snapshot.
-	corpseID := findCorpseInSnapshots(t, fixture.ctx, owner, target.GetEntityId())
+	corpseID := findCorpseInSnapshots(t, fixture.ctx, owner, target.GetEntityId(), lootMobID)
 
 	// interact answers with what is on the corpse, before taking it.
 	if err := owner.client.SendCommand(owner.connection, &sarnautv1.ClientMessage{
@@ -380,30 +380,6 @@ func findLootTargetInSnapshots(
 			}
 		}
 	}
-}
-
-// findCorpseInSnapshots waits for the container the loot module stood up. It is
-// a new entity carrying the victim's content id and no health, which is what a
-// client renders as a lootable corpse.
-func findCorpseInSnapshots(t *testing.T, ctx context.Context, actor *lootSession, victimID uint64) uint64 {
-	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		snapshot, err := actor.client.ReadSnapshot(ctx, actor.connection)
-		if err != nil {
-			t.Fatalf("ReadSnapshot() error = %v", err)
-		}
-		for _, entity := range snapshot.GetEntities() {
-			if entity.GetEntityId() == victimID || entity.GetContentId() != lootMobID {
-				continue
-			}
-			if entity.GetMaxHealth() == 0 && !entity.GetAlive() {
-				return entity.GetEntityId()
-			}
-		}
-	}
-	t.Fatal("no corpse container appeared in a snapshot")
-	return 0
 }
 
 func awaitLootOffer(t *testing.T, actor *lootSession) *sarnautv1.LootOffer {

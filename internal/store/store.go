@@ -106,6 +106,10 @@ type CharacterState struct {
 	// occupies no bag slot and has no stack limit, so it is a scalar here
 	// rather than a row in shard.character_inventory.
 	Currency int64
+	// Honor is the third thing a quest turn-in credits (mechanics/quests.md
+	// rule 5.7.4). Every M2 quest awards zero; the column exists so that a
+	// grant which does award some cannot lose it silently.
+	Honor int64
 	// SaveSeq must strictly increase per character. A save at or below the
 	// stored value is rejected with [ErrStaleSave].
 	SaveSeq int64

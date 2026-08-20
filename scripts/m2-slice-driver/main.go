@@ -3,8 +3,8 @@
 //
 // It is the slice's smoke test, and it is meant to grow: every later M2 server
 // task adds a step to the sequence below rather than writing a driver of its
-// own. After the loot task the sequence is connect, enter, target, cast, kill
-// and loot; quests and persistence each append to it.
+// own. After the quest task the sequence is connect, enter, accept, target,
+// cast, kill, loot and turn in; persistence appends to it next.
 //
 // It is built on `cmd/probe`, which is the same session client, driven to a
 // script instead of to a duration. By default it stands the shard up in
@@ -30,6 +30,7 @@ import (
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
@@ -41,6 +42,15 @@ import (
 // driver deliberately runs on synthetic content: a slip in the content lane
 // must not be able to stall the first demoable kill.
 const defaultPack = "testdata/packs/demo"
+
+// defaultQuest is the quest the slice plays end to end, and defaultGiver is the
+// NPC that both offers and finishes it. Both are ids in the fixture pack: a
+// second quest is played by passing -quest and -giver, and needs no change
+// here.
+const (
+	defaultQuest = "quest.paper-harbor.tide-tally"
+	defaultGiver = "mob.paper-harbor.harbor-quartermaster"
+)
 
 // defaultTarget is the M2 combat target of mechanics/combat.md section 6.1.
 //
@@ -66,6 +76,8 @@ func main() {
 	packPath := flag.String("pack", defaultPack, "content pack directory")
 	zoneID := flag.String("zone", "M2Slice", "zone to enter when the shard is started in process")
 	targetMob := flag.String("target", defaultTarget, "canonical id of the mob to kill")
+	questID := flag.String("quest", defaultQuest, "canonical id of the quest to accept and turn in")
+	giverMob := flag.String("giver", defaultGiver, "canonical id of the NPC that offers and finishes the quest")
 	abilityID := flag.String("ability", "", "canonical id of the ability to cast; empty uses the caster's first")
 	ticket := flag.String("ticket", "", "shard ticket to present to an already-running shard; the in-process shard mints its own")
 	timeout := flag.Duration("timeout", 90*time.Second, "give up after this long")
@@ -75,7 +87,16 @@ func main() {
 	defer cancel()
 
 	driver := &driver{out: os.Stdout}
-	err := driver.run(ctx, *address, *packPath, *zoneID, *targetMob, *abilityID, *ticket)
+	err := driver.run(ctx, runOptions{
+		address:   *address,
+		packPath:  *packPath,
+		zoneID:    *zoneID,
+		targetMob: *targetMob,
+		abilityID: *abilityID,
+		ticket:    *ticket,
+		questID:   *questID,
+		giverMob:  *giverMob,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "m2-slice-driver: %v\n", err)
 	}
@@ -98,7 +119,23 @@ func (driver *driver) fail(step string, format string, arguments ...any) {
 	_, _ = fmt.Fprintf(driver.out, "FAIL %-8s %s\n", step, fmt.Sprintf(format, arguments...))
 }
 
-func (driver *driver) run(ctx context.Context, address, packPath, zoneID, targetMob, abilityID, ticket string) error {
+// runOptions is one run's whole configuration. It is a struct rather than eight
+// positional strings because the eighth one was where the mistake was going to
+// be.
+type runOptions struct {
+	address   string
+	packPath  string
+	zoneID    string
+	targetMob string
+	abilityID string
+	ticket    string
+	questID   string
+	giverMob  string
+}
+
+func (driver *driver) run(ctx context.Context, options runOptions) error {
+	address, packPath, zoneID := options.address, options.packPath, options.zoneID
+	targetMob, abilityID, ticket := options.targetMob, options.abilityID, options.ticket
 	// packID is what this run claims in its ClientHello. The in-process shard
 	// states the digest of the pack it loaded and refuses a client that names a
 	// different one, so the slice exercises the ADR 0027 gate rather than
@@ -131,13 +168,23 @@ func (driver *driver) run(ctx context.Context, address, packPath, zoneID, target
 		driver.fail("connect", "handshake: %v", err)
 		return nil
 	}
+	driver.pass("connect", "handshake ok, datagrams=%t server_pack=%q",
+		connection.SupportsUnreliable(), hello.GetPackId())
+
 	entered, err := client.EnterZone(connection, zoneID)
 	if err != nil {
-		driver.fail("connect", "enter zone %s: %v", zoneID, err)
+		driver.fail("enter", "enter zone %s: %v", zoneID, err)
 		return nil
 	}
-	driver.pass("connect", "zone=%s entity=%d datagrams=%t server_pack=%q",
-		entered.GetZoneId(), entered.GetOwnEntityId(), connection.SupportsUnreliable(), hello.GetPackId())
+	driver.pass("enter", "zone=%s entity=%d", entered.GetZoneId(), entered.GetOwnEntityId())
+
+	// The quest is accepted before anything dies, because kill credit only
+	// reaches an instance that is already accepted (mechanics/quests.md rule
+	// 5.4.3).
+	giver, ok := driver.acceptQuest(ctx, client, connection, options)
+	if !ok {
+		return nil
+	}
 
 	target, err := findTarget(ctx, client, connection, targetMob)
 	if err != nil {
@@ -173,6 +220,7 @@ func (driver *driver) run(ctx context.Context, address, packPath, zoneID, target
 
 	if report.death != nil {
 		driver.lootTheCorpse(ctx, client, connection, report.death.GetVictimEntityId())
+		driver.turnInQuest(client, connection, options.questID, giver)
 	}
 
 	if err := client.Logout(connection); err != nil {
@@ -181,6 +229,133 @@ func (driver *driver) run(ctx context.Context, address, packPath, zoneID, target
 	}
 	driver.pass("logout", "clean exit requested")
 	return nil
+}
+
+// acceptQuest plays the accept half of mechanics/quests.md: walk up to the
+// giver, interact to see what it offers, and take the one named on the command
+// line.
+//
+// It asserts the answer's shape rather than a particular quest. Which quests an
+// NPC offers is content, and a driver that insisted on one would fail the day a
+// row was added — which is the opposite of what this step is for.
+func (driver *driver) acceptQuest(
+	ctx context.Context,
+	client session.Client,
+	connection transport.Connection,
+	options runOptions,
+) (uint64, bool) {
+	giver, err := findTarget(ctx, client, connection, options.giverMob)
+	if err != nil {
+		driver.fail("accept", "no quest giver %s in a snapshot: %v", options.giverMob, err)
+		return 0, false
+	}
+	if err := client.SendCommand(connection, &sarnautv1.ClientMessage{
+		Payload: &sarnautv1.ClientMessage_Interact{
+			Interact: &sarnautv1.Interact{TargetEntityId: giver.GetEntityId()},
+		},
+	}); err != nil {
+		driver.fail("accept", "send interact: %v", err)
+		return 0, false
+	}
+	offer, err := awaitQuestUpdate(client, connection, options.questID)
+	if err != nil {
+		driver.fail("accept", "%v", err)
+		return 0, false
+	}
+	if offer.GetState() != sarnautv1.QuestState_QUEST_STATE_OFFERED {
+		driver.fail("accept", "%s is %s at the giver, want offered", options.questID, offer.GetState())
+		return 0, false
+	}
+
+	if err := client.SendCommand(connection, &sarnautv1.ClientMessage{
+		Payload: &sarnautv1.ClientMessage_QuestAccept{
+			QuestAccept: &sarnautv1.QuestAccept{
+				QuestId:         options.questID,
+				StarterEntityId: giver.GetEntityId(),
+			},
+		},
+	}); err != nil {
+		driver.fail("accept", "send quest accept: %v", err)
+		return 0, false
+	}
+	accepted, err := awaitQuestUpdate(client, connection, options.questID)
+	if err != nil {
+		driver.fail("accept", "%v", err)
+		return 0, false
+	}
+	if accepted.GetRefusal() != sarnautv1.QuestRefusal_QUEST_REFUSAL_NONE {
+		driver.fail("accept", "%s refused: %s", options.questID, accepted.GetRefusal())
+		return 0, false
+	}
+	driver.pass("accept", "%s from %s entity=%d, state=%s, %d objective(s)",
+		options.questID, options.giverMob, giver.GetEntityId(),
+		accepted.GetState(), len(accepted.GetObjectives()))
+	return giver.GetEntityId(), true
+}
+
+// turnInQuest plays the other half: hand the quest back and read what the grant
+// committed.
+//
+// The kill that satisfied the objective happened several steps ago, so the
+// completion update is already in the stream ahead of the answer to this verb.
+// What it waits for is the terminal state, not the next frame.
+func (driver *driver) turnInQuest(
+	client session.Client,
+	connection transport.Connection,
+	questID string,
+	giverEntityID uint64,
+) {
+	if err := client.SendCommand(connection, &sarnautv1.ClientMessage{
+		Payload: &sarnautv1.ClientMessage_QuestTurnIn{
+			QuestTurnIn: &sarnautv1.QuestTurnIn{QuestId: questID, FinisherEntityId: giverEntityID},
+		},
+	}); err != nil {
+		driver.fail("turnin", "send quest turn in: %v", err)
+		return
+	}
+	for attempt := 0; attempt < 64; attempt++ {
+		update, err := awaitQuestUpdate(client, connection, questID)
+		if err != nil {
+			driver.fail("turnin", "%v", err)
+			return
+		}
+		if update.GetRefusal() != sarnautv1.QuestRefusal_QUEST_REFUSAL_NONE {
+			driver.fail("turnin", "%s refused: %s", questID, update.GetRefusal())
+			return
+		}
+		if update.GetState() != sarnautv1.QuestState_QUEST_STATE_TURNED_IN {
+			continue
+		}
+		var granted int32
+		for _, item := range update.GetItems() {
+			granted += item.GetCount()
+		}
+		driver.pass("turnin", "%s at entity=%d: %d experience, %d money, %d honor, %d item unit(s)",
+			questID, giverEntityID, update.GetExperience(), update.GetMoney(),
+			update.GetHonor(), granted)
+		return
+	}
+	driver.fail("turnin", "%s never reached turned-in", questID)
+}
+
+// awaitQuestUpdate reads the reliable stream until one quest is spoken about.
+// Combat events, loot answers and inventory updates share the channel, and
+// which arrives first is not something a smoke test should assert.
+func awaitQuestUpdate(
+	client session.Client,
+	connection transport.Connection,
+	questID string,
+) (*sarnautv1.QuestStateUpdate, error) {
+	for attempt := 0; attempt < 256; attempt++ {
+		message, err := client.ReadReliableMessage(connection)
+		if err != nil {
+			return nil, fmt.Errorf("read quest update: %w", err)
+		}
+		if update := message.GetQuestStateUpdate(); update != nil && update.GetQuestId() == questID {
+			return update, nil
+		}
+	}
+	return nil, fmt.Errorf("no update for %s arrived on the reliable stream", questID)
 }
 
 // lootTheCorpse plays mechanics/loot.md rule 5.6 the way a client does: find
@@ -504,14 +679,31 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 		return hostedShard{}, fmt.Errorf("read loot rules: %w", err)
 	}
 	lootModule := loot.New(logger, zone, lootRules, bags, loot.Options{WorldSeed: "m2-slice-driver"})
-	combatModule.SetKillSink(lootModule)
+	// Quests read the same pack and grant through the same bag as loot, and a
+	// definition this build cannot play stops the driver here rather than at the
+	// step that would have failed mysteriously.
+	catalog, err := quests.CatalogFromPack(content)
+	if err != nil {
+		return hostedShard{}, fmt.Errorf("read quests: %w", err)
+	}
+	questModule := quests.New(logger, zone, catalog, bags)
 	authority := newSliceAuthority()
+
+	binding := session.ZoneBinding{
+		World:  zone,
+		Combat: combatModule,
+		Loot:   lootModule,
+		Quests: questModule,
+	}
+	// One death, a corpse and a counter. The fan-out is the composition's, not
+	// combat's: neither consumer knows the other exists.
+	combatModule.SetKillSink(binding.KillSink())
 
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "m2-slice-driver",
 		PackID:          content.ID(),
-		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule, Loot: lootModule}},
+		Zones:           map[string]session.ZoneBinding{zone.ID(): binding},
 		Authority:       authority,
 		Characters:      characters,
 		Logger:          logger,
@@ -519,6 +711,7 @@ func startInProcessShard(ctx context.Context, packPath, zoneID, targetMob string
 
 	go zone.Run(ctx)
 	go combatModule.Run(ctx)
+	go questModule.Run(ctx)
 	go worker.Run(ctx)
 	go func() {
 		if err := server.Serve(ctx, listener); err != nil {

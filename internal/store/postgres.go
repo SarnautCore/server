@@ -337,8 +337,8 @@ func (store *postgresStore) SaveCharacterState(ctx context.Context, state Charac
 	const statement = `
 		INSERT INTO shard.character_state (
 			character_id, zone_id, position_x, position_y, position_z,
-			heading, level, experience, health, currency, save_seq, saved_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+			heading, level, experience, health, currency, honor, save_seq, saved_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
 		ON CONFLICT (character_id) DO UPDATE SET
 			zone_id    = EXCLUDED.zone_id,
 			position_x = EXCLUDED.position_x,
@@ -349,6 +349,7 @@ func (store *postgresStore) SaveCharacterState(ctx context.Context, state Charac
 			experience = EXCLUDED.experience,
 			health     = EXCLUDED.health,
 			currency   = EXCLUDED.currency,
+			honor      = EXCLUDED.honor,
 			save_seq   = EXCLUDED.save_seq,
 			saved_at   = now()
 		WHERE character_state.save_seq < EXCLUDED.save_seq`
@@ -366,6 +367,7 @@ func (store *postgresStore) SaveCharacterState(ctx context.Context, state Charac
 		state.Experience,
 		state.Health,
 		state.Currency,
+		state.Honor,
 		state.SaveSeq,
 	)
 	if err != nil {
@@ -380,7 +382,7 @@ func (store *postgresStore) SaveCharacterState(ctx context.Context, state Charac
 func (store *postgresStore) LoadCharacterState(ctx context.Context, characterID uuid.UUID) (CharacterState, error) {
 	const statement = `
 		SELECT character_id, zone_id, position_x, position_y, position_z,
-		       heading, level, experience, health, currency, save_seq, saved_at
+		       heading, level, experience, health, currency, honor, save_seq, saved_at
 		FROM shard.character_state WHERE character_id = $1`
 
 	var state CharacterState
@@ -395,6 +397,7 @@ func (store *postgresStore) LoadCharacterState(ctx context.Context, characterID 
 		&state.Experience,
 		&state.Health,
 		&state.Currency,
+		&state.Honor,
 		&state.SaveSeq,
 		&state.SavedAt,
 	)

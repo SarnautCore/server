@@ -195,6 +195,61 @@ func ordered(working map[int32]Stack) []Stack {
 	return result
 }
 
+// ErrNotEnough reports a removal asking for more units of an item than the bag
+// holds.
+//
+// It is fatal to the whole operation for the same reason [ErrBagFull] is: a
+// quest that consumes what a character no longer has has not been completed,
+// and taking "as many as there are" would be inventing a partial turn-in that
+// mechanics/quests.md rule 5.7.6 says must not exist.
+var ErrNotEnough = errors.New("inventory: the bag does not hold that many")
+
+// Remove takes `counts` units out of `slots` and returns the resulting slot
+// list in ascending slot order.
+//
+// It is all or nothing: on [ErrNotEnough] the input is untouched and the
+// returned list is nil. Stacks are drained in ascending slot order and an
+// emptied slot disappears rather than holding a zero, which is what frees it
+// for the insertion that follows in the same transaction — the net-slot
+// arithmetic of mechanics/quests.md rule 6.2 is this ordering and nothing else.
+func Remove(slots []Stack, counts []Grant) ([]Stack, error) {
+	working := make(map[int32]Stack, len(slots))
+	for _, stack := range slots {
+		working[stack.Slot] = stack
+	}
+
+	for _, count := range merge(counts) {
+		remaining := count.Count
+		for _, slot := range sortedSlots(working) {
+			if remaining <= 0 {
+				break
+			}
+			stack := working[slot]
+			if stack.ItemID != count.ItemID {
+				continue
+			}
+			taken := stack.Count
+			if taken > remaining {
+				taken = remaining
+			}
+			remaining -= taken
+			stack.Count -= taken
+			if stack.Count == 0 {
+				delete(working, slot)
+				continue
+			}
+			working[slot] = stack
+		}
+		if remaining > 0 {
+			return nil, fmt.Errorf(
+				"%w: %d of %q short of the %d asked for",
+				ErrNotEnough, remaining, count.ItemID, count.Count,
+			)
+		}
+	}
+	return ordered(working), nil
+}
+
 // Split reports the stacks one count of one item becomes, per rules 5.7.2 and
 // 5.7.3, ignoring anything already in the bag.
 //

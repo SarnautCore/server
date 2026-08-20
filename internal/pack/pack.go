@@ -144,6 +144,7 @@ type Pack struct {
 	mobs       map[string]Mob
 	chargen    []ChargenOption
 	lootTables map[string]LootTable
+	quests     map[string]Quest
 	// items is the table handle, not its contents. See Pack.Item: the item
 	// tree is the one table this reader never materializes.
 	items *table
@@ -254,6 +255,10 @@ func Load(directory string, options Options) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	quests, err := readQuests(tables)
+	if err != nil {
+		return nil, err
+	}
 	items, err := readItems(tables)
 	if err != nil {
 		return nil, err
@@ -270,6 +275,7 @@ func Load(directory string, options Options) (*Pack, error) {
 		mobs:       mobs,
 		chargen:    chargen,
 		lootTables: lootTables,
+		quests:     quests,
 		items:      items,
 	}, nil
 }

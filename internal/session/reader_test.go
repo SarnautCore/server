@@ -11,7 +11,9 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
@@ -38,6 +40,14 @@ func TestReliableReaderStaysAliveWhileDatagramsAreNegotiated(t *testing.T) {
 				QuestAccept: &sarnautv1.QuestAccept{QuestId: "quest.smoke"},
 			},
 		})
+		// A quest verb answers on the reader's own goroutine, and net.Pipe is
+		// unbuffered, so the answer has to be taken before the next write. A
+		// quest id the pack does not carry is refused and the session lives on,
+		// which is the point: a refusal is not a protocol violation.
+		if refusal := harness.readQuestUpdate(t).GetRefusal(); refusal !=
+			sarnautv1.QuestRefusal_QUEST_REFUSAL_UNKNOWN_QUEST {
+			t.Fatalf("quest refusal = %v, want UNKNOWN_QUEST", refusal)
+		}
 	}
 
 	// The move path is untouched by the verbs that just went past it.
@@ -178,11 +188,26 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 		t.Fatalf("RulesFromPack() error = %v", err)
 	}
 	combatModule := combat.New(slog.New(slog.DiscardHandler), zone, rules, combat.Options{})
+	// A real quest module over the same pack, for the same reason: without one
+	// the three quest verbs would be refused as unsupported and the dispatch
+	// they are supposed to exercise would never run. Its grants go to a store
+	// nothing else writes, which is enough for the verbs these tests send —
+	// every one of them is refused before a transaction starts.
+	catalog, err := quests.CatalogFromPack(content)
+	if err != nil {
+		t.Fatalf("CatalogFromPack() error = %v", err)
+	}
+	bags, err := inventory.NewService(store.NewMemory(), inventory.LimitsFromPack(content), 0)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	questModule := quests.New(slog.New(slog.DiscardHandler), zone, catalog, bags)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 	go zone.Run(ctx)
 	go combatModule.Run(ctx)
+	go questModule.Run(ctx)
 
 	serverSide, clientSide := newPipeConnections(unreliable)
 	admission := testAdmission()
@@ -191,11 +216,13 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 	server := Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "harness",
-		Zones:           map[string]ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
-		Authority:       authority,
-		Characters:      newFakeCharacters(testTemplate(store.Vec3{})),
-		Logger:          slog.New(slog.DiscardHandler),
-		sessions:        newSessionRegistry(),
+		Zones: map[string]ZoneBinding{
+			zone.ID(): {World: zone, Combat: combatModule, Quests: questModule},
+		},
+		Authority:  authority,
+		Characters: newFakeCharacters(testTemplate(store.Vec3{})),
+		Logger:     slog.New(slog.DiscardHandler),
+		sessions:   newSessionRegistry(),
 	}
 	results := make(chan error, 1)
 	go func() { results <- server.handle(ctx, serverSide) }()
@@ -239,6 +266,20 @@ func (harness *sessionHarness) writeReliable(t *testing.T, message *sarnautv1.Cl
 	case <-time.After(2 * time.Second):
 		t.Fatal("write client message blocked: nobody is reading the reliable stream")
 	}
+}
+
+// readQuestUpdate drains the reliable stream until a quest update arrives.
+// Combat events share the channel and are written by their own goroutine, so
+// what comes first is a scheduling detail and not something to assert on.
+func (harness *sessionHarness) readQuestUpdate(t *testing.T) *sarnautv1.QuestStateUpdate {
+	t.Helper()
+	for attempt := 0; attempt < 32; attempt++ {
+		if update := harness.readReliable(t).GetQuestStateUpdate(); update != nil {
+			return update
+		}
+	}
+	t.Fatal("no quest update arrived on the reliable stream")
+	return nil
 }
 
 func (harness *sessionHarness) readReliable(t *testing.T) *sarnautv1.ServerMessage {
