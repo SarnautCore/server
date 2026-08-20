@@ -54,3 +54,50 @@ jobs:
       - name: Check the vendored fixture pack
         shell: pwsh
         run: ./scripts/check-fixture-pack.ps1
+
+  # The persistence suite needs a real PostgreSQL: the character-name unique
+  # index, citext, transaction rollback and every migration's Down section are
+  # database behaviour, and a fake proves none of them (ADR 0031).
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Matches infra/compose/docker-compose.yml: postgres:18, user and
+        # database sarnaut, published on 5433 so the DSN is the same string a
+        # developer already has.
+        image: postgres:18
+        env:
+          POSTGRES_DB: sarnaut
+          POSTGRES_USER: sarnaut
+          POSTGRES_PASSWORD: sarnaut_dev
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U sarnaut -d sarnaut"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 10s
+    env:
+      SARNAUT_POSTGRES_DSN: postgres://sarnaut:sarnaut_dev@127.0.0.1:5433/sarnaut?sslmode=disable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Up, down to nothing, then up again. Reversibility is a promise the ADR
+      # makes on every migration, and this is the only thing that keeps it true.
+      - name: Migrate up, down to zero, and up again
+        run: |
+          go run ./cmd/migrate up
+          go run ./cmd/migrate down-to 0
+          go run ./cmd/migrate up
+          go run ./cmd/migrate status
+
+      - name: Integration tests
+        run: go test -tags=integration -count=1 ./internal/store/...

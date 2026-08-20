@@ -22,6 +22,7 @@ type Config struct {
 	Content       ContentConfig
 	NATS          NATSConfig
 	Postgres      PostgresConfig
+	Persistence   PersistenceConfig
 	Valkey        ValkeyConfig
 	OTel          OTelConfig
 }
@@ -55,6 +56,19 @@ type NATSConfig struct {
 
 type PostgresConfig struct {
 	DSN string
+}
+
+// PersistenceConfig tunes the checkpoint save path of ADR 0031 §5. The defaults
+// are the ADR's values; they are configurable so a load test can shorten the
+// cadence without a rebuild, not because operators are expected to change them.
+type PersistenceConfig struct {
+	// SaveInterval is the per-character checkpoint cadence.
+	SaveInterval time.Duration
+	// SaveQueueSize bounds the save backlog. A full queue drops a checkpoint
+	// rather than blocking the tick.
+	SaveQueueSize int
+	// SaveTimeout bounds one save transaction.
+	SaveTimeout time.Duration
 }
 
 type ValkeyConfig struct {
@@ -92,6 +106,11 @@ type fileConfig struct {
 	Postgres struct {
 		DSN *string `yaml:"dsn"`
 	} `yaml:"postgres"`
+	Persistence struct {
+		SaveInterval  *string `yaml:"save_interval"`
+		SaveQueueSize *int    `yaml:"save_queue_size"`
+		SaveTimeout   *string `yaml:"save_timeout"`
+	} `yaml:"persistence"`
 	Valkey struct {
 		Address  *string `yaml:"address"`
 		Password *string `yaml:"password"`
@@ -129,6 +148,12 @@ func Load(serviceName string) (Config, error) {
 	}
 	if serviceName == shardServiceName && configuration.Content.PackPath == "" {
 		return Config{}, ErrNoContentPack
+	}
+	if configuration.Persistence.SaveInterval <= 0 || configuration.Persistence.SaveTimeout <= 0 {
+		return Config{}, fmt.Errorf("persistence save interval and timeout must be positive")
+	}
+	if configuration.Persistence.SaveQueueSize <= 0 {
+		return Config{}, fmt.Errorf("persistence save queue size must be positive")
 	}
 
 	return configuration, nil
@@ -173,6 +198,11 @@ func defaults(serviceName string) Config {
 		},
 		// Content deliberately has no default: a public repository must not
 		// ship a private path, and a shard must not guess where its content is.
+		Persistence: PersistenceConfig{
+			SaveInterval:  60 * time.Second,
+			SaveQueueSize: 256,
+			SaveTimeout:   5 * time.Second,
+		},
 	}
 }
 
@@ -232,6 +262,23 @@ func applyFileValues(configuration *Config, values fileConfig) error {
 	if values.World.MaxMoveSpeed != nil {
 		configuration.World.MaxMoveSpeed = *values.World.MaxMoveSpeed
 	}
+	if values.Persistence.SaveQueueSize != nil {
+		configuration.Persistence.SaveQueueSize = *values.Persistence.SaveQueueSize
+	}
+	if values.Persistence.SaveInterval != nil {
+		duration, err := time.ParseDuration(*values.Persistence.SaveInterval)
+		if err != nil {
+			return fmt.Errorf("parse persistence.save_interval: %w", err)
+		}
+		configuration.Persistence.SaveInterval = duration
+	}
+	if values.Persistence.SaveTimeout != nil {
+		duration, err := time.ParseDuration(*values.Persistence.SaveTimeout)
+		if err != nil {
+			return fmt.Errorf("parse persistence.save_timeout: %w", err)
+		}
+		configuration.Persistence.SaveTimeout = duration
+	}
 	return nil
 }
 
@@ -276,6 +323,27 @@ func applyEnvironment(configuration *Config) error {
 			return fmt.Errorf("parse SARNAUT_CONTENT_ALLOW_EXTRA: %w", err)
 		}
 		configuration.Content.AllowExtra = allowExtra
+	}
+	if value := os.Getenv("SARNAUT_PERSISTENCE_SAVE_INTERVAL"); value != "" {
+		duration, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_PERSISTENCE_SAVE_INTERVAL: %w", err)
+		}
+		configuration.Persistence.SaveInterval = duration
+	}
+	if value := os.Getenv("SARNAUT_PERSISTENCE_SAVE_TIMEOUT"); value != "" {
+		duration, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_PERSISTENCE_SAVE_TIMEOUT: %w", err)
+		}
+		configuration.Persistence.SaveTimeout = duration
+	}
+	if value := os.Getenv("SARNAUT_PERSISTENCE_SAVE_QUEUE_SIZE"); value != "" {
+		size, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_PERSISTENCE_SAVE_QUEUE_SIZE: %w", err)
+		}
+		configuration.Persistence.SaveQueueSize = size
 	}
 	if value := os.Getenv("SARNAUT_VALKEY_DB"); value != "" {
 		database, err := strconv.Atoi(value)

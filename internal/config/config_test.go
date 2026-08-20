@@ -41,6 +41,66 @@ func TestLoadAppliesYAMLThenEnvironmentOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsPersistenceToTheADRCadence(t *testing.T) {
+	// A shard has no default content pack (ADR 0029), so every successful
+	// shard Load has to name one before the persistence defaults are reached.
+	t.Setenv("SARNAUT_CONTENT_PACK", "fixture-pack")
+
+	got, err := config.Load("shard")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.Persistence.SaveInterval != time.Minute {
+		t.Errorf("Persistence.SaveInterval = %s, want 1m", got.Persistence.SaveInterval)
+	}
+	if got.Persistence.SaveTimeout != 5*time.Second {
+		t.Errorf("Persistence.SaveTimeout = %s, want 5s", got.Persistence.SaveTimeout)
+	}
+	if got.Persistence.SaveQueueSize != 256 {
+		t.Errorf("Persistence.SaveQueueSize = %d, want 256", got.Persistence.SaveQueueSize)
+	}
+}
+
+func TestLoadReadsPersistenceFromYAMLAndEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := []byte("persistence:\n  save_interval: 30s\n  save_timeout: 2s\n  save_queue_size: 32\n")
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatalf("write test config: %v", err)
+	}
+	t.Setenv("SARNAUT_CONFIG", path)
+	t.Setenv("SARNAUT_CONTENT_PACK", "fixture-pack")
+	t.Setenv("SARNAUT_PERSISTENCE_SAVE_QUEUE_SIZE", "64")
+
+	got, err := config.Load("shard")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.Persistence.SaveInterval != 30*time.Second {
+		t.Errorf("Persistence.SaveInterval = %s, want 30s", got.Persistence.SaveInterval)
+	}
+	if got.Persistence.SaveTimeout != 2*time.Second {
+		t.Errorf("Persistence.SaveTimeout = %s, want 2s", got.Persistence.SaveTimeout)
+	}
+	if got.Persistence.SaveQueueSize != 64 {
+		t.Errorf("Persistence.SaveQueueSize = %d, want the environment override 64", got.Persistence.SaveQueueSize)
+	}
+}
+
+func TestLoadRejectsANonPositiveSaveQueueSize(t *testing.T) {
+	// Name a pack, or Load fails on the missing content pack first and this
+	// test passes without ever reaching the queue size it is about.
+	t.Setenv("SARNAUT_CONTENT_PACK", "fixture-pack")
+	t.Setenv("SARNAUT_PERSISTENCE_SAVE_QUEUE_SIZE", "0")
+
+	_, err := config.Load("shard")
+	if err == nil {
+		t.Fatal("Load() error = nil, want a rejected save queue size")
+	}
+	if !strings.Contains(err.Error(), "save queue size") {
+		t.Fatalf("Load() error = %v, want it to name the save queue size", err)
+	}
+}
+
 func TestLoadRejectsInvalidYAMLDuration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("world:\n  tick_interval: soon\n"), 0o600); err != nil {
