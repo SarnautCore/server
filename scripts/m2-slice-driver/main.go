@@ -259,6 +259,24 @@ func (driver *driver) lootTheCorpse(
 			len(offer.GetItems()), len(result.GetItems()))
 		return
 	}
+	if offer.GetMoney() != result.GetMoney() {
+		driver.fail("loot", "the corpse offered %d money and the take produced %d",
+			offer.GetMoney(), result.GetMoney())
+		return
+	}
+	// The character started with an empty purse, so the credit and the balance
+	// are the same number. This is the assertion that holds on every run: the
+	// item grants of the M2 target's tree are chance-gated and the money leaf
+	// is not, so a step that only checked items would sometimes check nothing.
+	if update.GetCurrency() != result.GetMoney() {
+		driver.fail("loot", "took %d money but the purse holds %d",
+			result.GetMoney(), update.GetCurrency())
+		return
+	}
+	if result.GetMoney() == 0 && len(result.GetItems()) == 0 {
+		driver.fail("loot", "the corpse stood up holding nothing; an empty drop gets no container")
+		return
+	}
 	driver.pass("loot", "corpse=%d money=%d grants=%d -> %d units in %d bag slots, purse=%d",
 		corpse, result.GetMoney(), len(result.GetItems()), held, len(update.GetSlots()), update.GetCurrency())
 }
