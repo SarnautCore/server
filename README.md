@@ -69,6 +69,18 @@ Use the probe to enter the zone, send movement input, and print the number of sn
 go run ./cmd/probe -duration 5s
 ```
 
+### Godot client integration smoke
+
+With the `server` and `client` repositories in the same parent directory, run the cross-repository SAR-20 smoke:
+
+```powershell
+./scripts/sar20-client-smoke.ps1
+```
+
+The script builds and starts the real shard with an empty synthetic content fixture, runs the client's reusable .NET transport harness, and fails unless the joined player's position advances in an authoritative snapshot. It uses ports `4342` and `8181` by default so it does not disturb a shard on the development ports. Override `-ClientRepository`, `-Address`, or `-HealthAddress` when needed.
+
+The Godot client uses `System.Net.Quic` over MsQuic. The public .NET 10 API has no QUIC datagram send or receive methods, so the connection does not negotiate datagrams and this server uses its ordered QUIC-stream fallback. Frames on that stream use the same 4-byte big-endian protobuf length prefix as `internal/transport`.
+
 Copy `config.example.yaml`, set `SARNAUT_CONFIG` to its path, and override individual values with `SARNAUT_*` variables when needed. The main connection variables are:
 
 | Variable | Purpose |
