@@ -138,7 +138,7 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 		*sarnautv1.ClientMessage_QuestTurnIn,
 		*sarnautv1.ClientMessage_QuestAbandon:
 		if via != carrierReliable {
-			return reader.refuseCarrier(fmt.Sprintf("%T", payload), via)
+			return reader.refuseCarrier(payloadName(message), via)
 		}
 		// A verb that is on the M2 case list but whose handler lands with its
 		// mechanics task. Dropping it keeps the envelope honest: the frame was
@@ -146,7 +146,7 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 		// unaffected.
 		// TODO(m2-combat, m2-loot, m2-quests): route these to their modules.
 		reader.span.AddEvent("session.command.unhandled", trace.WithAttributes(
-			attribute.String("sarnaut.payload", fmt.Sprintf("%T", payload)),
+			attribute.String("sarnaut.payload", payloadName(message)),
 		))
 		return nil
 	default:
@@ -170,6 +170,22 @@ func (reader *commandReader) applyMoveIntent(intent *sarnautv1.ClientMoveIntent,
 		reader.span.RecordError(err)
 	}
 	return nil
+}
+
+// payloadName reports the wire name of the case a client envelope carries, so
+// a refusal quotes "ability_use" rather than a Go wrapper type the peer has
+// never heard of.
+func payloadName(message *sarnautv1.ClientMessage) string {
+	reflected := message.ProtoReflect()
+	oneof := reflected.Descriptor().Oneofs().ByName("payload")
+	if oneof == nil {
+		return "unknown"
+	}
+	field := reflected.WhichOneof(oneof)
+	if field == nil {
+		return "unset"
+	}
+	return string(field.Name())
 }
 
 func (reader *commandReader) refuseCarrier(name string, via carrier) error {
