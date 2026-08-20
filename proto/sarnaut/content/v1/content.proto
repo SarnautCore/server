@@ -28,6 +28,11 @@ enum RowType {
   ROW_TYPE_MOB = 7;
   ROW_TYPE_ITEM = 8;
   ROW_TYPE_LOOT_TABLE = 9;
+  ROW_TYPE_QUEST = 10;
+  ROW_TYPE_ROUTE = 11;
+  ROW_TYPE_LOCALE = 12;
+  ROW_TYPE_MOB_KIND = 13;
+  ROW_TYPE_LEVEL_CURVE = 14;
 }
 
 // Vec3 is a world-space position. Z is the vertical axis.
@@ -46,13 +51,34 @@ message Zone {
   string ruleset = 2;
   // Zone slug, for example `inst-league1`.
   string slug = 3;
-  // Where an entering player is placed.
+  // Where an entering player is placed. A zone document is authoritative for
+  // this; a pack whose source tree has no zone document falls back to the
+  // first live placement, which is deterministic but arbitrary.
   Vec3 player_spawn = 4;
   // Facing of an entering player, in radians.
   float player_spawn_heading = 5;
+  // Localization keys for the display name and description (ADR 0007).
+  string name_key = 6;
+  string description_key = 7;
+  // Map slugs this zone is built from. Every route and placements document in
+  // the zone names one of them.
+  repeated string maps = 8;
+  // The axis-aligned box a player may occupy. A position outside it is a bug,
+  // not a place. Both unset means the source authored no bounds.
+  Vec3 bounds_min = 9;
+  Vec3 bounds_max = 10;
+  uint32 level_min = 11;
+  uint32 level_max = 12;
+  bool instanced = 13;
+  uint32 max_players = 14;
   // Untyped passthrough, present only in a `keep_extra` pack. Values are
   // JSON-encoded. See ADR 0029 and ADR 0011.
   map<string, string> extra = 15;
+  // Which map the player spawn sits on.
+  string spawn_map = 16;
+  // Canonical id of the level curve this zone's mobs scale against
+  // (mechanics/combat.md section 7.1). Empty when the source tree authors none.
+  string level_curve_id = 17;
 }
 
 // Placement is one authored object instance on a map.
@@ -138,6 +164,8 @@ message Ability {
   repeated AbilityEffect effects = 7;
   // Localization key for the display name (ADR 0007).
   string name_key = 8;
+  // Localization key for the tooltip description (ADR 0007).
+  string description_key = 9;
   // Untyped passthrough; see Zone.extra.
   map<string, string> extra = 15;
 }
@@ -192,8 +220,29 @@ message Mob {
   float leash_radius_m = 10;
   repeated string ability_ids = 11;
   string loot_table_id = 12;
+  // Localization key for the display title, the subtitle a client renders
+  // under the name (ADR 0007).
+  string title_key = 13;
+  // Canonical id of the MobQuality this mob was authored with.
+  string quality_id = 14;
   // Untyped passthrough; see Zone.extra.
   map<string, string> extra = 15;
+  // Rank of the referenced MobQuality. Zero means the record carried none.
+  uint32 quality_rank = 16;
+  // The rest of the multiplier set carried by the MobKind named in
+  // `mob_kind_id`, copied through exactly as `hp_mod` is: the record's own
+  // value, with no prototype walk and no product across kind, class and
+  // quality. mechanics/combat.md section 7.1 defers that chain, and the
+  // `mob_kinds` table carries every record's own numbers so a shard can
+  // resolve it without the compiler guessing. Zero means the record carried
+  // none.
+  float dps_mod = 17;
+  float exp_mod = 18;
+  float mana_mod = 19;
+  float loot_mod = 20;
+  float speed_mod = 21;
+  // Canonical id of the MobClass the referenced MobKind belongs to.
+  string mob_class_id = 22;
 }
 
 // StatEntry is one authored starting stat, mirroring `statEntry` in
@@ -275,6 +324,8 @@ message Item {
   int32 stack_limit = 6;
   int64 vendor_sell = 7;
   int64 vendor_buy = 8;
+  // Localization key for the tooltip description (ADR 0007).
+  string description_key = 9;
   // Untyped passthrough; see Zone.extra.
   map<string, string> extra = 15;
 }
@@ -323,4 +374,219 @@ message LootTable {
   LootNode root = 2;
   // Untyped passthrough; see Zone.extra.
   map<string, string> extra = 15;
+}
+
+// MobTaxonomyKind names which of the three creature-taxonomy record types a
+// `mob_kinds` row came from.
+//
+// They share one table because they share one shape — a set of multipliers and
+// a link to the record above them — and because a shard resolving a mob's
+// numbers walks between them. Splitting them into three tables would mean
+// three lookups to answer one question.
+enum MobTaxonomyKind {
+  MOB_TAXONOMY_KIND_UNSPECIFIED = 0;
+  MOB_TAXONOMY_KIND_KIND = 1;
+  MOB_TAXONOMY_KIND_CLASS = 2;
+  MOB_TAXONOMY_KIND_QUALITY = 3;
+}
+
+// MobKind is one creature-taxonomy record: a MobKind, a MobClass or a
+// MobQuality.
+//
+// Every multiplier here is the record's **own** declared value, never a
+// product and never inherited from `prototype_id`. mechanics/combat.md section
+// 7.1 defers the resolution order of the chain, so the compiler ships the
+// links and the raw numbers and lets the shard decide. A field left at zero
+// means the authored record declared none, which is distinguishable from a
+// declared 0.0 only by reading the source document — an acceptable loss,
+// because a multiplier of exactly zero is not a value any reference record
+// carries.
+message MobKind {
+  // Canonical id, for example `mobkind.creatures.zombie-warrior.zombie-warrior-start-inst-kind`.
+  string id = 1;
+  MobTaxonomyKind taxonomy = 2;
+  // The record this one inherits from, if any.
+  string prototype_id = 3;
+  string mob_class_id = 4;
+  string quality_id = 5;
+  float hp_mod = 6;
+  float dps_mod = 7;
+  float exp_mod = 8;
+  float mana_mod = 9;
+  float loot_mod = 10;
+  float speed = 11;
+  // Ordinal of a MobQuality record; zero on every other taxonomy kind.
+  uint32 rank = 12;
+  string name_key = 13;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}
+
+// LevelCurvePoint is the base stat line of one level, before any MobKind
+// multiplier applies.
+message LevelCurvePoint {
+  uint32 level = 1;
+  int32 base_hp = 2;
+  float base_dps = 3;
+  int64 base_experience = 4;
+}
+
+// LevelCurve is the per-level base HP/DPS/XP table that MobKind multipliers
+// scale.
+//
+// mechanics/combat.md section 7.1 settled that this curve is **absent from the
+// source content tree** and is a curated SarnautCore constant. It is a table
+// here rather than two constants in Go so that changing it is a data change,
+// which is what that section asks for when it says the two-parameter form
+// "graduates to a curated constant table shipped in DATA:".
+message LevelCurve {
+  // Canonical id, for example `levelcurve.classic.mob-base`.
+  string id = 1;
+  // `classic` or `modern`.
+  string ruleset = 2;
+  // Ascending by `level`, one point per level, no gaps.
+  repeated LevelCurvePoint points = 3;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}
+
+// RoutePoint is one waypoint of a patrol route.
+message RoutePoint {
+  uint32 index = 1;
+  Vec3 position = 2;
+}
+
+// RouteLink is one directed edge between two waypoints.
+message RouteLink {
+  uint32 from = 1;
+  uint32 to = 2;
+  float weight = 3;
+  // Authored movement slug, for example `walk`.
+  string movement = 4;
+  bool flying = 5;
+}
+
+// Route is one patrol path a placement can follow.
+message Route {
+  // Canonical id, for example `route.inst-league1.000-020.1-2-server-objects.4`.
+  string id = 1;
+  string zone_id = 2;
+  // Map slug the route was authored on.
+  string map = 3;
+  repeated RoutePoint points = 4;
+  repeated RouteLink links = 5;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}
+
+// LocaleEntry is one localization key and its text in one language.
+message LocaleEntry {
+  string key = 1;
+  string text = 2;
+}
+
+// Locale is every string of one language, as one row.
+//
+// One row per document rather than one row per key, because a locale key is
+// not a canonical id — reference keys are source-tree paths with slashes and
+// mixed case — and the `.sptbl` key index is defined over canonical ids. The
+// shard builds its own key map once at load.
+message Locale {
+  // Canonical id, for example `locale.ru.inst-league1`.
+  string id = 1;
+  // BCP-47-ish language tag as authored, for example `en` or `ru`.
+  string language = 2;
+  // Sorted by `key`, bytewise ascending.
+  repeated LocaleEntry entries = 3;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}
+
+// QuestObjectiveKind names one countable goal shape
+// (mechanics/quests.md rule 5.5).
+//
+// Unlike an ability effect kind this is a closed set: reference data in the M2
+// zone contains these three and no others, and `COUNT_SPECIAL` is carried
+// rather than dropped precisely so the shard can refuse it loudly (rule
+// 5.5.6) instead of silently loading a quest that can never complete.
+enum QuestObjectiveKind {
+  QUEST_OBJECTIVE_KIND_UNSPECIFIED = 0;
+  QUEST_OBJECTIVE_KIND_COUNT_KILL = 1;
+  QUEST_OBJECTIVE_KIND_COUNT_ITEM = 2;
+  QUEST_OBJECTIVE_KIND_COUNT_SPECIAL = 3;
+}
+
+// QuestObjective is one countable goal. Position in `Quest.objectives` is the
+// counter index (quests.md rule 7.5).
+message QuestObjective {
+  QuestObjectiveKind kind = 1;
+  // Inclusive target count. Zero is satisfied on creation (rule 5.5.8).
+  int32 limit = 2;
+  // Content ids; any one of them counts.
+  repeated string target_ids = 3;
+  // Hidden from the client's quest log.
+  bool internal = 4;
+  // Render `n / limit` rather than a plain incomplete marker.
+  bool show_count = 5;
+  // Localization key of the counter's display name (ADR 0007).
+  string counter_key = 6;
+  // Destroy the tracked items when the quest is abandoned (rule 5.5.5).
+  bool remove_on_abandon = 7;
+}
+
+// QuestPrerequisite is one gate on offering a quest (quests.md rule 5.3.3).
+message QuestPrerequisite {
+  string quest_id = 1;
+  // Authored status name. `Finished` is the only value M2 accepts.
+  string required_status = 2;
+}
+
+// QuestRewardItem is one item a turn-in grants.
+message QuestRewardItem {
+  string item_id = 1;
+  int32 count = 2;
+  // Not shown in the offer text.
+  bool hidden = 3;
+}
+
+// QuestRewards is the whole grant, applied together or not at all
+// (quests.md rule 5.7).
+message QuestRewards {
+  int64 experience = 1;
+  int64 money = 2;
+  int64 honor = 3;
+  // Always granted.
+  repeated QuestRewardItem mandatory_items = 4;
+  // Offered as a choice. M2 grants a flat list and does not implement the
+  // choice; quests.md section 7.2 owns that gap.
+  repeated QuestRewardItem alternative_items = 5;
+}
+
+// Quest is one immutable quest definition (mechanics/quests.md section 4).
+message Quest {
+  // Canonical id, for example `quest.inst-league1.quest-1-10`.
+  string id = 1;
+  string zone_id = 2;
+  uint32 level = 3;
+  // Zero means no level gate (quests.md rule 5.3.2).
+  uint32 required_level = 4;
+  // Authored quest-type slug, for example `quest-type-solo`.
+  string quest_type = 5;
+  // Canonical id of the NPC that offers the quest.
+  string starter_id = 6;
+  // Canonical id of the NPC that accepts the turn-in. Not necessarily the
+  // starter, and not necessarily in this zone.
+  string finisher_id = 7;
+  bool can_cancel = 8;
+  repeated QuestPrerequisite prerequisites = 9;
+  repeated QuestObjective objectives = 10;
+  QuestRewards rewards = 11;
+  // Localization keys (ADR 0007).
+  string name_key = 12;
+  string goal_key = 13;
+  string start_key = 14;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+  string check_key = 16;
+  string finish_key = 17;
 }

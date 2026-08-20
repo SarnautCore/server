@@ -48,21 +48,31 @@ const (
 	RowType_ROW_TYPE_MOB            RowType = 7
 	RowType_ROW_TYPE_ITEM           RowType = 8
 	RowType_ROW_TYPE_LOOT_TABLE     RowType = 9
+	RowType_ROW_TYPE_QUEST          RowType = 10
+	RowType_ROW_TYPE_ROUTE          RowType = 11
+	RowType_ROW_TYPE_LOCALE         RowType = 12
+	RowType_ROW_TYPE_MOB_KIND       RowType = 13
+	RowType_ROW_TYPE_LEVEL_CURVE    RowType = 14
 )
 
 // Enum value maps for RowType.
 var (
 	RowType_name = map[int32]string{
-		0: "ROW_TYPE_UNSPECIFIED",
-		1: "ROW_TYPE_ZONE",
-		2: "ROW_TYPE_PLACEMENT",
-		3: "ROW_TYPE_SPAWN_TABLE",
-		4: "ROW_TYPE_CHARGEN_OPTION",
-		5: "ROW_TYPE_ABILITY",
-		6: "ROW_TYPE_FACTION",
-		7: "ROW_TYPE_MOB",
-		8: "ROW_TYPE_ITEM",
-		9: "ROW_TYPE_LOOT_TABLE",
+		0:  "ROW_TYPE_UNSPECIFIED",
+		1:  "ROW_TYPE_ZONE",
+		2:  "ROW_TYPE_PLACEMENT",
+		3:  "ROW_TYPE_SPAWN_TABLE",
+		4:  "ROW_TYPE_CHARGEN_OPTION",
+		5:  "ROW_TYPE_ABILITY",
+		6:  "ROW_TYPE_FACTION",
+		7:  "ROW_TYPE_MOB",
+		8:  "ROW_TYPE_ITEM",
+		9:  "ROW_TYPE_LOOT_TABLE",
+		10: "ROW_TYPE_QUEST",
+		11: "ROW_TYPE_ROUTE",
+		12: "ROW_TYPE_LOCALE",
+		13: "ROW_TYPE_MOB_KIND",
+		14: "ROW_TYPE_LEVEL_CURVE",
 	}
 	RowType_value = map[string]int32{
 		"ROW_TYPE_UNSPECIFIED":    0,
@@ -75,6 +85,11 @@ var (
 		"ROW_TYPE_MOB":            7,
 		"ROW_TYPE_ITEM":           8,
 		"ROW_TYPE_LOOT_TABLE":     9,
+		"ROW_TYPE_QUEST":          10,
+		"ROW_TYPE_ROUTE":          11,
+		"ROW_TYPE_LOCALE":         12,
+		"ROW_TYPE_MOB_KIND":       13,
+		"ROW_TYPE_LEVEL_CURVE":    14,
 	}
 )
 
@@ -166,6 +181,124 @@ func (LootNodeKind) EnumDescriptor() ([]byte, []int) {
 	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{1}
 }
 
+// MobTaxonomyKind names which of the three creature-taxonomy record types a
+// `mob_kinds` row came from.
+//
+// They share one table because they share one shape — a set of multipliers and
+// a link to the record above them — and because a shard resolving a mob's
+// numbers walks between them. Splitting them into three tables would mean
+// three lookups to answer one question.
+type MobTaxonomyKind int32
+
+const (
+	MobTaxonomyKind_MOB_TAXONOMY_KIND_UNSPECIFIED MobTaxonomyKind = 0
+	MobTaxonomyKind_MOB_TAXONOMY_KIND_KIND        MobTaxonomyKind = 1
+	MobTaxonomyKind_MOB_TAXONOMY_KIND_CLASS       MobTaxonomyKind = 2
+	MobTaxonomyKind_MOB_TAXONOMY_KIND_QUALITY     MobTaxonomyKind = 3
+)
+
+// Enum value maps for MobTaxonomyKind.
+var (
+	MobTaxonomyKind_name = map[int32]string{
+		0: "MOB_TAXONOMY_KIND_UNSPECIFIED",
+		1: "MOB_TAXONOMY_KIND_KIND",
+		2: "MOB_TAXONOMY_KIND_CLASS",
+		3: "MOB_TAXONOMY_KIND_QUALITY",
+	}
+	MobTaxonomyKind_value = map[string]int32{
+		"MOB_TAXONOMY_KIND_UNSPECIFIED": 0,
+		"MOB_TAXONOMY_KIND_KIND":        1,
+		"MOB_TAXONOMY_KIND_CLASS":       2,
+		"MOB_TAXONOMY_KIND_QUALITY":     3,
+	}
+)
+
+func (x MobTaxonomyKind) Enum() *MobTaxonomyKind {
+	p := new(MobTaxonomyKind)
+	*p = x
+	return p
+}
+
+func (x MobTaxonomyKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MobTaxonomyKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_sarnaut_content_v1_content_proto_enumTypes[2].Descriptor()
+}
+
+func (MobTaxonomyKind) Type() protoreflect.EnumType {
+	return &file_sarnaut_content_v1_content_proto_enumTypes[2]
+}
+
+func (x MobTaxonomyKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MobTaxonomyKind.Descriptor instead.
+func (MobTaxonomyKind) EnumDescriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{2}
+}
+
+// QuestObjectiveKind names one countable goal shape
+// (mechanics/quests.md rule 5.5).
+//
+// Unlike an ability effect kind this is a closed set: reference data in the M2
+// zone contains these three and no others, and `COUNT_SPECIAL` is carried
+// rather than dropped precisely so the shard can refuse it loudly (rule
+// 5.5.6) instead of silently loading a quest that can never complete.
+type QuestObjectiveKind int32
+
+const (
+	QuestObjectiveKind_QUEST_OBJECTIVE_KIND_UNSPECIFIED   QuestObjectiveKind = 0
+	QuestObjectiveKind_QUEST_OBJECTIVE_KIND_COUNT_KILL    QuestObjectiveKind = 1
+	QuestObjectiveKind_QUEST_OBJECTIVE_KIND_COUNT_ITEM    QuestObjectiveKind = 2
+	QuestObjectiveKind_QUEST_OBJECTIVE_KIND_COUNT_SPECIAL QuestObjectiveKind = 3
+)
+
+// Enum value maps for QuestObjectiveKind.
+var (
+	QuestObjectiveKind_name = map[int32]string{
+		0: "QUEST_OBJECTIVE_KIND_UNSPECIFIED",
+		1: "QUEST_OBJECTIVE_KIND_COUNT_KILL",
+		2: "QUEST_OBJECTIVE_KIND_COUNT_ITEM",
+		3: "QUEST_OBJECTIVE_KIND_COUNT_SPECIAL",
+	}
+	QuestObjectiveKind_value = map[string]int32{
+		"QUEST_OBJECTIVE_KIND_UNSPECIFIED":   0,
+		"QUEST_OBJECTIVE_KIND_COUNT_KILL":    1,
+		"QUEST_OBJECTIVE_KIND_COUNT_ITEM":    2,
+		"QUEST_OBJECTIVE_KIND_COUNT_SPECIAL": 3,
+	}
+)
+
+func (x QuestObjectiveKind) Enum() *QuestObjectiveKind {
+	p := new(QuestObjectiveKind)
+	*p = x
+	return p
+}
+
+func (x QuestObjectiveKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (QuestObjectiveKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_sarnaut_content_v1_content_proto_enumTypes[3].Descriptor()
+}
+
+func (QuestObjectiveKind) Type() protoreflect.EnumType {
+	return &file_sarnaut_content_v1_content_proto_enumTypes[3]
+}
+
+func (x QuestObjectiveKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use QuestObjectiveKind.Descriptor instead.
+func (QuestObjectiveKind) EnumDescriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{3}
+}
+
 // Vec3 is a world-space position. Z is the vertical axis.
 type Vec3 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -237,13 +370,34 @@ type Zone struct {
 	Ruleset string `protobuf:"bytes,2,opt,name=ruleset,proto3" json:"ruleset,omitempty"`
 	// Zone slug, for example `inst-league1`.
 	Slug string `protobuf:"bytes,3,opt,name=slug,proto3" json:"slug,omitempty"`
-	// Where an entering player is placed.
+	// Where an entering player is placed. A zone document is authoritative for
+	// this; a pack whose source tree has no zone document falls back to the
+	// first live placement, which is deterministic but arbitrary.
 	PlayerSpawn *Vec3 `protobuf:"bytes,4,opt,name=player_spawn,json=playerSpawn,proto3" json:"player_spawn,omitempty"`
 	// Facing of an entering player, in radians.
 	PlayerSpawnHeading float32 `protobuf:"fixed32,5,opt,name=player_spawn_heading,json=playerSpawnHeading,proto3" json:"player_spawn_heading,omitempty"`
+	// Localization keys for the display name and description (ADR 0007).
+	NameKey        string `protobuf:"bytes,6,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	DescriptionKey string `protobuf:"bytes,7,opt,name=description_key,json=descriptionKey,proto3" json:"description_key,omitempty"`
+	// Map slugs this zone is built from. Every route and placements document in
+	// the zone names one of them.
+	Maps []string `protobuf:"bytes,8,rep,name=maps,proto3" json:"maps,omitempty"`
+	// The axis-aligned box a player may occupy. A position outside it is a bug,
+	// not a place. Both unset means the source authored no bounds.
+	BoundsMin  *Vec3  `protobuf:"bytes,9,opt,name=bounds_min,json=boundsMin,proto3" json:"bounds_min,omitempty"`
+	BoundsMax  *Vec3  `protobuf:"bytes,10,opt,name=bounds_max,json=boundsMax,proto3" json:"bounds_max,omitempty"`
+	LevelMin   uint32 `protobuf:"varint,11,opt,name=level_min,json=levelMin,proto3" json:"level_min,omitempty"`
+	LevelMax   uint32 `protobuf:"varint,12,opt,name=level_max,json=levelMax,proto3" json:"level_max,omitempty"`
+	Instanced  bool   `protobuf:"varint,13,opt,name=instanced,proto3" json:"instanced,omitempty"`
+	MaxPlayers uint32 `protobuf:"varint,14,opt,name=max_players,json=maxPlayers,proto3" json:"max_players,omitempty"`
 	// Untyped passthrough, present only in a `keep_extra` pack. Values are
 	// JSON-encoded. See ADR 0029 and ADR 0011.
-	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Extra map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Which map the player spawn sits on.
+	SpawnMap string `protobuf:"bytes,16,opt,name=spawn_map,json=spawnMap,proto3" json:"spawn_map,omitempty"`
+	// Canonical id of the level curve this zone's mobs scale against
+	// (mechanics/combat.md section 7.1). Empty when the source tree authors none.
+	LevelCurveId  string `protobuf:"bytes,17,opt,name=level_curve_id,json=levelCurveId,proto3" json:"level_curve_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -313,11 +467,88 @@ func (x *Zone) GetPlayerSpawnHeading() float32 {
 	return 0
 }
 
+func (x *Zone) GetNameKey() string {
+	if x != nil {
+		return x.NameKey
+	}
+	return ""
+}
+
+func (x *Zone) GetDescriptionKey() string {
+	if x != nil {
+		return x.DescriptionKey
+	}
+	return ""
+}
+
+func (x *Zone) GetMaps() []string {
+	if x != nil {
+		return x.Maps
+	}
+	return nil
+}
+
+func (x *Zone) GetBoundsMin() *Vec3 {
+	if x != nil {
+		return x.BoundsMin
+	}
+	return nil
+}
+
+func (x *Zone) GetBoundsMax() *Vec3 {
+	if x != nil {
+		return x.BoundsMax
+	}
+	return nil
+}
+
+func (x *Zone) GetLevelMin() uint32 {
+	if x != nil {
+		return x.LevelMin
+	}
+	return 0
+}
+
+func (x *Zone) GetLevelMax() uint32 {
+	if x != nil {
+		return x.LevelMax
+	}
+	return 0
+}
+
+func (x *Zone) GetInstanced() bool {
+	if x != nil {
+		return x.Instanced
+	}
+	return false
+}
+
+func (x *Zone) GetMaxPlayers() uint32 {
+	if x != nil {
+		return x.MaxPlayers
+	}
+	return 0
+}
+
 func (x *Zone) GetExtra() map[string]string {
 	if x != nil {
 		return x.Extra
 	}
 	return nil
+}
+
+func (x *Zone) GetSpawnMap() string {
+	if x != nil {
+		return x.SpawnMap
+	}
+	return ""
+}
+
+func (x *Zone) GetLevelCurveId() string {
+	if x != nil {
+		return x.LevelCurveId
+	}
+	return ""
 }
 
 // Placement is one authored object instance on a map.
@@ -697,6 +928,8 @@ type Ability struct {
 	Effects     []*AbilityEffect `protobuf:"bytes,7,rep,name=effects,proto3" json:"effects,omitempty"`
 	// Localization key for the display name (ADR 0007).
 	NameKey string `protobuf:"bytes,8,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	// Localization key for the tooltip description (ADR 0007).
+	DescriptionKey string `protobuf:"bytes,9,opt,name=description_key,json=descriptionKey,proto3" json:"description_key,omitempty"`
 	// Untyped passthrough; see Zone.extra.
 	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
@@ -785,6 +1018,13 @@ func (x *Ability) GetEffects() []*AbilityEffect {
 func (x *Ability) GetNameKey() string {
 	if x != nil {
 		return x.NameKey
+	}
+	return ""
+}
+
+func (x *Ability) GetDescriptionKey() string {
+	if x != nil {
+		return x.DescriptionKey
 	}
 	return ""
 }
@@ -976,8 +1216,29 @@ type Mob struct {
 	LeashRadiusM float32  `protobuf:"fixed32,10,opt,name=leash_radius_m,json=leashRadiusM,proto3" json:"leash_radius_m,omitempty"`
 	AbilityIds   []string `protobuf:"bytes,11,rep,name=ability_ids,json=abilityIds,proto3" json:"ability_ids,omitempty"`
 	LootTableId  string   `protobuf:"bytes,12,opt,name=loot_table_id,json=lootTableId,proto3" json:"loot_table_id,omitempty"`
+	// Localization key for the display title, the subtitle a client renders
+	// under the name (ADR 0007).
+	TitleKey string `protobuf:"bytes,13,opt,name=title_key,json=titleKey,proto3" json:"title_key,omitempty"`
+	// Canonical id of the MobQuality this mob was authored with.
+	QualityId string `protobuf:"bytes,14,opt,name=quality_id,json=qualityId,proto3" json:"quality_id,omitempty"`
 	// Untyped passthrough; see Zone.extra.
-	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Extra map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Rank of the referenced MobQuality. Zero means the record carried none.
+	QualityRank uint32 `protobuf:"varint,16,opt,name=quality_rank,json=qualityRank,proto3" json:"quality_rank,omitempty"`
+	// The rest of the multiplier set carried by the MobKind named in
+	// `mob_kind_id`, copied through exactly as `hp_mod` is: the record's own
+	// value, with no prototype walk and no product across kind, class and
+	// quality. mechanics/combat.md section 7.1 defers that chain, and the
+	// `mob_kinds` table carries every record's own numbers so a shard can
+	// resolve it without the compiler guessing. Zero means the record carried
+	// none.
+	DpsMod   float32 `protobuf:"fixed32,17,opt,name=dps_mod,json=dpsMod,proto3" json:"dps_mod,omitempty"`
+	ExpMod   float32 `protobuf:"fixed32,18,opt,name=exp_mod,json=expMod,proto3" json:"exp_mod,omitempty"`
+	ManaMod  float32 `protobuf:"fixed32,19,opt,name=mana_mod,json=manaMod,proto3" json:"mana_mod,omitempty"`
+	LootMod  float32 `protobuf:"fixed32,20,opt,name=loot_mod,json=lootMod,proto3" json:"loot_mod,omitempty"`
+	SpeedMod float32 `protobuf:"fixed32,21,opt,name=speed_mod,json=speedMod,proto3" json:"speed_mod,omitempty"`
+	// Canonical id of the MobClass the referenced MobKind belongs to.
+	MobClassId    string `protobuf:"bytes,22,opt,name=mob_class_id,json=mobClassId,proto3" json:"mob_class_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1096,11 +1357,74 @@ func (x *Mob) GetLootTableId() string {
 	return ""
 }
 
+func (x *Mob) GetTitleKey() string {
+	if x != nil {
+		return x.TitleKey
+	}
+	return ""
+}
+
+func (x *Mob) GetQualityId() string {
+	if x != nil {
+		return x.QualityId
+	}
+	return ""
+}
+
 func (x *Mob) GetExtra() map[string]string {
 	if x != nil {
 		return x.Extra
 	}
 	return nil
+}
+
+func (x *Mob) GetQualityRank() uint32 {
+	if x != nil {
+		return x.QualityRank
+	}
+	return 0
+}
+
+func (x *Mob) GetDpsMod() float32 {
+	if x != nil {
+		return x.DpsMod
+	}
+	return 0
+}
+
+func (x *Mob) GetExpMod() float32 {
+	if x != nil {
+		return x.ExpMod
+	}
+	return 0
+}
+
+func (x *Mob) GetManaMod() float32 {
+	if x != nil {
+		return x.ManaMod
+	}
+	return 0
+}
+
+func (x *Mob) GetLootMod() float32 {
+	if x != nil {
+		return x.LootMod
+	}
+	return 0
+}
+
+func (x *Mob) GetSpeedMod() float32 {
+	if x != nil {
+		return x.SpeedMod
+	}
+	return 0
+}
+
+func (x *Mob) GetMobClassId() string {
+	if x != nil {
+		return x.MobClassId
+	}
+	return ""
 }
 
 // StatEntry is one authored starting stat, mirroring `statEntry` in
@@ -1443,6 +1767,8 @@ type Item struct {
 	StackLimit int32 `protobuf:"varint,6,opt,name=stack_limit,json=stackLimit,proto3" json:"stack_limit,omitempty"`
 	VendorSell int64 `protobuf:"varint,7,opt,name=vendor_sell,json=vendorSell,proto3" json:"vendor_sell,omitempty"`
 	VendorBuy  int64 `protobuf:"varint,8,opt,name=vendor_buy,json=vendorBuy,proto3" json:"vendor_buy,omitempty"`
+	// Localization key for the tooltip description (ADR 0007).
+	DescriptionKey string `protobuf:"bytes,9,opt,name=description_key,json=descriptionKey,proto3" json:"description_key,omitempty"`
 	// Untyped passthrough; see Zone.extra.
 	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
@@ -1533,6 +1859,13 @@ func (x *Item) GetVendorBuy() int64 {
 		return x.VendorBuy
 	}
 	return 0
+}
+
+func (x *Item) GetDescriptionKey() string {
+	if x != nil {
+		return x.DescriptionKey
+	}
+	return ""
 }
 
 func (x *Item) GetExtra() map[string]string {
@@ -1703,6 +2036,1147 @@ func (x *LootTable) GetExtra() map[string]string {
 	return nil
 }
 
+// MobKind is one creature-taxonomy record: a MobKind, a MobClass or a
+// MobQuality.
+//
+// Every multiplier here is the record's **own** declared value, never a
+// product and never inherited from `prototype_id`. mechanics/combat.md section
+// 7.1 defers the resolution order of the chain, so the compiler ships the
+// links and the raw numbers and lets the shard decide. A field left at zero
+// means the authored record declared none, which is distinguishable from a
+// declared 0.0 only by reading the source document — an acceptable loss,
+// because a multiplier of exactly zero is not a value any reference record
+// carries.
+type MobKind struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `mobkind.creatures.zombie-warrior.zombie-warrior-start-inst-kind`.
+	Id       string          `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Taxonomy MobTaxonomyKind `protobuf:"varint,2,opt,name=taxonomy,proto3,enum=sarnaut.content.v1.MobTaxonomyKind" json:"taxonomy,omitempty"`
+	// The record this one inherits from, if any.
+	PrototypeId string  `protobuf:"bytes,3,opt,name=prototype_id,json=prototypeId,proto3" json:"prototype_id,omitempty"`
+	MobClassId  string  `protobuf:"bytes,4,opt,name=mob_class_id,json=mobClassId,proto3" json:"mob_class_id,omitempty"`
+	QualityId   string  `protobuf:"bytes,5,opt,name=quality_id,json=qualityId,proto3" json:"quality_id,omitempty"`
+	HpMod       float32 `protobuf:"fixed32,6,opt,name=hp_mod,json=hpMod,proto3" json:"hp_mod,omitempty"`
+	DpsMod      float32 `protobuf:"fixed32,7,opt,name=dps_mod,json=dpsMod,proto3" json:"dps_mod,omitempty"`
+	ExpMod      float32 `protobuf:"fixed32,8,opt,name=exp_mod,json=expMod,proto3" json:"exp_mod,omitempty"`
+	ManaMod     float32 `protobuf:"fixed32,9,opt,name=mana_mod,json=manaMod,proto3" json:"mana_mod,omitempty"`
+	LootMod     float32 `protobuf:"fixed32,10,opt,name=loot_mod,json=lootMod,proto3" json:"loot_mod,omitempty"`
+	Speed       float32 `protobuf:"fixed32,11,opt,name=speed,proto3" json:"speed,omitempty"`
+	// Ordinal of a MobQuality record; zero on every other taxonomy kind.
+	Rank    uint32 `protobuf:"varint,12,opt,name=rank,proto3" json:"rank,omitempty"`
+	NameKey string `protobuf:"bytes,13,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MobKind) Reset() {
+	*x = MobKind{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MobKind) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MobKind) ProtoMessage() {}
+
+func (x *MobKind) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MobKind.ProtoReflect.Descriptor instead.
+func (*MobKind) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *MobKind) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *MobKind) GetTaxonomy() MobTaxonomyKind {
+	if x != nil {
+		return x.Taxonomy
+	}
+	return MobTaxonomyKind_MOB_TAXONOMY_KIND_UNSPECIFIED
+}
+
+func (x *MobKind) GetPrototypeId() string {
+	if x != nil {
+		return x.PrototypeId
+	}
+	return ""
+}
+
+func (x *MobKind) GetMobClassId() string {
+	if x != nil {
+		return x.MobClassId
+	}
+	return ""
+}
+
+func (x *MobKind) GetQualityId() string {
+	if x != nil {
+		return x.QualityId
+	}
+	return ""
+}
+
+func (x *MobKind) GetHpMod() float32 {
+	if x != nil {
+		return x.HpMod
+	}
+	return 0
+}
+
+func (x *MobKind) GetDpsMod() float32 {
+	if x != nil {
+		return x.DpsMod
+	}
+	return 0
+}
+
+func (x *MobKind) GetExpMod() float32 {
+	if x != nil {
+		return x.ExpMod
+	}
+	return 0
+}
+
+func (x *MobKind) GetManaMod() float32 {
+	if x != nil {
+		return x.ManaMod
+	}
+	return 0
+}
+
+func (x *MobKind) GetLootMod() float32 {
+	if x != nil {
+		return x.LootMod
+	}
+	return 0
+}
+
+func (x *MobKind) GetSpeed() float32 {
+	if x != nil {
+		return x.Speed
+	}
+	return 0
+}
+
+func (x *MobKind) GetRank() uint32 {
+	if x != nil {
+		return x.Rank
+	}
+	return 0
+}
+
+func (x *MobKind) GetNameKey() string {
+	if x != nil {
+		return x.NameKey
+	}
+	return ""
+}
+
+func (x *MobKind) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+// LevelCurvePoint is the base stat line of one level, before any MobKind
+// multiplier applies.
+type LevelCurvePoint struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Level          uint32                 `protobuf:"varint,1,opt,name=level,proto3" json:"level,omitempty"`
+	BaseHp         int32                  `protobuf:"varint,2,opt,name=base_hp,json=baseHp,proto3" json:"base_hp,omitempty"`
+	BaseDps        float32                `protobuf:"fixed32,3,opt,name=base_dps,json=baseDps,proto3" json:"base_dps,omitempty"`
+	BaseExperience int64                  `protobuf:"varint,4,opt,name=base_experience,json=baseExperience,proto3" json:"base_experience,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *LevelCurvePoint) Reset() {
+	*x = LevelCurvePoint{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LevelCurvePoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LevelCurvePoint) ProtoMessage() {}
+
+func (x *LevelCurvePoint) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LevelCurvePoint.ProtoReflect.Descriptor instead.
+func (*LevelCurvePoint) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *LevelCurvePoint) GetLevel() uint32 {
+	if x != nil {
+		return x.Level
+	}
+	return 0
+}
+
+func (x *LevelCurvePoint) GetBaseHp() int32 {
+	if x != nil {
+		return x.BaseHp
+	}
+	return 0
+}
+
+func (x *LevelCurvePoint) GetBaseDps() float32 {
+	if x != nil {
+		return x.BaseDps
+	}
+	return 0
+}
+
+func (x *LevelCurvePoint) GetBaseExperience() int64 {
+	if x != nil {
+		return x.BaseExperience
+	}
+	return 0
+}
+
+// LevelCurve is the per-level base HP/DPS/XP table that MobKind multipliers
+// scale.
+//
+// mechanics/combat.md section 7.1 settled that this curve is **absent from the
+// source content tree** and is a curated SarnautCore constant. It is a table
+// here rather than two constants in Go so that changing it is a data change,
+// which is what that section asks for when it says the two-parameter form
+// "graduates to a curated constant table shipped in DATA:".
+type LevelCurve struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `levelcurve.classic.mob-base`.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// `classic` or `modern`.
+	Ruleset string `protobuf:"bytes,2,opt,name=ruleset,proto3" json:"ruleset,omitempty"`
+	// Ascending by `level`, one point per level, no gaps.
+	Points []*LevelCurvePoint `protobuf:"bytes,3,rep,name=points,proto3" json:"points,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LevelCurve) Reset() {
+	*x = LevelCurve{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LevelCurve) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LevelCurve) ProtoMessage() {}
+
+func (x *LevelCurve) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LevelCurve.ProtoReflect.Descriptor instead.
+func (*LevelCurve) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *LevelCurve) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *LevelCurve) GetRuleset() string {
+	if x != nil {
+		return x.Ruleset
+	}
+	return ""
+}
+
+func (x *LevelCurve) GetPoints() []*LevelCurvePoint {
+	if x != nil {
+		return x.Points
+	}
+	return nil
+}
+
+func (x *LevelCurve) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+// RoutePoint is one waypoint of a patrol route.
+type RoutePoint struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Index         uint32                 `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
+	Position      *Vec3                  `protobuf:"bytes,2,opt,name=position,proto3" json:"position,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RoutePoint) Reset() {
+	*x = RoutePoint{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoutePoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoutePoint) ProtoMessage() {}
+
+func (x *RoutePoint) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoutePoint.ProtoReflect.Descriptor instead.
+func (*RoutePoint) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *RoutePoint) GetIndex() uint32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+func (x *RoutePoint) GetPosition() *Vec3 {
+	if x != nil {
+		return x.Position
+	}
+	return nil
+}
+
+// RouteLink is one directed edge between two waypoints.
+type RouteLink struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	From   uint32                 `protobuf:"varint,1,opt,name=from,proto3" json:"from,omitempty"`
+	To     uint32                 `protobuf:"varint,2,opt,name=to,proto3" json:"to,omitempty"`
+	Weight float32                `protobuf:"fixed32,3,opt,name=weight,proto3" json:"weight,omitempty"`
+	// Authored movement slug, for example `walk`.
+	Movement      string `protobuf:"bytes,4,opt,name=movement,proto3" json:"movement,omitempty"`
+	Flying        bool   `protobuf:"varint,5,opt,name=flying,proto3" json:"flying,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteLink) Reset() {
+	*x = RouteLink{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteLink) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteLink) ProtoMessage() {}
+
+func (x *RouteLink) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteLink.ProtoReflect.Descriptor instead.
+func (*RouteLink) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *RouteLink) GetFrom() uint32 {
+	if x != nil {
+		return x.From
+	}
+	return 0
+}
+
+func (x *RouteLink) GetTo() uint32 {
+	if x != nil {
+		return x.To
+	}
+	return 0
+}
+
+func (x *RouteLink) GetWeight() float32 {
+	if x != nil {
+		return x.Weight
+	}
+	return 0
+}
+
+func (x *RouteLink) GetMovement() string {
+	if x != nil {
+		return x.Movement
+	}
+	return ""
+}
+
+func (x *RouteLink) GetFlying() bool {
+	if x != nil {
+		return x.Flying
+	}
+	return false
+}
+
+// Route is one patrol path a placement can follow.
+type Route struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `route.inst-league1.000-020.1-2-server-objects.4`.
+	Id     string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ZoneId string `protobuf:"bytes,2,opt,name=zone_id,json=zoneId,proto3" json:"zone_id,omitempty"`
+	// Map slug the route was authored on.
+	Map    string        `protobuf:"bytes,3,opt,name=map,proto3" json:"map,omitempty"`
+	Points []*RoutePoint `protobuf:"bytes,4,rep,name=points,proto3" json:"points,omitempty"`
+	Links  []*RouteLink  `protobuf:"bytes,5,rep,name=links,proto3" json:"links,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Route) Reset() {
+	*x = Route{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Route) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Route) ProtoMessage() {}
+
+func (x *Route) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Route.ProtoReflect.Descriptor instead.
+func (*Route) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *Route) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Route) GetZoneId() string {
+	if x != nil {
+		return x.ZoneId
+	}
+	return ""
+}
+
+func (x *Route) GetMap() string {
+	if x != nil {
+		return x.Map
+	}
+	return ""
+}
+
+func (x *Route) GetPoints() []*RoutePoint {
+	if x != nil {
+		return x.Points
+	}
+	return nil
+}
+
+func (x *Route) GetLinks() []*RouteLink {
+	if x != nil {
+		return x.Links
+	}
+	return nil
+}
+
+func (x *Route) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+// LocaleEntry is one localization key and its text in one language.
+type LocaleEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Text          string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocaleEntry) Reset() {
+	*x = LocaleEntry{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocaleEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocaleEntry) ProtoMessage() {}
+
+func (x *LocaleEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocaleEntry.ProtoReflect.Descriptor instead.
+func (*LocaleEntry) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *LocaleEntry) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *LocaleEntry) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// Locale is every string of one language, as one row.
+//
+// One row per document rather than one row per key, because a locale key is
+// not a canonical id — reference keys are source-tree paths with slashes and
+// mixed case — and the `.sptbl` key index is defined over canonical ids. The
+// shard builds its own key map once at load.
+type Locale struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `locale.ru.inst-league1`.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// BCP-47-ish language tag as authored, for example `en` or `ru`.
+	Language string `protobuf:"bytes,2,opt,name=language,proto3" json:"language,omitempty"`
+	// Sorted by `key`, bytewise ascending.
+	Entries []*LocaleEntry `protobuf:"bytes,3,rep,name=entries,proto3" json:"entries,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Locale) Reset() {
+	*x = Locale{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Locale) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Locale) ProtoMessage() {}
+
+func (x *Locale) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Locale.ProtoReflect.Descriptor instead.
+func (*Locale) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *Locale) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Locale) GetLanguage() string {
+	if x != nil {
+		return x.Language
+	}
+	return ""
+}
+
+func (x *Locale) GetEntries() []*LocaleEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *Locale) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+// QuestObjective is one countable goal. Position in `Quest.objectives` is the
+// counter index (quests.md rule 7.5).
+type QuestObjective struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Kind  QuestObjectiveKind     `protobuf:"varint,1,opt,name=kind,proto3,enum=sarnaut.content.v1.QuestObjectiveKind" json:"kind,omitempty"`
+	// Inclusive target count. Zero is satisfied on creation (rule 5.5.8).
+	Limit int32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Content ids; any one of them counts.
+	TargetIds []string `protobuf:"bytes,3,rep,name=target_ids,json=targetIds,proto3" json:"target_ids,omitempty"`
+	// Hidden from the client's quest log.
+	Internal bool `protobuf:"varint,4,opt,name=internal,proto3" json:"internal,omitempty"`
+	// Render `n / limit` rather than a plain incomplete marker.
+	ShowCount bool `protobuf:"varint,5,opt,name=show_count,json=showCount,proto3" json:"show_count,omitempty"`
+	// Localization key of the counter's display name (ADR 0007).
+	CounterKey string `protobuf:"bytes,6,opt,name=counter_key,json=counterKey,proto3" json:"counter_key,omitempty"`
+	// Destroy the tracked items when the quest is abandoned (rule 5.5.5).
+	RemoveOnAbandon bool `protobuf:"varint,7,opt,name=remove_on_abandon,json=removeOnAbandon,proto3" json:"remove_on_abandon,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *QuestObjective) Reset() {
+	*x = QuestObjective{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuestObjective) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuestObjective) ProtoMessage() {}
+
+func (x *QuestObjective) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuestObjective.ProtoReflect.Descriptor instead.
+func (*QuestObjective) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *QuestObjective) GetKind() QuestObjectiveKind {
+	if x != nil {
+		return x.Kind
+	}
+	return QuestObjectiveKind_QUEST_OBJECTIVE_KIND_UNSPECIFIED
+}
+
+func (x *QuestObjective) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *QuestObjective) GetTargetIds() []string {
+	if x != nil {
+		return x.TargetIds
+	}
+	return nil
+}
+
+func (x *QuestObjective) GetInternal() bool {
+	if x != nil {
+		return x.Internal
+	}
+	return false
+}
+
+func (x *QuestObjective) GetShowCount() bool {
+	if x != nil {
+		return x.ShowCount
+	}
+	return false
+}
+
+func (x *QuestObjective) GetCounterKey() string {
+	if x != nil {
+		return x.CounterKey
+	}
+	return ""
+}
+
+func (x *QuestObjective) GetRemoveOnAbandon() bool {
+	if x != nil {
+		return x.RemoveOnAbandon
+	}
+	return false
+}
+
+// QuestPrerequisite is one gate on offering a quest (quests.md rule 5.3.3).
+type QuestPrerequisite struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	QuestId string                 `protobuf:"bytes,1,opt,name=quest_id,json=questId,proto3" json:"quest_id,omitempty"`
+	// Authored status name. `Finished` is the only value M2 accepts.
+	RequiredStatus string `protobuf:"bytes,2,opt,name=required_status,json=requiredStatus,proto3" json:"required_status,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *QuestPrerequisite) Reset() {
+	*x = QuestPrerequisite{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuestPrerequisite) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuestPrerequisite) ProtoMessage() {}
+
+func (x *QuestPrerequisite) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuestPrerequisite.ProtoReflect.Descriptor instead.
+func (*QuestPrerequisite) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *QuestPrerequisite) GetQuestId() string {
+	if x != nil {
+		return x.QuestId
+	}
+	return ""
+}
+
+func (x *QuestPrerequisite) GetRequiredStatus() string {
+	if x != nil {
+		return x.RequiredStatus
+	}
+	return ""
+}
+
+// QuestRewardItem is one item a turn-in grants.
+type QuestRewardItem struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	ItemId string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	Count  int32                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	// Not shown in the offer text.
+	Hidden        bool `protobuf:"varint,3,opt,name=hidden,proto3" json:"hidden,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuestRewardItem) Reset() {
+	*x = QuestRewardItem{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuestRewardItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuestRewardItem) ProtoMessage() {}
+
+func (x *QuestRewardItem) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuestRewardItem.ProtoReflect.Descriptor instead.
+func (*QuestRewardItem) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *QuestRewardItem) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *QuestRewardItem) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *QuestRewardItem) GetHidden() bool {
+	if x != nil {
+		return x.Hidden
+	}
+	return false
+}
+
+// QuestRewards is the whole grant, applied together or not at all
+// (quests.md rule 5.7).
+type QuestRewards struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Experience int64                  `protobuf:"varint,1,opt,name=experience,proto3" json:"experience,omitempty"`
+	Money      int64                  `protobuf:"varint,2,opt,name=money,proto3" json:"money,omitempty"`
+	Honor      int64                  `protobuf:"varint,3,opt,name=honor,proto3" json:"honor,omitempty"`
+	// Always granted.
+	MandatoryItems []*QuestRewardItem `protobuf:"bytes,4,rep,name=mandatory_items,json=mandatoryItems,proto3" json:"mandatory_items,omitempty"`
+	// Offered as a choice. M2 grants a flat list and does not implement the
+	// choice; quests.md section 7.2 owns that gap.
+	AlternativeItems []*QuestRewardItem `protobuf:"bytes,5,rep,name=alternative_items,json=alternativeItems,proto3" json:"alternative_items,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *QuestRewards) Reset() {
+	*x = QuestRewards{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuestRewards) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuestRewards) ProtoMessage() {}
+
+func (x *QuestRewards) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuestRewards.ProtoReflect.Descriptor instead.
+func (*QuestRewards) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *QuestRewards) GetExperience() int64 {
+	if x != nil {
+		return x.Experience
+	}
+	return 0
+}
+
+func (x *QuestRewards) GetMoney() int64 {
+	if x != nil {
+		return x.Money
+	}
+	return 0
+}
+
+func (x *QuestRewards) GetHonor() int64 {
+	if x != nil {
+		return x.Honor
+	}
+	return 0
+}
+
+func (x *QuestRewards) GetMandatoryItems() []*QuestRewardItem {
+	if x != nil {
+		return x.MandatoryItems
+	}
+	return nil
+}
+
+func (x *QuestRewards) GetAlternativeItems() []*QuestRewardItem {
+	if x != nil {
+		return x.AlternativeItems
+	}
+	return nil
+}
+
+// Quest is one immutable quest definition (mechanics/quests.md section 4).
+type Quest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `quest.inst-league1.quest-1-10`.
+	Id     string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ZoneId string `protobuf:"bytes,2,opt,name=zone_id,json=zoneId,proto3" json:"zone_id,omitempty"`
+	Level  uint32 `protobuf:"varint,3,opt,name=level,proto3" json:"level,omitempty"`
+	// Zero means no level gate (quests.md rule 5.3.2).
+	RequiredLevel uint32 `protobuf:"varint,4,opt,name=required_level,json=requiredLevel,proto3" json:"required_level,omitempty"`
+	// Authored quest-type slug, for example `quest-type-solo`.
+	QuestType string `protobuf:"bytes,5,opt,name=quest_type,json=questType,proto3" json:"quest_type,omitempty"`
+	// Canonical id of the NPC that offers the quest.
+	StarterId string `protobuf:"bytes,6,opt,name=starter_id,json=starterId,proto3" json:"starter_id,omitempty"`
+	// Canonical id of the NPC that accepts the turn-in. Not necessarily the
+	// starter, and not necessarily in this zone.
+	FinisherId    string               `protobuf:"bytes,7,opt,name=finisher_id,json=finisherId,proto3" json:"finisher_id,omitempty"`
+	CanCancel     bool                 `protobuf:"varint,8,opt,name=can_cancel,json=canCancel,proto3" json:"can_cancel,omitempty"`
+	Prerequisites []*QuestPrerequisite `protobuf:"bytes,9,rep,name=prerequisites,proto3" json:"prerequisites,omitempty"`
+	Objectives    []*QuestObjective    `protobuf:"bytes,10,rep,name=objectives,proto3" json:"objectives,omitempty"`
+	Rewards       *QuestRewards        `protobuf:"bytes,11,opt,name=rewards,proto3" json:"rewards,omitempty"`
+	// Localization keys (ADR 0007).
+	NameKey  string `protobuf:"bytes,12,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	GoalKey  string `protobuf:"bytes,13,opt,name=goal_key,json=goalKey,proto3" json:"goal_key,omitempty"`
+	StartKey string `protobuf:"bytes,14,opt,name=start_key,json=startKey,proto3" json:"start_key,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	CheckKey      string            `protobuf:"bytes,16,opt,name=check_key,json=checkKey,proto3" json:"check_key,omitempty"`
+	FinishKey     string            `protobuf:"bytes,17,opt,name=finish_key,json=finishKey,proto3" json:"finish_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Quest) Reset() {
+	*x = Quest{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Quest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Quest) ProtoMessage() {}
+
+func (x *Quest) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Quest.ProtoReflect.Descriptor instead.
+func (*Quest) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *Quest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Quest) GetZoneId() string {
+	if x != nil {
+		return x.ZoneId
+	}
+	return ""
+}
+
+func (x *Quest) GetLevel() uint32 {
+	if x != nil {
+		return x.Level
+	}
+	return 0
+}
+
+func (x *Quest) GetRequiredLevel() uint32 {
+	if x != nil {
+		return x.RequiredLevel
+	}
+	return 0
+}
+
+func (x *Quest) GetQuestType() string {
+	if x != nil {
+		return x.QuestType
+	}
+	return ""
+}
+
+func (x *Quest) GetStarterId() string {
+	if x != nil {
+		return x.StarterId
+	}
+	return ""
+}
+
+func (x *Quest) GetFinisherId() string {
+	if x != nil {
+		return x.FinisherId
+	}
+	return ""
+}
+
+func (x *Quest) GetCanCancel() bool {
+	if x != nil {
+		return x.CanCancel
+	}
+	return false
+}
+
+func (x *Quest) GetPrerequisites() []*QuestPrerequisite {
+	if x != nil {
+		return x.Prerequisites
+	}
+	return nil
+}
+
+func (x *Quest) GetObjectives() []*QuestObjective {
+	if x != nil {
+		return x.Objectives
+	}
+	return nil
+}
+
+func (x *Quest) GetRewards() *QuestRewards {
+	if x != nil {
+		return x.Rewards
+	}
+	return nil
+}
+
+func (x *Quest) GetNameKey() string {
+	if x != nil {
+		return x.NameKey
+	}
+	return ""
+}
+
+func (x *Quest) GetGoalKey() string {
+	if x != nil {
+		return x.GoalKey
+	}
+	return ""
+}
+
+func (x *Quest) GetStartKey() string {
+	if x != nil {
+		return x.StartKey
+	}
+	return ""
+}
+
+func (x *Quest) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+func (x *Quest) GetCheckKey() string {
+	if x != nil {
+		return x.CheckKey
+	}
+	return ""
+}
+
+func (x *Quest) GetFinishKey() string {
+	if x != nil {
+		return x.FinishKey
+	}
+	return ""
+}
+
 var File_sarnaut_content_v1_content_proto protoreflect.FileDescriptor
 
 const file_sarnaut_content_v1_content_proto_rawDesc = "" +
@@ -1711,14 +3185,29 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x04Vec3\x12\f\n" +
 	"\x01x\x18\x01 \x01(\x02R\x01x\x12\f\n" +
 	"\x01y\x18\x02 \x01(\x02R\x01y\x12\f\n" +
-	"\x01z\x18\x03 \x01(\x02R\x01z\"\xa8\x02\n" +
+	"\x01z\x18\x03 \x01(\x02R\x01z\"\xae\x05\n" +
 	"\x04Zone\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aruleset\x18\x02 \x01(\tR\aruleset\x12\x12\n" +
 	"\x04slug\x18\x03 \x01(\tR\x04slug\x12;\n" +
 	"\fplayer_spawn\x18\x04 \x01(\v2\x18.sarnaut.content.v1.Vec3R\vplayerSpawn\x120\n" +
-	"\x14player_spawn_heading\x18\x05 \x01(\x02R\x12playerSpawnHeading\x129\n" +
-	"\x05extra\x18\x0f \x03(\v2#.sarnaut.content.v1.Zone.ExtraEntryR\x05extra\x1a8\n" +
+	"\x14player_spawn_heading\x18\x05 \x01(\x02R\x12playerSpawnHeading\x12\x19\n" +
+	"\bname_key\x18\x06 \x01(\tR\anameKey\x12'\n" +
+	"\x0fdescription_key\x18\a \x01(\tR\x0edescriptionKey\x12\x12\n" +
+	"\x04maps\x18\b \x03(\tR\x04maps\x127\n" +
+	"\n" +
+	"bounds_min\x18\t \x01(\v2\x18.sarnaut.content.v1.Vec3R\tboundsMin\x127\n" +
+	"\n" +
+	"bounds_max\x18\n" +
+	" \x01(\v2\x18.sarnaut.content.v1.Vec3R\tboundsMax\x12\x1b\n" +
+	"\tlevel_min\x18\v \x01(\rR\blevelMin\x12\x1b\n" +
+	"\tlevel_max\x18\f \x01(\rR\blevelMax\x12\x1c\n" +
+	"\tinstanced\x18\r \x01(\bR\tinstanced\x12\x1f\n" +
+	"\vmax_players\x18\x0e \x01(\rR\n" +
+	"maxPlayers\x129\n" +
+	"\x05extra\x18\x0f \x03(\v2#.sarnaut.content.v1.Zone.ExtraEntryR\x05extra\x12\x1b\n" +
+	"\tspawn_map\x18\x10 \x01(\tR\bspawnMap\x12$\n" +
+	"\x0elevel_curve_id\x18\x11 \x01(\tR\flevelCurveId\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
@@ -1762,7 +3251,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x18\n" +
 	"\aelement\x18\x02 \x01(\tR\aelement\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\x02R\x06amount\x12,\n" +
-	"\x12attack_power_coeff\x18\x04 \x01(\x02R\x10attackPowerCoeff\"\x80\x03\n" +
+	"\x12attack_power_coeff\x18\x04 \x01(\x02R\x10attackPowerCoeff\"\xa9\x03\n" +
 	"\aAbility\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x17\n" +
@@ -1773,7 +3262,8 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"cooldownMs\x12!\n" +
 	"\ftriggers_gcd\x18\x06 \x01(\bR\vtriggersGcd\x12;\n" +
 	"\aeffects\x18\a \x03(\v2!.sarnaut.content.v1.AbilityEffectR\aeffects\x12\x19\n" +
-	"\bname_key\x18\b \x01(\tR\anameKey\x12<\n" +
+	"\bname_key\x18\b \x01(\tR\anameKey\x12'\n" +
+	"\x0fdescription_key\x18\t \x01(\tR\x0edescriptionKey\x12<\n" +
 	"\x05extra\x18\x0f \x03(\v2&.sarnaut.content.v1.Ability.ExtraEntryR\x05extra\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
@@ -1796,7 +3286,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe4\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xea\x05\n" +
 	"\x03Mob\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bname_key\x18\x02 \x01(\tR\anameKey\x12\x1d\n" +
@@ -1813,8 +3303,19 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	" \x01(\x02R\fleashRadiusM\x12\x1f\n" +
 	"\vability_ids\x18\v \x03(\tR\n" +
 	"abilityIds\x12\"\n" +
-	"\rloot_table_id\x18\f \x01(\tR\vlootTableId\x128\n" +
-	"\x05extra\x18\x0f \x03(\v2\".sarnaut.content.v1.Mob.ExtraEntryR\x05extra\x1a8\n" +
+	"\rloot_table_id\x18\f \x01(\tR\vlootTableId\x12\x1b\n" +
+	"\ttitle_key\x18\r \x01(\tR\btitleKey\x12\x1d\n" +
+	"\n" +
+	"quality_id\x18\x0e \x01(\tR\tqualityId\x128\n" +
+	"\x05extra\x18\x0f \x03(\v2\".sarnaut.content.v1.Mob.ExtraEntryR\x05extra\x12!\n" +
+	"\fquality_rank\x18\x10 \x01(\rR\vqualityRank\x12\x17\n" +
+	"\adps_mod\x18\x11 \x01(\x02R\x06dpsMod\x12\x17\n" +
+	"\aexp_mod\x18\x12 \x01(\x02R\x06expMod\x12\x19\n" +
+	"\bmana_mod\x18\x13 \x01(\x02R\amanaMod\x12\x19\n" +
+	"\bloot_mod\x18\x14 \x01(\x02R\alootMod\x12\x1b\n" +
+	"\tspeed_mod\x18\x15 \x01(\x02R\bspeedMod\x12 \n" +
+	"\fmob_class_id\x18\x16 \x01(\tR\n" +
+	"mobClassId\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
@@ -1850,7 +3351,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe0\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x03\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bname_key\x18\x02 \x01(\tR\anameKey\x12\x1a\n" +
@@ -1862,7 +3363,8 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\vvendor_sell\x18\a \x01(\x03R\n" +
 	"vendorSell\x12\x1d\n" +
 	"\n" +
-	"vendor_buy\x18\b \x01(\x03R\tvendorBuy\x129\n" +
+	"vendor_buy\x18\b \x01(\x03R\tvendorBuy\x12'\n" +
+	"\x0fdescription_key\x18\t \x01(\tR\x0edescriptionKey\x129\n" +
 	"\x05extra\x18\x0f \x03(\v2#.sarnaut.content.v1.Item.ExtraEntryR\x05extra\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
@@ -1884,7 +3386,133 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xef\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfa\x03\n" +
+	"\aMobKind\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12?\n" +
+	"\btaxonomy\x18\x02 \x01(\x0e2#.sarnaut.content.v1.MobTaxonomyKindR\btaxonomy\x12!\n" +
+	"\fprototype_id\x18\x03 \x01(\tR\vprototypeId\x12 \n" +
+	"\fmob_class_id\x18\x04 \x01(\tR\n" +
+	"mobClassId\x12\x1d\n" +
+	"\n" +
+	"quality_id\x18\x05 \x01(\tR\tqualityId\x12\x15\n" +
+	"\x06hp_mod\x18\x06 \x01(\x02R\x05hpMod\x12\x17\n" +
+	"\adps_mod\x18\a \x01(\x02R\x06dpsMod\x12\x17\n" +
+	"\aexp_mod\x18\b \x01(\x02R\x06expMod\x12\x19\n" +
+	"\bmana_mod\x18\t \x01(\x02R\amanaMod\x12\x19\n" +
+	"\bloot_mod\x18\n" +
+	" \x01(\x02R\alootMod\x12\x14\n" +
+	"\x05speed\x18\v \x01(\x02R\x05speed\x12\x12\n" +
+	"\x04rank\x18\f \x01(\rR\x04rank\x12\x19\n" +
+	"\bname_key\x18\r \x01(\tR\anameKey\x12<\n" +
+	"\x05extra\x18\x0f \x03(\v2&.sarnaut.content.v1.MobKind.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x84\x01\n" +
+	"\x0fLevelCurvePoint\x12\x14\n" +
+	"\x05level\x18\x01 \x01(\rR\x05level\x12\x17\n" +
+	"\abase_hp\x18\x02 \x01(\x05R\x06baseHp\x12\x19\n" +
+	"\bbase_dps\x18\x03 \x01(\x02R\abaseDps\x12'\n" +
+	"\x0fbase_experience\x18\x04 \x01(\x03R\x0ebaseExperience\"\xee\x01\n" +
+	"\n" +
+	"LevelCurve\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
+	"\aruleset\x18\x02 \x01(\tR\aruleset\x12;\n" +
+	"\x06points\x18\x03 \x03(\v2#.sarnaut.content.v1.LevelCurvePointR\x06points\x12?\n" +
+	"\x05extra\x18\x0f \x03(\v2).sarnaut.content.v1.LevelCurve.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"X\n" +
+	"\n" +
+	"RoutePoint\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\rR\x05index\x124\n" +
+	"\bposition\x18\x02 \x01(\v2\x18.sarnaut.content.v1.Vec3R\bposition\"{\n" +
+	"\tRouteLink\x12\x12\n" +
+	"\x04from\x18\x01 \x01(\rR\x04from\x12\x0e\n" +
+	"\x02to\x18\x02 \x01(\rR\x02to\x12\x16\n" +
+	"\x06weight\x18\x03 \x01(\x02R\x06weight\x12\x1a\n" +
+	"\bmovement\x18\x04 \x01(\tR\bmovement\x12\x16\n" +
+	"\x06flying\x18\x05 \x01(\bR\x06flying\"\xa5\x02\n" +
+	"\x05Route\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\azone_id\x18\x02 \x01(\tR\x06zoneId\x12\x10\n" +
+	"\x03map\x18\x03 \x01(\tR\x03map\x126\n" +
+	"\x06points\x18\x04 \x03(\v2\x1e.sarnaut.content.v1.RoutePointR\x06points\x123\n" +
+	"\x05links\x18\x05 \x03(\v2\x1d.sarnaut.content.v1.RouteLinkR\x05links\x12:\n" +
+	"\x05extra\x18\x0f \x03(\v2$.sarnaut.content.v1.Route.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"3\n" +
+	"\vLocaleEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\"\xe6\x01\n" +
+	"\x06Locale\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\blanguage\x18\x02 \x01(\tR\blanguage\x129\n" +
+	"\aentries\x18\x03 \x03(\v2\x1f.sarnaut.content.v1.LocaleEntryR\aentries\x12;\n" +
+	"\x05extra\x18\x0f \x03(\v2%.sarnaut.content.v1.Locale.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x02\n" +
+	"\x0eQuestObjective\x12:\n" +
+	"\x04kind\x18\x01 \x01(\x0e2&.sarnaut.content.v1.QuestObjectiveKindR\x04kind\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\n" +
+	"target_ids\x18\x03 \x03(\tR\ttargetIds\x12\x1a\n" +
+	"\binternal\x18\x04 \x01(\bR\binternal\x12\x1d\n" +
+	"\n" +
+	"show_count\x18\x05 \x01(\bR\tshowCount\x12\x1f\n" +
+	"\vcounter_key\x18\x06 \x01(\tR\n" +
+	"counterKey\x12*\n" +
+	"\x11remove_on_abandon\x18\a \x01(\bR\x0fremoveOnAbandon\"W\n" +
+	"\x11QuestPrerequisite\x12\x19\n" +
+	"\bquest_id\x18\x01 \x01(\tR\aquestId\x12'\n" +
+	"\x0frequired_status\x18\x02 \x01(\tR\x0erequiredStatus\"X\n" +
+	"\x0fQuestRewardItem\x12\x17\n" +
+	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x05R\x05count\x12\x16\n" +
+	"\x06hidden\x18\x03 \x01(\bR\x06hidden\"\xfa\x01\n" +
+	"\fQuestRewards\x12\x1e\n" +
+	"\n" +
+	"experience\x18\x01 \x01(\x03R\n" +
+	"experience\x12\x14\n" +
+	"\x05money\x18\x02 \x01(\x03R\x05money\x12\x14\n" +
+	"\x05honor\x18\x03 \x01(\x03R\x05honor\x12L\n" +
+	"\x0fmandatory_items\x18\x04 \x03(\v2#.sarnaut.content.v1.QuestRewardItemR\x0emandatoryItems\x12P\n" +
+	"\x11alternative_items\x18\x05 \x03(\v2#.sarnaut.content.v1.QuestRewardItemR\x10alternativeItems\"\xbd\x05\n" +
+	"\x05Quest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\azone_id\x18\x02 \x01(\tR\x06zoneId\x12\x14\n" +
+	"\x05level\x18\x03 \x01(\rR\x05level\x12%\n" +
+	"\x0erequired_level\x18\x04 \x01(\rR\rrequiredLevel\x12\x1d\n" +
+	"\n" +
+	"quest_type\x18\x05 \x01(\tR\tquestType\x12\x1d\n" +
+	"\n" +
+	"starter_id\x18\x06 \x01(\tR\tstarterId\x12\x1f\n" +
+	"\vfinisher_id\x18\a \x01(\tR\n" +
+	"finisherId\x12\x1d\n" +
+	"\n" +
+	"can_cancel\x18\b \x01(\bR\tcanCancel\x12K\n" +
+	"\rprerequisites\x18\t \x03(\v2%.sarnaut.content.v1.QuestPrerequisiteR\rprerequisites\x12B\n" +
+	"\n" +
+	"objectives\x18\n" +
+	" \x03(\v2\".sarnaut.content.v1.QuestObjectiveR\n" +
+	"objectives\x12:\n" +
+	"\arewards\x18\v \x01(\v2 .sarnaut.content.v1.QuestRewardsR\arewards\x12\x19\n" +
+	"\bname_key\x18\f \x01(\tR\anameKey\x12\x19\n" +
+	"\bgoal_key\x18\r \x01(\tR\agoalKey\x12\x1b\n" +
+	"\tstart_key\x18\x0e \x01(\tR\bstartKey\x12:\n" +
+	"\x05extra\x18\x0f \x03(\v2$.sarnaut.content.v1.Quest.ExtraEntryR\x05extra\x12\x1b\n" +
+	"\tcheck_key\x18\x10 \x01(\tR\bcheckKey\x12\x1d\n" +
+	"\n" +
+	"finish_key\x18\x11 \x01(\tR\tfinishKey\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xdd\x02\n" +
 	"\aRowType\x12\x18\n" +
 	"\x14ROW_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rROW_TYPE_ZONE\x10\x01\x12\x16\n" +
@@ -1895,13 +3523,29 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x10ROW_TYPE_FACTION\x10\x06\x12\x10\n" +
 	"\fROW_TYPE_MOB\x10\a\x12\x11\n" +
 	"\rROW_TYPE_ITEM\x10\b\x12\x17\n" +
-	"\x13ROW_TYPE_LOOT_TABLE\x10\t*\x97\x01\n" +
+	"\x13ROW_TYPE_LOOT_TABLE\x10\t\x12\x12\n" +
+	"\x0eROW_TYPE_QUEST\x10\n" +
+	"\x12\x12\n" +
+	"\x0eROW_TYPE_ROUTE\x10\v\x12\x13\n" +
+	"\x0fROW_TYPE_LOCALE\x10\f\x12\x15\n" +
+	"\x11ROW_TYPE_MOB_KIND\x10\r\x12\x18\n" +
+	"\x14ROW_TYPE_LEVEL_CURVE\x10\x0e*\x97\x01\n" +
 	"\fLootNodeKind\x12\x1e\n" +
 	"\x1aLOOT_NODE_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12LOOT_NODE_KIND_AND\x10\x01\x12\x15\n" +
 	"\x11LOOT_NODE_KIND_OR\x10\x02\x12\x1e\n" +
 	"\x1aLOOT_NODE_KIND_SINGLE_ITEM\x10\x03\x12\x18\n" +
-	"\x14LOOT_NODE_KIND_MONEY\x10\x04B@Z>github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1b\x06proto3"
+	"\x14LOOT_NODE_KIND_MONEY\x10\x04*\x8c\x01\n" +
+	"\x0fMobTaxonomyKind\x12!\n" +
+	"\x1dMOB_TAXONOMY_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16MOB_TAXONOMY_KIND_KIND\x10\x01\x12\x1b\n" +
+	"\x17MOB_TAXONOMY_KIND_CLASS\x10\x02\x12\x1d\n" +
+	"\x19MOB_TAXONOMY_KIND_QUALITY\x10\x03*\xac\x01\n" +
+	"\x12QuestObjectiveKind\x12$\n" +
+	" QUEST_OBJECTIVE_KIND_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fQUEST_OBJECTIVE_KIND_COUNT_KILL\x10\x01\x12#\n" +
+	"\x1fQUEST_OBJECTIVE_KIND_COUNT_ITEM\x10\x02\x12&\n" +
+	"\"QUEST_OBJECTIVE_KIND_COUNT_SPECIAL\x10\x03B@Z>github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1b\x06proto3"
 
 var (
 	file_sarnaut_content_v1_content_proto_rawDescOnce sync.Once
@@ -1915,63 +3559,102 @@ func file_sarnaut_content_v1_content_proto_rawDescGZIP() []byte {
 	return file_sarnaut_content_v1_content_proto_rawDescData
 }
 
-var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_sarnaut_content_v1_content_proto_goTypes = []any{
-	(RowType)(0),            // 0: sarnaut.content.v1.RowType
-	(LootNodeKind)(0),       // 1: sarnaut.content.v1.LootNodeKind
-	(*Vec3)(nil),            // 2: sarnaut.content.v1.Vec3
-	(*Zone)(nil),            // 3: sarnaut.content.v1.Zone
-	(*Placement)(nil),       // 4: sarnaut.content.v1.Placement
-	(*SpawnTableEntry)(nil), // 5: sarnaut.content.v1.SpawnTableEntry
-	(*SpawnTable)(nil),      // 6: sarnaut.content.v1.SpawnTable
-	(*AbilityEffect)(nil),   // 7: sarnaut.content.v1.AbilityEffect
-	(*Ability)(nil),         // 8: sarnaut.content.v1.Ability
-	(*FactionRelation)(nil), // 9: sarnaut.content.v1.FactionRelation
-	(*Faction)(nil),         // 10: sarnaut.content.v1.Faction
-	(*Mob)(nil),             // 11: sarnaut.content.v1.Mob
-	(*StatEntry)(nil),       // 12: sarnaut.content.v1.StatEntry
-	(*LoadoutEntry)(nil),    // 13: sarnaut.content.v1.LoadoutEntry
-	(*ChargenOption)(nil),   // 14: sarnaut.content.v1.ChargenOption
-	(*Item)(nil),            // 15: sarnaut.content.v1.Item
-	(*LootNode)(nil),        // 16: sarnaut.content.v1.LootNode
-	(*LootTable)(nil),       // 17: sarnaut.content.v1.LootTable
-	nil,                     // 18: sarnaut.content.v1.Zone.ExtraEntry
-	nil,                     // 19: sarnaut.content.v1.Placement.ExtraEntry
-	nil,                     // 20: sarnaut.content.v1.SpawnTable.ExtraEntry
-	nil,                     // 21: sarnaut.content.v1.Ability.ExtraEntry
-	nil,                     // 22: sarnaut.content.v1.Faction.ExtraEntry
-	nil,                     // 23: sarnaut.content.v1.Mob.ExtraEntry
-	nil,                     // 24: sarnaut.content.v1.ChargenOption.ExtraEntry
-	nil,                     // 25: sarnaut.content.v1.Item.ExtraEntry
-	nil,                     // 26: sarnaut.content.v1.LootTable.ExtraEntry
+	(RowType)(0),              // 0: sarnaut.content.v1.RowType
+	(LootNodeKind)(0),         // 1: sarnaut.content.v1.LootNodeKind
+	(MobTaxonomyKind)(0),      // 2: sarnaut.content.v1.MobTaxonomyKind
+	(QuestObjectiveKind)(0),   // 3: sarnaut.content.v1.QuestObjectiveKind
+	(*Vec3)(nil),              // 4: sarnaut.content.v1.Vec3
+	(*Zone)(nil),              // 5: sarnaut.content.v1.Zone
+	(*Placement)(nil),         // 6: sarnaut.content.v1.Placement
+	(*SpawnTableEntry)(nil),   // 7: sarnaut.content.v1.SpawnTableEntry
+	(*SpawnTable)(nil),        // 8: sarnaut.content.v1.SpawnTable
+	(*AbilityEffect)(nil),     // 9: sarnaut.content.v1.AbilityEffect
+	(*Ability)(nil),           // 10: sarnaut.content.v1.Ability
+	(*FactionRelation)(nil),   // 11: sarnaut.content.v1.FactionRelation
+	(*Faction)(nil),           // 12: sarnaut.content.v1.Faction
+	(*Mob)(nil),               // 13: sarnaut.content.v1.Mob
+	(*StatEntry)(nil),         // 14: sarnaut.content.v1.StatEntry
+	(*LoadoutEntry)(nil),      // 15: sarnaut.content.v1.LoadoutEntry
+	(*ChargenOption)(nil),     // 16: sarnaut.content.v1.ChargenOption
+	(*Item)(nil),              // 17: sarnaut.content.v1.Item
+	(*LootNode)(nil),          // 18: sarnaut.content.v1.LootNode
+	(*LootTable)(nil),         // 19: sarnaut.content.v1.LootTable
+	(*MobKind)(nil),           // 20: sarnaut.content.v1.MobKind
+	(*LevelCurvePoint)(nil),   // 21: sarnaut.content.v1.LevelCurvePoint
+	(*LevelCurve)(nil),        // 22: sarnaut.content.v1.LevelCurve
+	(*RoutePoint)(nil),        // 23: sarnaut.content.v1.RoutePoint
+	(*RouteLink)(nil),         // 24: sarnaut.content.v1.RouteLink
+	(*Route)(nil),             // 25: sarnaut.content.v1.Route
+	(*LocaleEntry)(nil),       // 26: sarnaut.content.v1.LocaleEntry
+	(*Locale)(nil),            // 27: sarnaut.content.v1.Locale
+	(*QuestObjective)(nil),    // 28: sarnaut.content.v1.QuestObjective
+	(*QuestPrerequisite)(nil), // 29: sarnaut.content.v1.QuestPrerequisite
+	(*QuestRewardItem)(nil),   // 30: sarnaut.content.v1.QuestRewardItem
+	(*QuestRewards)(nil),      // 31: sarnaut.content.v1.QuestRewards
+	(*Quest)(nil),             // 32: sarnaut.content.v1.Quest
+	nil,                       // 33: sarnaut.content.v1.Zone.ExtraEntry
+	nil,                       // 34: sarnaut.content.v1.Placement.ExtraEntry
+	nil,                       // 35: sarnaut.content.v1.SpawnTable.ExtraEntry
+	nil,                       // 36: sarnaut.content.v1.Ability.ExtraEntry
+	nil,                       // 37: sarnaut.content.v1.Faction.ExtraEntry
+	nil,                       // 38: sarnaut.content.v1.Mob.ExtraEntry
+	nil,                       // 39: sarnaut.content.v1.ChargenOption.ExtraEntry
+	nil,                       // 40: sarnaut.content.v1.Item.ExtraEntry
+	nil,                       // 41: sarnaut.content.v1.LootTable.ExtraEntry
+	nil,                       // 42: sarnaut.content.v1.MobKind.ExtraEntry
+	nil,                       // 43: sarnaut.content.v1.LevelCurve.ExtraEntry
+	nil,                       // 44: sarnaut.content.v1.Route.ExtraEntry
+	nil,                       // 45: sarnaut.content.v1.Locale.ExtraEntry
+	nil,                       // 46: sarnaut.content.v1.Quest.ExtraEntry
 }
 var file_sarnaut_content_v1_content_proto_depIdxs = []int32{
-	2,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
-	18, // 1: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
-	2,  // 2: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
-	19, // 3: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
-	5,  // 4: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
-	20, // 5: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
-	7,  // 6: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
-	21, // 7: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
-	9,  // 8: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
-	22, // 9: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
-	23, // 10: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
-	2,  // 11: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
-	12, // 12: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
-	24, // 13: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
-	13, // 14: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
-	25, // 15: sarnaut.content.v1.Item.extra:type_name -> sarnaut.content.v1.Item.ExtraEntry
-	1,  // 16: sarnaut.content.v1.LootNode.kind:type_name -> sarnaut.content.v1.LootNodeKind
-	16, // 17: sarnaut.content.v1.LootNode.entries:type_name -> sarnaut.content.v1.LootNode
-	16, // 18: sarnaut.content.v1.LootTable.root:type_name -> sarnaut.content.v1.LootNode
-	26, // 19: sarnaut.content.v1.LootTable.extra:type_name -> sarnaut.content.v1.LootTable.ExtraEntry
-	20, // [20:20] is the sub-list for method output_type
-	20, // [20:20] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	4,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
+	4,  // 1: sarnaut.content.v1.Zone.bounds_min:type_name -> sarnaut.content.v1.Vec3
+	4,  // 2: sarnaut.content.v1.Zone.bounds_max:type_name -> sarnaut.content.v1.Vec3
+	33, // 3: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
+	4,  // 4: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
+	34, // 5: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
+	7,  // 6: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
+	35, // 7: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
+	9,  // 8: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
+	36, // 9: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
+	11, // 10: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
+	37, // 11: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
+	38, // 12: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
+	4,  // 13: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
+	14, // 14: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
+	39, // 15: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
+	15, // 16: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
+	40, // 17: sarnaut.content.v1.Item.extra:type_name -> sarnaut.content.v1.Item.ExtraEntry
+	1,  // 18: sarnaut.content.v1.LootNode.kind:type_name -> sarnaut.content.v1.LootNodeKind
+	18, // 19: sarnaut.content.v1.LootNode.entries:type_name -> sarnaut.content.v1.LootNode
+	18, // 20: sarnaut.content.v1.LootTable.root:type_name -> sarnaut.content.v1.LootNode
+	41, // 21: sarnaut.content.v1.LootTable.extra:type_name -> sarnaut.content.v1.LootTable.ExtraEntry
+	2,  // 22: sarnaut.content.v1.MobKind.taxonomy:type_name -> sarnaut.content.v1.MobTaxonomyKind
+	42, // 23: sarnaut.content.v1.MobKind.extra:type_name -> sarnaut.content.v1.MobKind.ExtraEntry
+	21, // 24: sarnaut.content.v1.LevelCurve.points:type_name -> sarnaut.content.v1.LevelCurvePoint
+	43, // 25: sarnaut.content.v1.LevelCurve.extra:type_name -> sarnaut.content.v1.LevelCurve.ExtraEntry
+	4,  // 26: sarnaut.content.v1.RoutePoint.position:type_name -> sarnaut.content.v1.Vec3
+	23, // 27: sarnaut.content.v1.Route.points:type_name -> sarnaut.content.v1.RoutePoint
+	24, // 28: sarnaut.content.v1.Route.links:type_name -> sarnaut.content.v1.RouteLink
+	44, // 29: sarnaut.content.v1.Route.extra:type_name -> sarnaut.content.v1.Route.ExtraEntry
+	26, // 30: sarnaut.content.v1.Locale.entries:type_name -> sarnaut.content.v1.LocaleEntry
+	45, // 31: sarnaut.content.v1.Locale.extra:type_name -> sarnaut.content.v1.Locale.ExtraEntry
+	3,  // 32: sarnaut.content.v1.QuestObjective.kind:type_name -> sarnaut.content.v1.QuestObjectiveKind
+	30, // 33: sarnaut.content.v1.QuestRewards.mandatory_items:type_name -> sarnaut.content.v1.QuestRewardItem
+	30, // 34: sarnaut.content.v1.QuestRewards.alternative_items:type_name -> sarnaut.content.v1.QuestRewardItem
+	29, // 35: sarnaut.content.v1.Quest.prerequisites:type_name -> sarnaut.content.v1.QuestPrerequisite
+	28, // 36: sarnaut.content.v1.Quest.objectives:type_name -> sarnaut.content.v1.QuestObjective
+	31, // 37: sarnaut.content.v1.Quest.rewards:type_name -> sarnaut.content.v1.QuestRewards
+	46, // 38: sarnaut.content.v1.Quest.extra:type_name -> sarnaut.content.v1.Quest.ExtraEntry
+	39, // [39:39] is the sub-list for method output_type
+	39, // [39:39] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_content_v1_content_proto_init() }
@@ -1984,8 +3667,8 @@ func file_sarnaut_content_v1_content_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_content_v1_content_proto_rawDesc), len(file_sarnaut_content_v1_content_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   25,
+			NumEnums:      4,
+			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

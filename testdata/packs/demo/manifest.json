@@ -2,7 +2,7 @@
   "schema_version": 1,
   "ruleset": "classic",
   "zone": "paper-harbor",
-  "pack_id": "abfa400eaf89ebbad1b69d4c279908498556e71adb7f7d153bdefbef2a9362e8",
+  "pack_id": "5fb9f7bf2e7b007a4cf2491098f991d5e6eeeb78c75341eb3bed4359af7a1d67",
   "builder": {
     "name": "sarnaut-pack",
     "version": "0.1.0"
@@ -19,8 +19,8 @@
       "file": "tables/abilities.sptbl",
       "row_type": "ROW_TYPE_ABILITY",
       "rows": 1,
-      "bytes": 156,
-      "blake3": "05cd9b4a07d9d5ca1f75804a84404d2482d539928b40ba2a856c48ebadb7412e"
+      "bytes": 186,
+      "blake3": "2aa674a5e9cd00cde0243f7c3cefb161ae781b1cf0e7bdfb471e4109efc800a9"
     },
     {
       "name": "chargen",
@@ -43,8 +43,24 @@
       "file": "tables/items.sptbl",
       "row_type": "ROW_TYPE_ITEM",
       "rows": 3,
-      "bytes": 290,
-      "blake3": "ef12d4b2a41e0c4f3f34a96ef29d523c26a2ca9d84e790c25b4320f565453094"
+      "bytes": 319,
+      "blake3": "6332c364d978283e9331e34b2b0cced490d4ec40a34d5aa6d084887fdee6793b"
+    },
+    {
+      "name": "level-curve",
+      "file": "tables/level-curve.sptbl",
+      "row_type": "ROW_TYPE_LEVEL_CURVE",
+      "rows": 1,
+      "bytes": 163,
+      "blake3": "45b6d9f50ffe3cf3957042a3e706e4aa7dd14c4cbc7bc7a4ef859385149f1c3c"
+    },
+    {
+      "name": "locale",
+      "file": "tables/locale.sptbl",
+      "row_type": "ROW_TYPE_LOCALE",
+      "rows": 1,
+      "bytes": 1509,
+      "blake3": "e0c2fded9ce83231020fd83c3006519baa022da77f0486d1fab8f649f941978b"
     },
     {
       "name": "loot-tables",
@@ -55,12 +71,20 @@
       "blake3": "dcd7719d5214c190f36c58b1dbacc1cbdf54eff83e0688c3d1c05b6e04354322"
     },
     {
+      "name": "mob-kinds",
+      "file": "tables/mob-kinds.sptbl",
+      "row_type": "ROW_TYPE_MOB_KIND",
+      "rows": 4,
+      "bytes": 432,
+      "blake3": "271da96d11ab5eb41fa7319914c416e420e9aa2dd47d240ea4927527a688c1e2"
+    },
+    {
       "name": "mobs",
       "file": "tables/mobs.sptbl",
       "row_type": "ROW_TYPE_MOB",
       "rows": 2,
-      "bytes": 406,
-      "blake3": "bbbfddaac895e17b5eb1ca577b35d61049f5e0b8ccb89ec1286d4abafc0cf0b2"
+      "bytes": 583,
+      "blake3": "d0998bd988a4160df3d18aab6c0b850900b2c42415d663b27f49cb5e708c2298"
     },
     {
       "name": "placements",
@@ -69,6 +93,22 @@
       "rows": 6,
       "bytes": 777,
       "blake3": "28ac71f92910d1bec3d967f2f5711c958b165f8331009376eac99e61549fae27"
+    },
+    {
+      "name": "quests",
+      "file": "tables/quests.sptbl",
+      "row_type": "ROW_TYPE_QUEST",
+      "rows": 1,
+      "bytes": 380,
+      "blake3": "076d45b12cf5218c43f45df76e1be6c27d0bd6bc6adc1ee9c44ad36e31e0af96"
+    },
+    {
+      "name": "routes",
+      "file": "tables/routes.sptbl",
+      "row_type": "ROW_TYPE_ROUTE",
+      "rows": 1,
+      "bytes": 220,
+      "blake3": "79e0698860b01d81b8c0737a940e79f615a7856aff4d84ff9aa1f7ae2dce8489"
     },
     {
       "name": "spawn-tables",
@@ -83,8 +123,8 @@
       "file": "tables/zone.sptbl",
       "row_type": "ROW_TYPE_ZONE",
       "rows": 1,
-      "bytes": 114,
-      "blake3": "4044407ae415f11c3b40918b895c9f9c40e29c5a9670820fe6f30eb0f92c833d"
+      "bytes": 280,
+      "blake3": "94f4ec1784f86ca04629dbcdefd1d9dbd0d998e12c239f00ece5fdb8ceb82cea"
     }
   ]
 }
