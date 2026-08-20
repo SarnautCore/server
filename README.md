@@ -21,7 +21,7 @@ flowchart LR
     Shard -. traces .-> OTel
 ```
 
-`shard` is a modular monolith. Its game systems stay under `internal` and communicate through Go interfaces. `auth` is a separate service, and `gateway` is the thin client edge. NATS connects processes. PostgreSQL and Valkey clients are wired but optional in this skeleton. QUIC sits behind `internal/transport`, so a later raw UDP implementation does not change the session protocol.
+`shard` is a modular monolith. Its game systems stay under `internal` and communicate through Go interfaces. `internal/world` owns the simulation and exposes domain types only; all protobuf mapping lives in `internal/session/mapping.go`, so a second wire format is a second mapping file and not surgery on the sim ([ADR 0028](https://github.com/SarnautCore/docs/blob/main/adr/0028-world-sim-protobuf-boundary.md)). `internal/combat` registers as a per-tick `world.System` and resolves every gameplay rule — ability range, damage and cooldown, mob level and health, faction hostility, aggro and leash radii, respawn window — from the loaded content pack, so a second ability or a second mob is a content change and nothing else. `auth` is a separate service, and `gateway` is the thin client edge. NATS connects processes. PostgreSQL and Valkey clients are wired but optional in this skeleton. QUIC sits behind `internal/transport`, so a later raw UDP implementation does not change the session protocol.
 
 Wire definitions live in `proto/sarnaut/v1`. Generated Go code is committed under `gen/sarnaut/v1`.
 
@@ -100,6 +100,30 @@ Use the probe to enter the zone, send movement input, and print the number of sn
 go run ./cmd/probe -duration 5s
 ```
 
+### M2 vertical slice driver
+
+`scripts/m2-slice-driver` plays the slice headlessly and prints one line per
+step:
+
+```powershell
+go run ./scripts/m2-slice-driver
+```
+
+```
+PASS host     in-process shard on 127.0.0.1:53312, zone M2Slice, pack 93d786dc...
+PASS connect  zone=M2Slice entity=6 datagrams=true server_pack=""
+PASS target   mob.paper-harbor.tide-crab entity=3 level=2 health=120/120
+PASS cast     6 casts of ability.melee.harbor-cleave for 20 damage each
+PASS kill     mob.paper-harbor.tide-crab died on cast 6 to 120 total damage
+PASS logout   clean exit requested
+```
+
+With no `-address` it stands a shard up in process from the vendored fixture
+pack, so it needs nothing running and no configuration; pass `-address` to
+drive one that is already up. It exits non-zero if any step fails, and CI runs
+it on every push. Every later M2 server task extends this driver rather than
+writing one of its own.
+
 ### Godot client integration smoke
 
 With the `server` and `client` repositories in the same parent directory, run the cross-repository SAR-20 smoke:
@@ -124,6 +148,7 @@ Copy `config.example.yaml`, set `SARNAUT_CONFIG` to its path, and override indiv
 | `SARNAUT_WORLD_ZONE_ID` | Network zone ID, default `InstLeague1` |
 | `SARNAUT_WORLD_TICK_INTERVAL` | Fixed simulation interval, default 30 Hz |
 | `SARNAUT_WORLD_SNAPSHOT_INTERVAL` | Replication interval, default 15 Hz |
+| `SARNAUT_WORLD_SPAWN_SEED` | Seeds the zone spawn stream that draws mob levels and respawn delays, default `0` |
 | `SARNAUT_NATS_URL` | NATS server URL |
 | `SARNAUT_POSTGRES_DSN` | PostgreSQL connection string |
 | `SARNAUT_VALKEY_ADDRESS` | Valkey host and port |

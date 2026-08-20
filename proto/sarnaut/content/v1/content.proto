@@ -22,6 +22,12 @@ enum RowType {
   ROW_TYPE_ZONE = 1;
   ROW_TYPE_PLACEMENT = 2;
   ROW_TYPE_SPAWN_TABLE = 3;
+  // 4 belongs to the chargen row type, which is in flight on its own branch.
+  // Numbers are claimed once and never reused, so the combat rows start at 5
+  // rather than filling the gap.
+  ROW_TYPE_ABILITY = 5;
+  ROW_TYPE_FACTION = 6;
+  ROW_TYPE_MOB = 7;
 }
 
 // Vec3 is a world-space position. Z is the vertical axis.
@@ -66,6 +72,13 @@ message Placement {
   // Canonical id of the patrol route this placement follows, if any.
   string route_id = 7;
   float scan_radius = 8;
+  // Respawn delay window for whatever this placement spawns, in milliseconds.
+  // The shard draws uniformly from `[min, max]` (mechanics/combat.md rule
+  // 5.9.6). Respawn is a property of the slot, not of the mob: the same mob
+  // placed twice can come back at two different rates. Both zero means the
+  // placement authored none and the shard uses its own default.
+  uint32 respawn_delay_min_ms = 9;
+  uint32 respawn_delay_max_ms = 10;
   // Untyped passthrough; see Zone.extra.
   map<string, string> extra = 15;
 }
@@ -88,6 +101,97 @@ message SpawnTable {
   repeated SpawnTableEntry entries = 2;
   // True when the authored table is driven by a server script.
   bool scripted = 3;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}
+
+// AbilityEffect is one effect an ability applies to its target.
+//
+// `kind` and `element` are authored slugs rather than enums: the effect
+// taxonomy is not settled (mechanics/combat.md is explicit that M2's rules are
+// invented), and freezing an enum now would make every later effect a wire
+// change. The shard rejects a kind it does not implement.
+message AbilityEffect {
+  // `damage` or `heal`.
+  string kind = 1;
+  // Damage school slug, for example `physical`.
+  string element = 2;
+  // Flat term of the effect. ABILITY_BASE_DAMAGE in combat.md rule 5.5.1.
+  float amount = 3;
+  // Multiplier on the caster's attack power. ATTACK_POWER_COEFF in rule 5.5.1.
+  float attack_power_coeff = 4;
+}
+
+// Ability is one activatable ability, keyed by canonical id.
+message Ability {
+  // Canonical id, for example `ability.melee.harbor-cleave`.
+  string id = 1;
+  // Who the ability may be used on. `enemy` is the only value M2 authors.
+  string target = 2;
+  // Maximum caster-to-target distance. Units are metres by assumption; see
+  // mechanics/combat.md section 7.2.
+  float range_m = 3;
+  uint32 cast_time_ms = 4;
+  // Per-ability cooldown, separate from the global cooldown.
+  uint32 cooldown_ms = 5;
+  bool triggers_gcd = 6;
+  repeated AbilityEffect effects = 7;
+  // Localization key for the display name (ADR 0007).
+  string name_key = 8;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}
+
+// FactionRelation is one directed stance. A hostile to B does not imply B
+// hostile to A, so both directions are stored.
+message FactionRelation {
+  string faction_id = 1;
+  // `hostile`, `neutral` or `friendly`.
+  string stance = 2;
+}
+
+// Faction is a hostility table entry. Without it a mob's faction is a string
+// the shard cannot reason about, and combat.md rule 5.2.5 has nothing to read.
+message Faction {
+  // Canonical id, for example `faction.wild`.
+  string id = 1;
+  bool player_faction = 2;
+  // Whether members may be the target of a hostile ability at all.
+  bool attackable = 3;
+  // Stance towards any faction with no explicit relation.
+  string default_stance = 4;
+  repeated FactionRelation relations = 5;
+  string name_key = 6;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}
+
+// Mob is what the shard needs to instantiate one creature: identity, the
+// combat inputs of mechanics/combat.md section 4, and the ids that later
+// systems resolve.
+message Mob {
+  // Canonical id, for example `mob.paper-harbor.tide-crab`.
+  string id = 1;
+  string name_key = 2;
+  // Canonical id of the faction this mob belongs to.
+  string faction_id = 3;
+  // Canonical id of the MobKind this mob's `hp_mod` was resolved from, kept so
+  // a shard log can name the record a number came from.
+  string mob_kind_id = 4;
+  // Inclusive level draw window (combat.md rule 5.1.5).
+  uint32 level_min = 5;
+  uint32 level_max = 6;
+  float walk_speed = 7;
+  // Health multiplier resolved from the referenced MobKind. Zero means the
+  // record carried none and the shard uses 1.0 (combat.md rule 5.1.1). The
+  // wider multiplier chain is deferred by combat.md section 7.1.
+  float hp_mod = 8;
+  // Distance at which an idle mob pulls (combat.md rule 5.7.2).
+  float aggro_radius_m = 9;
+  // Distance from its anchor at which a chasing mob gives up (rule 5.8.2).
+  float leash_radius_m = 10;
+  repeated string ability_ids = 11;
+  string loot_table_id = 12;
   // Untyped passthrough; see Zone.extra.
   map<string, string> extra = 15;
 }

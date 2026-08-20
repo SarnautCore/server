@@ -3,11 +3,15 @@ package session
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -160,15 +164,30 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 	if err != nil {
 		t.Fatalf("NewZone() error = %v", err)
 	}
+	// The harness carries a real combat module over the vendored fixture pack,
+	// because a session without one has no level, no faction and nowhere to
+	// send an ability use, and half of what these tests assert about a session
+	// would be vacuous.
+	content, err := pack.Load(filepath.Join("..", "..", "testdata", "packs", "demo"), pack.Options{})
+	if err != nil {
+		t.Fatalf("pack.Load() error = %v", err)
+	}
+	rules, err := combat.RulesFromPack(content)
+	if err != nil {
+		t.Fatalf("RulesFromPack() error = %v", err)
+	}
+	combatModule := combat.New(slog.New(slog.DiscardHandler), zone, rules, combat.Options{})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 	go zone.Run(ctx)
+	go combatModule.Run(ctx)
 
 	serverSide, clientSide := newPipeConnections(unreliable)
 	server := Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "harness",
-		Zones:           map[string]*world.Zone{zone.ID(): zone},
+		Zones:           map[string]ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
 	}
 	results := make(chan error, 1)
 	go func() { results <- server.handle(ctx, serverSide) }()

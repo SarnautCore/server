@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -65,6 +66,11 @@ type NPCSpawn struct {
 	MobID       string
 	Position    Vec3
 	Heading     float32
+	// RespawnMin and RespawnMax bound the delay before this slot fills again
+	// (mechanics/combat.md rule 5.9.6). Both zero means the placement authored
+	// no window and the shard uses its own default.
+	RespawnMin time.Duration
+	RespawnMax time.Duration
 }
 
 // Zone is what a pack says about the zone it describes.
@@ -85,11 +91,15 @@ type Options struct {
 
 // Pack is a loaded, fully validated content pack.
 type Pack struct {
-	id        string
-	directory string
-	keepExtra bool
-	zone      Zone
-	npcs      []NPCSpawn
+	id         string
+	directory  string
+	keepExtra  bool
+	zone       Zone
+	npcs       []NPCSpawn
+	abilities  map[string]Ability
+	abilityIDs []string
+	factions   map[string]Faction
+	mobs       map[string]Mob
 }
 
 // Load reads, validates and resolves the pack directory at `directory`.
@@ -168,12 +178,28 @@ func Load(directory string, options Options) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	abilities, abilityIDs, err := readAbilities(tables)
+	if err != nil {
+		return nil, err
+	}
+	factions, err := readFactions(tables)
+	if err != nil {
+		return nil, err
+	}
+	mobs, err := readMobs(tables)
+	if err != nil {
+		return nil, err
+	}
 	return &Pack{
-		id:        document.PackID,
-		directory: directory,
-		keepExtra: document.KeepExtra,
-		zone:      zone,
-		npcs:      npcs,
+		id:         document.PackID,
+		directory:  directory,
+		keepExtra:  document.KeepExtra,
+		zone:       zone,
+		npcs:       npcs,
+		abilities:  abilities,
+		abilityIDs: abilityIDs,
+		factions:   factions,
+		mobs:       mobs,
 	}, nil
 }
 
@@ -254,6 +280,8 @@ func resolveNPCs(tables map[string]*table) ([]NPCSpawn, error) {
 				MobID:       mobID,
 				Position:    vec3(placement.GetPosition()),
 				Heading:     placement.GetHeading(),
+				RespawnMin:  time.Duration(placement.GetRespawnDelayMinMs()) * time.Millisecond,
+				RespawnMax:  time.Duration(placement.GetRespawnDelayMaxMs()) * time.Millisecond,
 			})
 		}
 	}

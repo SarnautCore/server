@@ -55,6 +55,13 @@ jobs:
         shell: pwsh
         run: ./scripts/check-fixture-pack.ps1
 
+      # The M2 vertical slice, played headlessly against the vendored fixture
+      # pack: connect, enter, target, cast, kill. It stands its own shard up in
+      # process, so it needs nothing running. Every later M2 server task adds a
+      # step to it rather than writing a driver of its own.
+      - name: Run the M2 slice driver
+        run: go run ./scripts/m2-slice-driver
+
   # The persistence suite needs a real PostgreSQL: the character-name unique
   # index, citext, transaction rollback and every migration's Down section are
   # database behaviour, and a fake proves none of them (ADR 0031).

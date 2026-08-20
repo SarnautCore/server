@@ -42,6 +42,12 @@ const (
 	RowType_ROW_TYPE_ZONE        RowType = 1
 	RowType_ROW_TYPE_PLACEMENT   RowType = 2
 	RowType_ROW_TYPE_SPAWN_TABLE RowType = 3
+	// 4 belongs to the chargen row type, which is in flight on its own branch.
+	// Numbers are claimed once and never reused, so the combat rows start at 5
+	// rather than filling the gap.
+	RowType_ROW_TYPE_ABILITY RowType = 5
+	RowType_ROW_TYPE_FACTION RowType = 6
+	RowType_ROW_TYPE_MOB     RowType = 7
 )
 
 // Enum value maps for RowType.
@@ -51,12 +57,18 @@ var (
 		1: "ROW_TYPE_ZONE",
 		2: "ROW_TYPE_PLACEMENT",
 		3: "ROW_TYPE_SPAWN_TABLE",
+		5: "ROW_TYPE_ABILITY",
+		6: "ROW_TYPE_FACTION",
+		7: "ROW_TYPE_MOB",
 	}
 	RowType_value = map[string]int32{
 		"ROW_TYPE_UNSPECIFIED": 0,
 		"ROW_TYPE_ZONE":        1,
 		"ROW_TYPE_PLACEMENT":   2,
 		"ROW_TYPE_SPAWN_TABLE": 3,
+		"ROW_TYPE_ABILITY":     5,
+		"ROW_TYPE_FACTION":     6,
+		"ROW_TYPE_MOB":         7,
 	}
 )
 
@@ -259,6 +271,13 @@ type Placement struct {
 	// Canonical id of the patrol route this placement follows, if any.
 	RouteId    string  `protobuf:"bytes,7,opt,name=route_id,json=routeId,proto3" json:"route_id,omitempty"`
 	ScanRadius float32 `protobuf:"fixed32,8,opt,name=scan_radius,json=scanRadius,proto3" json:"scan_radius,omitempty"`
+	// Respawn delay window for whatever this placement spawns, in milliseconds.
+	// The shard draws uniformly from `[min, max]` (mechanics/combat.md rule
+	// 5.9.6). Respawn is a property of the slot, not of the mob: the same mob
+	// placed twice can come back at two different rates. Both zero means the
+	// placement authored none and the shard uses its own default.
+	RespawnDelayMinMs uint32 `protobuf:"varint,9,opt,name=respawn_delay_min_ms,json=respawnDelayMinMs,proto3" json:"respawn_delay_min_ms,omitempty"`
+	RespawnDelayMaxMs uint32 `protobuf:"varint,10,opt,name=respawn_delay_max_ms,json=respawnDelayMaxMs,proto3" json:"respawn_delay_max_ms,omitempty"`
 	// Untyped passthrough; see Zone.extra.
 	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
@@ -347,6 +366,20 @@ func (x *Placement) GetRouteId() string {
 func (x *Placement) GetScanRadius() float32 {
 	if x != nil {
 		return x.ScanRadius
+	}
+	return 0
+}
+
+func (x *Placement) GetRespawnDelayMinMs() uint32 {
+	if x != nil {
+		return x.RespawnDelayMinMs
+	}
+	return 0
+}
+
+func (x *Placement) GetRespawnDelayMaxMs() uint32 {
+	if x != nil {
+		return x.RespawnDelayMaxMs
 	}
 	return 0
 }
@@ -502,6 +535,507 @@ func (x *SpawnTable) GetExtra() map[string]string {
 	return nil
 }
 
+// AbilityEffect is one effect an ability applies to its target.
+//
+// `kind` and `element` are authored slugs rather than enums: the effect
+// taxonomy is not settled (mechanics/combat.md is explicit that M2's rules are
+// invented), and freezing an enum now would make every later effect a wire
+// change. The shard rejects a kind it does not implement.
+type AbilityEffect struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// `damage` or `heal`.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// Damage school slug, for example `physical`.
+	Element string `protobuf:"bytes,2,opt,name=element,proto3" json:"element,omitempty"`
+	// Flat term of the effect. ABILITY_BASE_DAMAGE in combat.md rule 5.5.1.
+	Amount float32 `protobuf:"fixed32,3,opt,name=amount,proto3" json:"amount,omitempty"`
+	// Multiplier on the caster's attack power. ATTACK_POWER_COEFF in rule 5.5.1.
+	AttackPowerCoeff float32 `protobuf:"fixed32,4,opt,name=attack_power_coeff,json=attackPowerCoeff,proto3" json:"attack_power_coeff,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AbilityEffect) Reset() {
+	*x = AbilityEffect{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AbilityEffect) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AbilityEffect) ProtoMessage() {}
+
+func (x *AbilityEffect) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AbilityEffect.ProtoReflect.Descriptor instead.
+func (*AbilityEffect) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *AbilityEffect) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *AbilityEffect) GetElement() string {
+	if x != nil {
+		return x.Element
+	}
+	return ""
+}
+
+func (x *AbilityEffect) GetAmount() float32 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+func (x *AbilityEffect) GetAttackPowerCoeff() float32 {
+	if x != nil {
+		return x.AttackPowerCoeff
+	}
+	return 0
+}
+
+// Ability is one activatable ability, keyed by canonical id.
+type Ability struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `ability.melee.harbor-cleave`.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Who the ability may be used on. `enemy` is the only value M2 authors.
+	Target string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	// Maximum caster-to-target distance. Units are metres by assumption; see
+	// mechanics/combat.md section 7.2.
+	RangeM     float32 `protobuf:"fixed32,3,opt,name=range_m,json=rangeM,proto3" json:"range_m,omitempty"`
+	CastTimeMs uint32  `protobuf:"varint,4,opt,name=cast_time_ms,json=castTimeMs,proto3" json:"cast_time_ms,omitempty"`
+	// Per-ability cooldown, separate from the global cooldown.
+	CooldownMs  uint32           `protobuf:"varint,5,opt,name=cooldown_ms,json=cooldownMs,proto3" json:"cooldown_ms,omitempty"`
+	TriggersGcd bool             `protobuf:"varint,6,opt,name=triggers_gcd,json=triggersGcd,proto3" json:"triggers_gcd,omitempty"`
+	Effects     []*AbilityEffect `protobuf:"bytes,7,rep,name=effects,proto3" json:"effects,omitempty"`
+	// Localization key for the display name (ADR 0007).
+	NameKey string `protobuf:"bytes,8,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Ability) Reset() {
+	*x = Ability{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Ability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Ability) ProtoMessage() {}
+
+func (x *Ability) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Ability.ProtoReflect.Descriptor instead.
+func (*Ability) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *Ability) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Ability) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *Ability) GetRangeM() float32 {
+	if x != nil {
+		return x.RangeM
+	}
+	return 0
+}
+
+func (x *Ability) GetCastTimeMs() uint32 {
+	if x != nil {
+		return x.CastTimeMs
+	}
+	return 0
+}
+
+func (x *Ability) GetCooldownMs() uint32 {
+	if x != nil {
+		return x.CooldownMs
+	}
+	return 0
+}
+
+func (x *Ability) GetTriggersGcd() bool {
+	if x != nil {
+		return x.TriggersGcd
+	}
+	return false
+}
+
+func (x *Ability) GetEffects() []*AbilityEffect {
+	if x != nil {
+		return x.Effects
+	}
+	return nil
+}
+
+func (x *Ability) GetNameKey() string {
+	if x != nil {
+		return x.NameKey
+	}
+	return ""
+}
+
+func (x *Ability) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+// FactionRelation is one directed stance. A hostile to B does not imply B
+// hostile to A, so both directions are stored.
+type FactionRelation struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	FactionId string                 `protobuf:"bytes,1,opt,name=faction_id,json=factionId,proto3" json:"faction_id,omitempty"`
+	// `hostile`, `neutral` or `friendly`.
+	Stance        string `protobuf:"bytes,2,opt,name=stance,proto3" json:"stance,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FactionRelation) Reset() {
+	*x = FactionRelation{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FactionRelation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FactionRelation) ProtoMessage() {}
+
+func (x *FactionRelation) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FactionRelation.ProtoReflect.Descriptor instead.
+func (*FactionRelation) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *FactionRelation) GetFactionId() string {
+	if x != nil {
+		return x.FactionId
+	}
+	return ""
+}
+
+func (x *FactionRelation) GetStance() string {
+	if x != nil {
+		return x.Stance
+	}
+	return ""
+}
+
+// Faction is a hostility table entry. Without it a mob's faction is a string
+// the shard cannot reason about, and combat.md rule 5.2.5 has nothing to read.
+type Faction struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `faction.wild`.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	PlayerFaction bool   `protobuf:"varint,2,opt,name=player_faction,json=playerFaction,proto3" json:"player_faction,omitempty"`
+	// Whether members may be the target of a hostile ability at all.
+	Attackable bool `protobuf:"varint,3,opt,name=attackable,proto3" json:"attackable,omitempty"`
+	// Stance towards any faction with no explicit relation.
+	DefaultStance string             `protobuf:"bytes,4,opt,name=default_stance,json=defaultStance,proto3" json:"default_stance,omitempty"`
+	Relations     []*FactionRelation `protobuf:"bytes,5,rep,name=relations,proto3" json:"relations,omitempty"`
+	NameKey       string             `protobuf:"bytes,6,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Faction) Reset() {
+	*x = Faction{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Faction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Faction) ProtoMessage() {}
+
+func (x *Faction) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Faction.ProtoReflect.Descriptor instead.
+func (*Faction) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *Faction) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Faction) GetPlayerFaction() bool {
+	if x != nil {
+		return x.PlayerFaction
+	}
+	return false
+}
+
+func (x *Faction) GetAttackable() bool {
+	if x != nil {
+		return x.Attackable
+	}
+	return false
+}
+
+func (x *Faction) GetDefaultStance() string {
+	if x != nil {
+		return x.DefaultStance
+	}
+	return ""
+}
+
+func (x *Faction) GetRelations() []*FactionRelation {
+	if x != nil {
+		return x.Relations
+	}
+	return nil
+}
+
+func (x *Faction) GetNameKey() string {
+	if x != nil {
+		return x.NameKey
+	}
+	return ""
+}
+
+func (x *Faction) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+// Mob is what the shard needs to instantiate one creature: identity, the
+// combat inputs of mechanics/combat.md section 4, and the ids that later
+// systems resolve.
+type Mob struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `mob.paper-harbor.tide-crab`.
+	Id      string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	NameKey string `protobuf:"bytes,2,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	// Canonical id of the faction this mob belongs to.
+	FactionId string `protobuf:"bytes,3,opt,name=faction_id,json=factionId,proto3" json:"faction_id,omitempty"`
+	// Canonical id of the MobKind this mob's `hp_mod` was resolved from, kept so
+	// a shard log can name the record a number came from.
+	MobKindId string `protobuf:"bytes,4,opt,name=mob_kind_id,json=mobKindId,proto3" json:"mob_kind_id,omitempty"`
+	// Inclusive level draw window (combat.md rule 5.1.5).
+	LevelMin  uint32  `protobuf:"varint,5,opt,name=level_min,json=levelMin,proto3" json:"level_min,omitempty"`
+	LevelMax  uint32  `protobuf:"varint,6,opt,name=level_max,json=levelMax,proto3" json:"level_max,omitempty"`
+	WalkSpeed float32 `protobuf:"fixed32,7,opt,name=walk_speed,json=walkSpeed,proto3" json:"walk_speed,omitempty"`
+	// Health multiplier resolved from the referenced MobKind. Zero means the
+	// record carried none and the shard uses 1.0 (combat.md rule 5.1.1). The
+	// wider multiplier chain is deferred by combat.md section 7.1.
+	HpMod float32 `protobuf:"fixed32,8,opt,name=hp_mod,json=hpMod,proto3" json:"hp_mod,omitempty"`
+	// Distance at which an idle mob pulls (combat.md rule 5.7.2).
+	AggroRadiusM float32 `protobuf:"fixed32,9,opt,name=aggro_radius_m,json=aggroRadiusM,proto3" json:"aggro_radius_m,omitempty"`
+	// Distance from its anchor at which a chasing mob gives up (rule 5.8.2).
+	LeashRadiusM float32  `protobuf:"fixed32,10,opt,name=leash_radius_m,json=leashRadiusM,proto3" json:"leash_radius_m,omitempty"`
+	AbilityIds   []string `protobuf:"bytes,11,rep,name=ability_ids,json=abilityIds,proto3" json:"ability_ids,omitempty"`
+	LootTableId  string   `protobuf:"bytes,12,opt,name=loot_table_id,json=lootTableId,proto3" json:"loot_table_id,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Mob) Reset() {
+	*x = Mob{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Mob) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Mob) ProtoMessage() {}
+
+func (x *Mob) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Mob.ProtoReflect.Descriptor instead.
+func (*Mob) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *Mob) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Mob) GetNameKey() string {
+	if x != nil {
+		return x.NameKey
+	}
+	return ""
+}
+
+func (x *Mob) GetFactionId() string {
+	if x != nil {
+		return x.FactionId
+	}
+	return ""
+}
+
+func (x *Mob) GetMobKindId() string {
+	if x != nil {
+		return x.MobKindId
+	}
+	return ""
+}
+
+func (x *Mob) GetLevelMin() uint32 {
+	if x != nil {
+		return x.LevelMin
+	}
+	return 0
+}
+
+func (x *Mob) GetLevelMax() uint32 {
+	if x != nil {
+		return x.LevelMax
+	}
+	return 0
+}
+
+func (x *Mob) GetWalkSpeed() float32 {
+	if x != nil {
+		return x.WalkSpeed
+	}
+	return 0
+}
+
+func (x *Mob) GetHpMod() float32 {
+	if x != nil {
+		return x.HpMod
+	}
+	return 0
+}
+
+func (x *Mob) GetAggroRadiusM() float32 {
+	if x != nil {
+		return x.AggroRadiusM
+	}
+	return 0
+}
+
+func (x *Mob) GetLeashRadiusM() float32 {
+	if x != nil {
+		return x.LeashRadiusM
+	}
+	return 0
+}
+
+func (x *Mob) GetAbilityIds() []string {
+	if x != nil {
+		return x.AbilityIds
+	}
+	return nil
+}
+
+func (x *Mob) GetLootTableId() string {
+	if x != nil {
+		return x.LootTableId
+	}
+	return ""
+}
+
+func (x *Mob) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
 var File_sarnaut_content_v1_content_proto protoreflect.FileDescriptor
 
 const file_sarnaut_content_v1_content_proto_rawDesc = "" +
@@ -521,7 +1055,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfa\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdc\x03\n" +
 	"\tPlacement\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tobject_id\x18\x02 \x01(\tR\bobjectId\x124\n" +
@@ -532,7 +1066,10 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\tscript_id\x18\x06 \x01(\tR\bscriptId\x12\x19\n" +
 	"\broute_id\x18\a \x01(\tR\arouteId\x12\x1f\n" +
 	"\vscan_radius\x18\b \x01(\x02R\n" +
-	"scanRadius\x12>\n" +
+	"scanRadius\x12/\n" +
+	"\x14respawn_delay_min_ms\x18\t \x01(\rR\x11respawnDelayMinMs\x12/\n" +
+	"\x14respawn_delay_max_ms\x18\n" +
+	" \x01(\rR\x11respawnDelayMaxMs\x12>\n" +
 	"\x05extra\x18\x0f \x03(\v2(.sarnaut.content.v1.Placement.ExtraEntryR\x05extra\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
@@ -553,12 +1090,76 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*h\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x83\x01\n" +
+	"\rAbilityEffect\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x18\n" +
+	"\aelement\x18\x02 \x01(\tR\aelement\x12\x16\n" +
+	"\x06amount\x18\x03 \x01(\x02R\x06amount\x12,\n" +
+	"\x12attack_power_coeff\x18\x04 \x01(\x02R\x10attackPowerCoeff\"\x80\x03\n" +
+	"\aAbility\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\x17\n" +
+	"\arange_m\x18\x03 \x01(\x02R\x06rangeM\x12 \n" +
+	"\fcast_time_ms\x18\x04 \x01(\rR\n" +
+	"castTimeMs\x12\x1f\n" +
+	"\vcooldown_ms\x18\x05 \x01(\rR\n" +
+	"cooldownMs\x12!\n" +
+	"\ftriggers_gcd\x18\x06 \x01(\bR\vtriggersGcd\x12;\n" +
+	"\aeffects\x18\a \x03(\v2!.sarnaut.content.v1.AbilityEffectR\aeffects\x12\x19\n" +
+	"\bname_key\x18\b \x01(\tR\anameKey\x12<\n" +
+	"\x05extra\x18\x0f \x03(\v2&.sarnaut.content.v1.Ability.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"H\n" +
+	"\x0fFactionRelation\x12\x1d\n" +
+	"\n" +
+	"faction_id\x18\x01 \x01(\tR\tfactionId\x12\x16\n" +
+	"\x06stance\x18\x02 \x01(\tR\x06stance\"\xdd\x02\n" +
+	"\aFaction\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12%\n" +
+	"\x0eplayer_faction\x18\x02 \x01(\bR\rplayerFaction\x12\x1e\n" +
+	"\n" +
+	"attackable\x18\x03 \x01(\bR\n" +
+	"attackable\x12%\n" +
+	"\x0edefault_stance\x18\x04 \x01(\tR\rdefaultStance\x12A\n" +
+	"\trelations\x18\x05 \x03(\v2#.sarnaut.content.v1.FactionRelationR\trelations\x12\x19\n" +
+	"\bname_key\x18\x06 \x01(\tR\anameKey\x12<\n" +
+	"\x05extra\x18\x0f \x03(\v2&.sarnaut.content.v1.Faction.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe4\x03\n" +
+	"\x03Mob\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
+	"\bname_key\x18\x02 \x01(\tR\anameKey\x12\x1d\n" +
+	"\n" +
+	"faction_id\x18\x03 \x01(\tR\tfactionId\x12\x1e\n" +
+	"\vmob_kind_id\x18\x04 \x01(\tR\tmobKindId\x12\x1b\n" +
+	"\tlevel_min\x18\x05 \x01(\rR\blevelMin\x12\x1b\n" +
+	"\tlevel_max\x18\x06 \x01(\rR\blevelMax\x12\x1d\n" +
+	"\n" +
+	"walk_speed\x18\a \x01(\x02R\twalkSpeed\x12\x15\n" +
+	"\x06hp_mod\x18\b \x01(\x02R\x05hpMod\x12$\n" +
+	"\x0eaggro_radius_m\x18\t \x01(\x02R\faggroRadiusM\x12$\n" +
+	"\x0eleash_radius_m\x18\n" +
+	" \x01(\x02R\fleashRadiusM\x12\x1f\n" +
+	"\vability_ids\x18\v \x03(\tR\n" +
+	"abilityIds\x12\"\n" +
+	"\rloot_table_id\x18\f \x01(\tR\vlootTableId\x128\n" +
+	"\x05extra\x18\x0f \x03(\v2\".sarnaut.content.v1.Mob.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xa6\x01\n" +
 	"\aRowType\x12\x18\n" +
 	"\x14ROW_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rROW_TYPE_ZONE\x10\x01\x12\x16\n" +
 	"\x12ROW_TYPE_PLACEMENT\x10\x02\x12\x18\n" +
-	"\x14ROW_TYPE_SPAWN_TABLE\x10\x03B@Z>github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1b\x06proto3"
+	"\x14ROW_TYPE_SPAWN_TABLE\x10\x03\x12\x14\n" +
+	"\x10ROW_TYPE_ABILITY\x10\x05\x12\x14\n" +
+	"\x10ROW_TYPE_FACTION\x10\x06\x12\x10\n" +
+	"\fROW_TYPE_MOB\x10\aB@Z>github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1b\x06proto3"
 
 var (
 	file_sarnaut_content_v1_content_proto_rawDescOnce sync.Once
@@ -573,7 +1174,7 @@ func file_sarnaut_content_v1_content_proto_rawDescGZIP() []byte {
 }
 
 var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_sarnaut_content_v1_content_proto_goTypes = []any{
 	(RowType)(0),            // 0: sarnaut.content.v1.RowType
 	(*Vec3)(nil),            // 1: sarnaut.content.v1.Vec3
@@ -581,22 +1182,35 @@ var file_sarnaut_content_v1_content_proto_goTypes = []any{
 	(*Placement)(nil),       // 3: sarnaut.content.v1.Placement
 	(*SpawnTableEntry)(nil), // 4: sarnaut.content.v1.SpawnTableEntry
 	(*SpawnTable)(nil),      // 5: sarnaut.content.v1.SpawnTable
-	nil,                     // 6: sarnaut.content.v1.Zone.ExtraEntry
-	nil,                     // 7: sarnaut.content.v1.Placement.ExtraEntry
-	nil,                     // 8: sarnaut.content.v1.SpawnTable.ExtraEntry
+	(*AbilityEffect)(nil),   // 6: sarnaut.content.v1.AbilityEffect
+	(*Ability)(nil),         // 7: sarnaut.content.v1.Ability
+	(*FactionRelation)(nil), // 8: sarnaut.content.v1.FactionRelation
+	(*Faction)(nil),         // 9: sarnaut.content.v1.Faction
+	(*Mob)(nil),             // 10: sarnaut.content.v1.Mob
+	nil,                     // 11: sarnaut.content.v1.Zone.ExtraEntry
+	nil,                     // 12: sarnaut.content.v1.Placement.ExtraEntry
+	nil,                     // 13: sarnaut.content.v1.SpawnTable.ExtraEntry
+	nil,                     // 14: sarnaut.content.v1.Ability.ExtraEntry
+	nil,                     // 15: sarnaut.content.v1.Faction.ExtraEntry
+	nil,                     // 16: sarnaut.content.v1.Mob.ExtraEntry
 }
 var file_sarnaut_content_v1_content_proto_depIdxs = []int32{
-	1, // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
-	6, // 1: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
-	1, // 2: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
-	7, // 3: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
-	4, // 4: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
-	8, // 5: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	1,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
+	11, // 1: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
+	1,  // 2: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
+	12, // 3: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
+	4,  // 4: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
+	13, // 5: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
+	6,  // 6: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
+	14, // 7: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
+	8,  // 8: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
+	15, // 9: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
+	16, // 10: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_content_v1_content_proto_init() }
@@ -610,7 +1224,7 @@ func file_sarnaut_content_v1_content_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_content_v1_content_proto_rawDesc), len(file_sarnaut_content_v1_content_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   8,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

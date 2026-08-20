@@ -11,6 +11,7 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/config"
 	"github.com/SarnautCore/server/internal/health"
 	"github.com/SarnautCore/server/internal/infra"
@@ -119,13 +120,17 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	if err != nil {
 		return fmt.Errorf("create zone: %w", err)
 	}
+	// Combat resolves every gameplay rule against the pack, so it is built
+	// from the pack before anything is spawned, and it is what spawns: a mob's
+	// level is a draw from the zone spawn stream, which combat owns.
+	rules, err := combat.RulesFromPack(content)
+	if err != nil {
+		return fmt.Errorf("read combat rules from content pack: %w", err)
+	}
+	combatModule := combat.New(logger, zone, rules, combat.Options{Seed: settings.World.SpawnSeed})
 	spawns := content.NPCSpawns()
-	for _, spawn := range spawns {
-		zone.SpawnNPC(world.Vec3{
-			X: spawn.Position.X,
-			Y: spawn.Position.Y,
-			Z: spawn.Position.Z,
-		}, spawn.Heading)
+	if err := combatModule.Populate(spawns); err != nil {
+		return fmt.Errorf("populate zone: %w", err)
 	}
 	logger.Info(
 		"zone content loaded",
@@ -134,15 +139,20 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		"ruleset", zoneContent.Ruleset,
 		"zone_slug", zoneContent.Slug,
 		"npc_count", len(spawns),
+		"ability_count", len(rules.AbilityIDs()),
+		"player_faction", rules.PlayerFaction(),
 	)
 
 	worldModule := world.New(logger, zone)
 	go worldModule.Run(ctx)
+	go combatModule.Run(ctx)
 
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         settings.BuildID,
-		Zones:           map[string]*world.Zone{zone.ID(): zone},
+		Zones: map[string]session.ZoneBinding{
+			zone.ID(): {World: zone, Combat: combatModule},
+		},
 	}
 	sessionErrors := make(chan error, 1)
 	go func() {

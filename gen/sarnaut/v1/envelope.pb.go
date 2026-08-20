@@ -85,6 +85,83 @@ func (ErrorCode) EnumDescriptor() ([]byte, []int) {
 	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{0}
 }
 
+// AbilityRejection names why an ability use resolved to nothing.
+//
+// It is not an ErrorCode. An ErrorCode is a protocol violation and closes the
+// connection; casting at a target that walked out of range is ordinary play
+// and must leave the session running (mechanics/combat.md rules 5.2 to 5.4).
+type AbilityRejection int32
+
+const (
+	AbilityRejection_ABILITY_REJECTION_UNSPECIFIED AbilityRejection = 0
+	// The ability resolved and did damage.
+	AbilityRejection_ABILITY_REJECTION_NONE AbilityRejection = 1
+	// rule 5.2.2: target_id is zero or names no entity in the caster's zone.
+	AbilityRejection_ABILITY_REJECTION_NO_TARGET AbilityRejection = 2
+	// rules 5.2.3 and 5.2.5: not a combatant, the caster itself, a returning
+	// mob, or a faction that is not hostile to the caster.
+	AbilityRejection_ABILITY_REJECTION_INVALID_TARGET AbilityRejection = 3
+	// rule 5.2.4.
+	AbilityRejection_ABILITY_REJECTION_TARGET_DEAD AbilityRejection = 4
+	// rule 5.3.2.
+	AbilityRejection_ABILITY_REJECTION_OUT_OF_RANGE AbilityRejection = 5
+	// rule 5.4.1, and the per-ability cooldown the pack may carry.
+	AbilityRejection_ABILITY_REJECTION_ON_COOLDOWN AbilityRejection = 6
+	// The caster does not know the ability, or the pack does not carry it.
+	AbilityRejection_ABILITY_REJECTION_UNKNOWN_ABILITY AbilityRejection = 7
+)
+
+// Enum value maps for AbilityRejection.
+var (
+	AbilityRejection_name = map[int32]string{
+		0: "ABILITY_REJECTION_UNSPECIFIED",
+		1: "ABILITY_REJECTION_NONE",
+		2: "ABILITY_REJECTION_NO_TARGET",
+		3: "ABILITY_REJECTION_INVALID_TARGET",
+		4: "ABILITY_REJECTION_TARGET_DEAD",
+		5: "ABILITY_REJECTION_OUT_OF_RANGE",
+		6: "ABILITY_REJECTION_ON_COOLDOWN",
+		7: "ABILITY_REJECTION_UNKNOWN_ABILITY",
+	}
+	AbilityRejection_value = map[string]int32{
+		"ABILITY_REJECTION_UNSPECIFIED":     0,
+		"ABILITY_REJECTION_NONE":            1,
+		"ABILITY_REJECTION_NO_TARGET":       2,
+		"ABILITY_REJECTION_INVALID_TARGET":  3,
+		"ABILITY_REJECTION_TARGET_DEAD":     4,
+		"ABILITY_REJECTION_OUT_OF_RANGE":    5,
+		"ABILITY_REJECTION_ON_COOLDOWN":     6,
+		"ABILITY_REJECTION_UNKNOWN_ABILITY": 7,
+	}
+)
+
+func (x AbilityRejection) Enum() *AbilityRejection {
+	p := new(AbilityRejection)
+	*p = x
+	return p
+}
+
+func (x AbilityRejection) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AbilityRejection) Descriptor() protoreflect.EnumDescriptor {
+	return file_sarnaut_v1_envelope_proto_enumTypes[1].Descriptor()
+}
+
+func (AbilityRejection) Type() protoreflect.EnumType {
+	return &file_sarnaut_v1_envelope_proto_enumTypes[1]
+}
+
+func (x AbilityRejection) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AbilityRejection.Descriptor instead.
+func (AbilityRejection) EnumDescriptor() ([]byte, []int) {
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{1}
+}
+
 type ClientMessage struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	ClientSeq uint64                 `protobuf:"varint,1,opt,name=client_seq,json=clientSeq,proto3" json:"client_seq,omitempty"`
@@ -515,10 +592,16 @@ func (x *Error) GetDetail() string {
 // advisory and ignored: the server derives the actor from the session
 // (session.md rule 5.2.6). Shape fixed by mechanics/combat.md section 4.
 type AbilityUse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CasterId      uint64                 `protobuf:"varint,1,opt,name=caster_id,json=casterId,proto3" json:"caster_id,omitempty"`
-	TargetId      uint64                 `protobuf:"varint,2,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
-	ClientTick    uint64                 `protobuf:"varint,3,opt,name=client_tick,json=clientTick,proto3" json:"client_tick,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	CasterId   uint64                 `protobuf:"varint,1,opt,name=caster_id,json=casterId,proto3" json:"caster_id,omitempty"`
+	TargetId   uint64                 `protobuf:"varint,2,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	ClientTick uint64                 `protobuf:"varint,3,opt,name=client_tick,json=clientTick,proto3" json:"client_tick,omitempty"`
+	// Canonical id of the ability, resolved against the runtime pack both peers
+	// agreed on in the handshake (ADR 0029). combat.md section 4 omits it
+	// because M2's worked example has exactly one ability; carrying it is what
+	// lets a second ability be pure content rather than a wire change.
+	// Empty selects the caster's first known ability.
+	AbilityId     string `protobuf:"bytes,4,opt,name=ability_id,json=abilityId,proto3" json:"ability_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -572,6 +655,13 @@ func (x *AbilityUse) GetClientTick() uint64 {
 		return x.ClientTick
 	}
 	return 0
+}
+
+func (x *AbilityUse) GetAbilityId() string {
+	if x != nil {
+		return x.AbilityId
+	}
+	return ""
 }
 
 // Interact is the generic "use the thing I am looking at" verb: quest starters
@@ -856,9 +946,25 @@ func (*Logout) Descriptor() ([]byte, []int) {
 	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{9}
 }
 
-// TODO(m2-combat): fields per mechanics/combat.md sections 5.5 and 5.6.
+// CombatEvent reports one resolved or refused ability use
+// (mechanics/combat.md sections 5.5 and 5.6). It always travels on the
+// reliable channel.
 type CombatEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	CasterId  uint64                 `protobuf:"varint,1,opt,name=caster_id,json=casterId,proto3" json:"caster_id,omitempty"`
+	TargetId  uint64                 `protobuf:"varint,2,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
+	AbilityId string                 `protobuf:"bytes,3,opt,name=ability_id,json=abilityId,proto3" json:"ability_id,omitempty"`
+	// Damage dealt after mitigation, rule 5.5.5. Zero on a rejection.
+	Damage int32 `protobuf:"varint,4,opt,name=damage,proto3" json:"damage,omitempty"`
+	// The target's health after rule 5.6.1, so a client that dropped a snapshot
+	// datagram still draws the right health bar.
+	TargetHealth    int32 `protobuf:"varint,5,opt,name=target_health,json=targetHealth,proto3" json:"target_health,omitempty"`
+	TargetMaxHealth int32 `protobuf:"varint,6,opt,name=target_max_health,json=targetMaxHealth,proto3" json:"target_max_health,omitempty"`
+	// True on the use that brought target_health to zero.
+	KillingBlow bool `protobuf:"varint,7,opt,name=killing_blow,json=killingBlow,proto3" json:"killing_blow,omitempty"`
+	// ABILITY_REJECTION_NONE on a use that resolved. Anything else means no
+	// world state changed and no cooldown was consumed (rule 6.2).
+	Rejection     AbilityRejection `protobuf:"varint,8,opt,name=rejection,proto3,enum=sarnaut.v1.AbilityRejection" json:"rejection,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -893,11 +999,76 @@ func (*CombatEvent) Descriptor() ([]byte, []int) {
 	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{10}
 }
 
-// TODO(m2-combat): fields per mechanics/combat.md rule 5.9.
+func (x *CombatEvent) GetCasterId() uint64 {
+	if x != nil {
+		return x.CasterId
+	}
+	return 0
+}
+
+func (x *CombatEvent) GetTargetId() uint64 {
+	if x != nil {
+		return x.TargetId
+	}
+	return 0
+}
+
+func (x *CombatEvent) GetAbilityId() string {
+	if x != nil {
+		return x.AbilityId
+	}
+	return ""
+}
+
+func (x *CombatEvent) GetDamage() int32 {
+	if x != nil {
+		return x.Damage
+	}
+	return 0
+}
+
+func (x *CombatEvent) GetTargetHealth() int32 {
+	if x != nil {
+		return x.TargetHealth
+	}
+	return 0
+}
+
+func (x *CombatEvent) GetTargetMaxHealth() int32 {
+	if x != nil {
+		return x.TargetMaxHealth
+	}
+	return 0
+}
+
+func (x *CombatEvent) GetKillingBlow() bool {
+	if x != nil {
+		return x.KillingBlow
+	}
+	return false
+}
+
+func (x *CombatEvent) GetRejection() AbilityRejection {
+	if x != nil {
+		return x.Rejection
+	}
+	return AbilityRejection_ABILITY_REJECTION_UNSPECIFIED
+}
+
+// DeathEvent is the client projection of the server-internal MobKilled event
+// (mechanics/combat.md rule 5.9.3). victim_content_id is deliberately absent:
+// it is content identity the client has no business inferring kill credit
+// from.
 type DeathEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	VictimEntityId uint64                 `protobuf:"varint,1,opt,name=victim_entity_id,json=victimEntityId,proto3" json:"victim_entity_id,omitempty"`
+	// The entity credited with the killing blow, rule 5.9.2.
+	KillerEntityId uint64 `protobuf:"varint,2,opt,name=killer_entity_id,json=killerEntityId,proto3" json:"killer_entity_id,omitempty"`
+	VictimLevel    uint32 `protobuf:"varint,3,opt,name=victim_level,json=victimLevel,proto3" json:"victim_level,omitempty"`
+	// Server tick at which the corpse disappears, rule 5.9.4.
+	CorpseDespawnTick uint64 `protobuf:"varint,4,opt,name=corpse_despawn_tick,json=corpseDespawnTick,proto3" json:"corpse_despawn_tick,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *DeathEvent) Reset() {
@@ -928,6 +1099,34 @@ func (x *DeathEvent) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DeathEvent.ProtoReflect.Descriptor instead.
 func (*DeathEvent) Descriptor() ([]byte, []int) {
 	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *DeathEvent) GetVictimEntityId() uint64 {
+	if x != nil {
+		return x.VictimEntityId
+	}
+	return 0
+}
+
+func (x *DeathEvent) GetKillerEntityId() uint64 {
+	if x != nil {
+		return x.KillerEntityId
+	}
+	return 0
+}
+
+func (x *DeathEvent) GetVictimLevel() uint32 {
+	if x != nil {
+		return x.VictimLevel
+	}
+	return 0
+}
+
+func (x *DeathEvent) GetCorpseDespawnTick() uint64 {
+	if x != nil {
+		return x.CorpseDespawnTick
+	}
+	return 0
 }
 
 // TODO(m2-loot): fields per mechanics/loot.md rule 5.6.
@@ -1123,13 +1322,15 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\apayload\"J\n" +
 	"\x05Error\x12)\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x15.sarnaut.v1.ErrorCodeR\x04code\x12\x16\n" +
-	"\x06detail\x18\x02 \x01(\tR\x06detail\"g\n" +
+	"\x06detail\x18\x02 \x01(\tR\x06detail\"\x86\x01\n" +
 	"\n" +
 	"AbilityUse\x12\x1b\n" +
 	"\tcaster_id\x18\x01 \x01(\x04R\bcasterId\x12\x1b\n" +
 	"\ttarget_id\x18\x02 \x01(\x04R\btargetId\x12\x1f\n" +
 	"\vclient_tick\x18\x03 \x01(\x04R\n" +
-	"clientTick\"4\n" +
+	"clientTick\x12\x1d\n" +
+	"\n" +
+	"ability_id\x18\x04 \x01(\tR\tabilityId\"4\n" +
 	"\bInteract\x12(\n" +
 	"\x10target_entity_id\x18\x01 \x01(\x04R\x0etargetEntityId\"4\n" +
 	"\bLootTake\x12(\n" +
@@ -1142,10 +1343,23 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x12finisher_entity_id\x18\x02 \x01(\x04R\x10finisherEntityId\")\n" +
 	"\fQuestAbandon\x12\x19\n" +
 	"\bquest_id\x18\x01 \x01(\tR\aquestId\"\b\n" +
-	"\x06Logout\"\r\n" +
-	"\vCombatEvent\"\f\n" +
+	"\x06Logout\"\xae\x02\n" +
+	"\vCombatEvent\x12\x1b\n" +
+	"\tcaster_id\x18\x01 \x01(\x04R\bcasterId\x12\x1b\n" +
+	"\ttarget_id\x18\x02 \x01(\x04R\btargetId\x12\x1d\n" +
 	"\n" +
-	"DeathEvent\"\v\n" +
+	"ability_id\x18\x03 \x01(\tR\tabilityId\x12\x16\n" +
+	"\x06damage\x18\x04 \x01(\x05R\x06damage\x12#\n" +
+	"\rtarget_health\x18\x05 \x01(\x05R\ftargetHealth\x12*\n" +
+	"\x11target_max_health\x18\x06 \x01(\x05R\x0ftargetMaxHealth\x12!\n" +
+	"\fkilling_blow\x18\a \x01(\bR\vkillingBlow\x12:\n" +
+	"\trejection\x18\b \x01(\x0e2\x1c.sarnaut.v1.AbilityRejectionR\trejection\"\xb3\x01\n" +
+	"\n" +
+	"DeathEvent\x12(\n" +
+	"\x10victim_entity_id\x18\x01 \x01(\x04R\x0evictimEntityId\x12(\n" +
+	"\x10killer_entity_id\x18\x02 \x01(\x04R\x0ekillerEntityId\x12!\n" +
+	"\fvictim_level\x18\x03 \x01(\rR\vvictimLevel\x12.\n" +
+	"\x13corpse_despawn_tick\x18\x04 \x01(\x04R\x11corpseDespawnTick\"\v\n" +
 	"\tLootOffer\"\f\n" +
 	"\n" +
 	"LootResult\"\x11\n" +
@@ -1159,7 +1373,16 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x16ERROR_CODE_NOT_IN_ZONE\x10\x04\x12\x1b\n" +
 	"\x17ERROR_CODE_RATE_LIMITED\x10\x05\x12\x1c\n" +
 	"\x18ERROR_CODE_PACK_MISMATCH\x10\x06\x12\x17\n" +
-	"\x13ERROR_CODE_INTERNAL\x10\aBNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
+	"\x13ERROR_CODE_INTERNAL\x10\a*\xa9\x02\n" +
+	"\x10AbilityRejection\x12!\n" +
+	"\x1dABILITY_REJECTION_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16ABILITY_REJECTION_NONE\x10\x01\x12\x1f\n" +
+	"\x1bABILITY_REJECTION_NO_TARGET\x10\x02\x12$\n" +
+	" ABILITY_REJECTION_INVALID_TARGET\x10\x03\x12!\n" +
+	"\x1dABILITY_REJECTION_TARGET_DEAD\x10\x04\x12\"\n" +
+	"\x1eABILITY_REJECTION_OUT_OF_RANGE\x10\x05\x12!\n" +
+	"\x1dABILITY_REJECTION_ON_COOLDOWN\x10\x06\x12%\n" +
+	"!ABILITY_REJECTION_UNKNOWN_ABILITY\x10\aBNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
 
 var (
 	file_sarnaut_v1_envelope_proto_rawDescOnce sync.Once
@@ -1173,52 +1396,54 @@ func file_sarnaut_v1_envelope_proto_rawDescGZIP() []byte {
 	return file_sarnaut_v1_envelope_proto_rawDescData
 }
 
-var file_sarnaut_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_sarnaut_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_sarnaut_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_sarnaut_v1_envelope_proto_goTypes = []any{
 	(ErrorCode)(0),           // 0: sarnaut.v1.ErrorCode
-	(*ClientMessage)(nil),    // 1: sarnaut.v1.ClientMessage
-	(*ServerMessage)(nil),    // 2: sarnaut.v1.ServerMessage
-	(*Error)(nil),            // 3: sarnaut.v1.Error
-	(*AbilityUse)(nil),       // 4: sarnaut.v1.AbilityUse
-	(*Interact)(nil),         // 5: sarnaut.v1.Interact
-	(*LootTake)(nil),         // 6: sarnaut.v1.LootTake
-	(*QuestAccept)(nil),      // 7: sarnaut.v1.QuestAccept
-	(*QuestTurnIn)(nil),      // 8: sarnaut.v1.QuestTurnIn
-	(*QuestAbandon)(nil),     // 9: sarnaut.v1.QuestAbandon
-	(*Logout)(nil),           // 10: sarnaut.v1.Logout
-	(*CombatEvent)(nil),      // 11: sarnaut.v1.CombatEvent
-	(*DeathEvent)(nil),       // 12: sarnaut.v1.DeathEvent
-	(*LootOffer)(nil),        // 13: sarnaut.v1.LootOffer
-	(*LootResult)(nil),       // 14: sarnaut.v1.LootResult
-	(*InventoryUpdate)(nil),  // 15: sarnaut.v1.InventoryUpdate
-	(*QuestStateUpdate)(nil), // 16: sarnaut.v1.QuestStateUpdate
-	(*ClientMoveIntent)(nil), // 17: sarnaut.v1.ClientMoveIntent
-	(*SnapshotBatch)(nil),    // 18: sarnaut.v1.SnapshotBatch
+	(AbilityRejection)(0),    // 1: sarnaut.v1.AbilityRejection
+	(*ClientMessage)(nil),    // 2: sarnaut.v1.ClientMessage
+	(*ServerMessage)(nil),    // 3: sarnaut.v1.ServerMessage
+	(*Error)(nil),            // 4: sarnaut.v1.Error
+	(*AbilityUse)(nil),       // 5: sarnaut.v1.AbilityUse
+	(*Interact)(nil),         // 6: sarnaut.v1.Interact
+	(*LootTake)(nil),         // 7: sarnaut.v1.LootTake
+	(*QuestAccept)(nil),      // 8: sarnaut.v1.QuestAccept
+	(*QuestTurnIn)(nil),      // 9: sarnaut.v1.QuestTurnIn
+	(*QuestAbandon)(nil),     // 10: sarnaut.v1.QuestAbandon
+	(*Logout)(nil),           // 11: sarnaut.v1.Logout
+	(*CombatEvent)(nil),      // 12: sarnaut.v1.CombatEvent
+	(*DeathEvent)(nil),       // 13: sarnaut.v1.DeathEvent
+	(*LootOffer)(nil),        // 14: sarnaut.v1.LootOffer
+	(*LootResult)(nil),       // 15: sarnaut.v1.LootResult
+	(*InventoryUpdate)(nil),  // 16: sarnaut.v1.InventoryUpdate
+	(*QuestStateUpdate)(nil), // 17: sarnaut.v1.QuestStateUpdate
+	(*ClientMoveIntent)(nil), // 18: sarnaut.v1.ClientMoveIntent
+	(*SnapshotBatch)(nil),    // 19: sarnaut.v1.SnapshotBatch
 }
 var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
-	17, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
-	4,  // 1: sarnaut.v1.ClientMessage.ability_use:type_name -> sarnaut.v1.AbilityUse
-	5,  // 2: sarnaut.v1.ClientMessage.interact:type_name -> sarnaut.v1.Interact
-	6,  // 3: sarnaut.v1.ClientMessage.loot_take:type_name -> sarnaut.v1.LootTake
-	7,  // 4: sarnaut.v1.ClientMessage.quest_accept:type_name -> sarnaut.v1.QuestAccept
-	8,  // 5: sarnaut.v1.ClientMessage.quest_turn_in:type_name -> sarnaut.v1.QuestTurnIn
-	9,  // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
-	10, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
-	18, // 8: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
-	11, // 9: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
-	12, // 10: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
-	13, // 11: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
-	14, // 12: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
-	15, // 13: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
-	16, // 14: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
-	3,  // 15: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
+	18, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
+	5,  // 1: sarnaut.v1.ClientMessage.ability_use:type_name -> sarnaut.v1.AbilityUse
+	6,  // 2: sarnaut.v1.ClientMessage.interact:type_name -> sarnaut.v1.Interact
+	7,  // 3: sarnaut.v1.ClientMessage.loot_take:type_name -> sarnaut.v1.LootTake
+	8,  // 4: sarnaut.v1.ClientMessage.quest_accept:type_name -> sarnaut.v1.QuestAccept
+	9,  // 5: sarnaut.v1.ClientMessage.quest_turn_in:type_name -> sarnaut.v1.QuestTurnIn
+	10, // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
+	11, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
+	19, // 8: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
+	12, // 9: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
+	13, // 10: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
+	14, // 11: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
+	15, // 12: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
+	16, // 13: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
+	17, // 14: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
+	4,  // 15: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
 	0,  // 16: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	1,  // 17: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
+	18, // [18:18] is the sub-list for method output_type
+	18, // [18:18] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_v1_envelope_proto_init() }
@@ -1253,7 +1478,7 @@ func file_sarnaut_v1_envelope_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_v1_envelope_proto_rawDesc), len(file_sarnaut_v1_envelope_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,

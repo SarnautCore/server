@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 	"go.opentelemetry.io/otel/attribute"
@@ -73,6 +74,7 @@ type commandReader struct {
 	connection transport.Connection
 	writer     *reliableWriter
 	zone       *world.Zone
+	combat     *combat.Module
 	entityID   uint64
 	datagrams  bool
 	span       trace.Span
@@ -131,8 +133,13 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 			return reader.refuseCarrier("logout", via)
 		}
 		return ErrClientLogout
-	case *sarnautv1.ClientMessage_AbilityUse,
-		*sarnautv1.ClientMessage_Interact,
+	case *sarnautv1.ClientMessage_AbilityUse:
+		if via != carrierReliable {
+			// Combat is never a datagram (ADR 0026, combat.md rule 5.2.1).
+			return reader.refuseCarrier("ability_use", via)
+		}
+		return reader.useAbility(payload.AbilityUse, message.GetClientSeq())
+	case *sarnautv1.ClientMessage_Interact,
 		*sarnautv1.ClientMessage_LootTake,
 		*sarnautv1.ClientMessage_QuestAccept,
 		*sarnautv1.ClientMessage_QuestTurnIn,
@@ -144,7 +151,7 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 		// mechanics task. Dropping it keeps the envelope honest: the frame was
 		// understood, so it is not a protocol violation, and the move path is
 		// unaffected.
-		// TODO(m2-combat, m2-loot, m2-quests): route these to their modules.
+		// TODO(m2-loot, m2-quests): route these to their modules.
 		reader.span.AddEvent("session.command.unhandled", trace.WithAttributes(
 			attribute.String("sarnaut.payload", payloadName(message)),
 		))
@@ -164,9 +171,33 @@ func (reader *commandReader) applyMoveIntent(intent *sarnautv1.ClientMoveIntent,
 		// stall datagrams exist to avoid.
 		return reader.refuseCarrier("move_intent", via)
 	}
-	if err := reader.zone.ApplyMoveIntent(reader.entityID, intent); err != nil {
+	decoded, err := moveIntentFromProto(intent)
+	if err != nil {
+		reader.span.RecordError(err)
+		return nil
+	}
+	if err := reader.zone.ApplyMoveIntent(reader.entityID, decoded); err != nil {
 		// A malformed intent is dropped, not fatal: movement is
 		// latest-value-wins and the next sample is 50 ms away.
+		reader.span.RecordError(err)
+	}
+	return nil
+}
+
+// useAbility routes one ability use into the combat module.
+//
+// A refusal is not a protocol violation and does not end the session: the
+// module has already published a CombatEvent carrying the reason, which is the
+// answer the client gets. Only the absence of a combat module is worth an
+// error frame, because then the verb can never be served here.
+func (reader *commandReader) useAbility(use *sarnautv1.AbilityUse, clientSeq uint64) error {
+	if reader.combat == nil {
+		return reader.refuse(
+			sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,
+			"this zone hosts no combat module",
+		)
+	}
+	if _, err := reader.combat.UseAbility(reader.entityID, abilityRequestFromProto(use, clientSeq)); err != nil {
 		reader.span.RecordError(err)
 	}
 	return nil

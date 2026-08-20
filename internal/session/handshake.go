@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 	"go.opentelemetry.io/otel"
@@ -205,7 +206,19 @@ type Server struct {
 	// content.allow_unverified_pack.
 	PackID string
 
-	Zones map[string]*world.Zone
+	Zones map[string]ZoneBinding
+}
+
+// ZoneBinding is the set of modules that serve one hosted zone.
+//
+// They are bound together rather than held in parallel maps because a session
+// needs both: the zone admits it, and combat gives it a level, a faction and
+// somewhere to send an ability use. Combat may be nil, which is what the
+// transport-level tests use; a session in a zone with no combat module simply
+// refuses ability use.
+type ZoneBinding struct {
+	World  *world.Zone
+	Combat *combat.Module
 }
 
 // Serve handles connections until the context ends or the listener fails.
@@ -246,16 +259,25 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if err := transport.ReadMessage(connection, request); err != nil {
 		return fmt.Errorf("read enter zone request: %w", err)
 	}
-	zone, ok := server.Zones[request.GetZoneId()]
+	binding, ok := server.Zones[request.GetZoneId()]
 	if !ok {
 		return fmt.Errorf("zone %q is not hosted by this shard", request.GetZoneId())
 	}
+	zone := binding.World
 	// TODO(m2-auth): redeem request.GetTicket() over NATS before the entity is
 	// created, and derive account_id and character_id from the reply
 	// (ADR 0030, protocol/session.md rule 5.2).
 
 	entityID, spawn := zone.Join()
 	defer zone.Leave(entityID)
+	// The entity is not replicated until Subscribe, so its combat identity is
+	// in place before any peer sees it.
+	if binding.Combat != nil {
+		if err := binding.Combat.Admit(entityID); err != nil {
+			return err
+		}
+		defer binding.Combat.Release(entityID)
+	}
 	response := &sarnautv1.EnterZoneResponse{
 		ZoneId:      zone.ID(),
 		OwnEntityId: entityID,
@@ -271,6 +293,10 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 
 	writer := newReliableWriter(connection)
 	sender := newSnapshotSender(connection, writer)
+	events := newEventSender(writer, span)
+	if binding.Combat != nil {
+		binding.Combat.Subscribe(entityID, events)
+	}
 	if err := zone.Subscribe(entityID, sender); err != nil {
 		return err
 	}
@@ -288,16 +314,18 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		connection: connection,
 		writer:     writer,
 		zone:       zone,
+		combat:     binding.Combat,
 		entityID:   entityID,
 		datagrams:  connection.SupportsUnreliable(),
 		span:       span,
 	}
-	results := make(chan error, 3)
-	running := 2
+	results := make(chan error, 4)
+	running := 3
 	go func() { results <- sender.run(sessionCtx) }()
+	go func() { results <- events.run(sessionCtx) }()
 	go func() { results <- reader.readReliable(sessionCtx) }()
 	if reader.datagrams {
-		running = 3
+		running = 4
 		go func() { results <- reader.readUnreliable(sessionCtx) }()
 	}
 
@@ -366,18 +394,21 @@ func (server Server) exchangeHello(connection transport.Connection) error {
 type snapshotSender struct {
 	connection transport.Connection
 	writer     *reliableWriter
-	queue      chan *sarnautv1.SnapshotBatch
+	queue      chan world.Snapshot
 }
 
 func newSnapshotSender(connection transport.Connection, writer *reliableWriter) *snapshotSender {
 	return &snapshotSender{
 		connection: connection,
 		writer:     writer,
-		queue:      make(chan *sarnautv1.SnapshotBatch, 1),
+		queue:      make(chan world.Snapshot, 1),
 	}
 }
 
-func (sender *snapshotSender) OfferSnapshot(snapshot *sarnautv1.SnapshotBatch) {
+// OfferSnapshot takes the newest view. The queue is one deep and
+// latest-wins: a session that cannot keep up wants the current world, not a
+// backlog of stale ones.
+func (sender *snapshotSender) OfferSnapshot(snapshot world.Snapshot) {
 	select {
 	case sender.queue <- snapshot:
 		return
@@ -406,14 +437,24 @@ func (sender *snapshotSender) run(ctx context.Context) error {
 	}
 }
 
-func (sender *snapshotSender) send(snapshot *sarnautv1.SnapshotBatch) error {
+// send maps one snapshot onto the wire and puts it out.
+//
+// The protobuf tree is built here, per session, immediately before it is
+// written. That is what retires ADR 0026's shared-batch hazard by
+// construction: no two sessions can be handed the same mutable message,
+// because the message does not exist until one of them is being served.
+func (sender *snapshotSender) send(snapshot world.Snapshot) error {
+	batch, err := snapshotToProto(snapshot)
+	if err != nil {
+		return fmt.Errorf("map snapshot: %w", err)
+	}
 	if !sender.connection.SupportsUnreliable() {
-		if err := sender.writer.write(snapshotMessage(snapshot)); err != nil {
+		if err := sender.writer.write(snapshotMessage(batch)); err != nil {
 			return fmt.Errorf("write snapshot fallback: %w", err)
 		}
 		return nil
 	}
-	for _, chunk := range splitSnapshot(snapshot) {
+	for _, chunk := range splitSnapshot(batch) {
 		payload, err := transport.MarshalUnreliable(chunk)
 		if err != nil {
 			return fmt.Errorf("marshal snapshot: %w", err)
