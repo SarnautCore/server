@@ -34,6 +34,13 @@ const (
 
 const tickInterval = time.Second / 30
 
+// harnessCharacters are the character ids this harness admits, in order. They
+// are fixed because they seed the loot roll; see [harness.join].
+var harnessCharacters = []uuid.UUID{
+	uuid.MustParse("019200f0-0000-7000-8000-0000000f0001"),
+	uuid.MustParse("019200f0-0000-7000-8000-0000000f0002"),
+}
+
 // harness is a zone with combat, loot, a bag service over an in-memory store,
 // and two admitted players — the second one exists only so that rule 5.8.2 has
 // somebody to refuse.
@@ -49,6 +56,9 @@ type harness struct {
 	strangerEntity uint64
 	strangerID     uuid.UUID
 	mobEntity      uint64
+	// joined is how many characters this harness has admitted, and indexes
+	// harnessCharacters.
+	joined int
 }
 
 type harnessOptions struct {
@@ -128,6 +138,13 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 
 // join admits one player and seeds the character row checkpoint L1 would have
 // written, because the award reads the stored state to credit the purse.
+//
+// The character id is drawn from a fixed list rather than generated. It is one
+// of the four seed inputs of rule 5.2.4, so a fresh id per run means a fresh
+// drop per run: the chance-gated entries of the flat tree appear on roughly one
+// run in a hundred and fail whichever assertion counted the grants. Reproducible
+// rolls are the whole point of the seed, and a harness that randomised one was
+// the only thing in this package not taking it seriously.
 func (fixture *harness) join(repository store.Repository) (uint64, uuid.UUID) {
 	fixture.t.Helper()
 	entityID, _ := fixture.zone.Join()
@@ -137,7 +154,11 @@ func (fixture *harness) join(repository store.Repository) (uint64, uuid.UUID) {
 	if err := fixture.zone.Subscribe(entityID, discardSnapshots{}); err != nil {
 		fixture.t.Fatalf("Subscribe() error = %v", err)
 	}
-	characterID := uuid.New()
+	if fixture.joined >= len(harnessCharacters) {
+		fixture.t.Fatalf("the harness admits %d characters, not more", len(harnessCharacters))
+	}
+	characterID := harnessCharacters[fixture.joined]
+	fixture.joined++
 	err := store.SaveCharacter(context.Background(), repository, store.Snapshot{
 		State: store.CharacterState{
 			CharacterID: characterID,
