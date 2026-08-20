@@ -11,6 +11,11 @@ Every server test that needs content loads this pack, as does the SAR-20 client
 smoke, so the Rust writer and the Go reader are exercised against the same
 bytes.
 
+It carries fourteen tables: the six every pack writes, plus `chargen`,
+`items`, `loot-tables`, `quests`, `routes`, `locale`, `mob-kinds` and
+`level-curve`, which appear only when the source tree authors documents of that
+kind.
+
 It carries two loot trees and three items. The two trees are deliberately
 different shapes — `loot.fixture.m2-nested` is the curated depth-3 tree of
 `mechanics/loot.md` section 6.1, `loot.fixture.m2-flat` is the flat `and` root
@@ -31,7 +36,11 @@ cargo run -p sarnaut-pack -- build --fixture `
 ## demo-extended
 
 The same dataset with `data-schemas/demo/overlays/m2-combat-extended` layered
-on: a second ability and a second mob, and nothing else.
+on: a second ability and a second mob, and nothing else. `--overlay` names a
+**layer id** out of `data-schemas/demo/overlays/layers.yaml`, not a directory
+path; that file is the sole authority on which layers exist and in what order
+they apply (ADR 0029). The layer is marked `apply_by_default: false`, which is
+what keeps `demo` above free of it.
 
 It exists to hold one claim honest. `mechanics/combat.md` says every combat
 rule is content — the ability's range, damage and cooldown; the mob's level,
@@ -43,12 +52,17 @@ comes out of every one of those fields.
 ```powershell
 cargo run -p sarnaut-pack -- build --fixture `
   --src ..\data-schemas\demo `
-  --overlay ..\data-schemas\demo\overlays\m2-combat-extended `
+  --overlay m2-combat-extended `
   --out ..\server\testdata\packs\demo-extended
 ```
 
 `internal/pack` pins the resulting `pack_id`, so a rebuild that changes the
 bytes fails the test suite until the pin is updated deliberately.
+
+`sarnaut-pack build` also writes a `build-report.json` beside the manifest,
+carrying the curation notes, the layer list and the reference counts. It is a
+private-path artifact, it is not an input to `pack_id`, and it is deliberately
+not committed here.
 
 `--keep-extra` output must never be committed here: `scripts/check-fixture-pack.ps1`
 fails the build if any committed manifest records `keep_extra: true`.
