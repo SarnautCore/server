@@ -247,7 +247,25 @@ finally {
         $safeTemporaryParent = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
         if ($resolvedTemporaryRoot.StartsWith($safeTemporaryParent, [StringComparison]::OrdinalIgnoreCase) -and
             $resolvedTemporaryRoot -ne $safeTemporaryParent) {
-            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force
+            # Windows releases the image handle a little after the process
+            # object reports exited, so deleting the binary we just ran races
+            # that release. Retry briefly, and never let the cleanup itself
+            # throw: a terminating error here runs in `finally` and would
+            # replace whatever the smoke actually failed on with a file-lock
+            # message, which is how a passing run reports as a failing one.
+            for ($attempt = 1; $attempt -le 10; $attempt++) {
+                try {
+                    Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force -ErrorAction Stop
+                    break
+                }
+                catch {
+                    if ($attempt -eq 10) {
+                        Write-Warning "Could not remove $resolvedTemporaryRoot : $_"
+                        break
+                    }
+                    Start-Sleep -Milliseconds 200
+                }
+            }
         }
     }
 }
