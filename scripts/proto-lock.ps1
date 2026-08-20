@@ -3,11 +3,16 @@
     Writes or verifies proto/PROTO_LOCK.sha256 over the canonical .proto set.
 
 .DESCRIPTION
-    The lock is plain sha256sum output over every .proto under the proto root,
-    relative to that root, sorted bytewise by path, with LF line endings
-    (ADR 0027). The client repository commits a byte-identical copy, so a
-    hand-edited client proto is detectable offline and inside a release
-    artifact, where a server checkout is not available.
+    The lock is plain sha256sum output over every .proto of the wire contract
+    `sarnaut/v1`, relative to the proto root, sorted bytewise by path, with LF
+    line endings (ADR 0027). The client repository commits a byte-identical
+    copy, so a hand-edited client proto is detectable offline and inside a
+    release artifact, where a server checkout is not available.
+
+    The lock deliberately covers `sarnaut/v1` only. `sarnaut/content/v1`
+    describes compiled pack rows, carries fields no client ever sees, and is not
+    bound to the wire evolution rules of ADR 0027 (ADR 0029). Locking it would
+    oblige the client to mirror a server-only schema.
 
     Digests are taken over the file with CRLF normalised to LF, so a checkout
     that ignores .gitattributes still produces the digest Linux CI computes.
@@ -24,19 +29,20 @@ $ErrorActionPreference = "Stop"
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $protoRoot = Join-Path $repositoryRoot "proto"
+$wireRoot = Join-Path $protoRoot "sarnaut\v1"
 $lockPath = Join-Path $protoRoot "PROTO_LOCK.sha256"
 
 function Get-ProtoLockContent {
-    param([string]$Root)
+    param([string]$Root, [string]$WireRoot)
 
-    $files = Get-ChildItem -LiteralPath $Root -Recurse -File -Filter "*.proto" |
+    $files = Get-ChildItem -LiteralPath $WireRoot -Recurse -File -Filter "*.proto" |
         ForEach-Object {
             [System.IO.Path]::GetRelativePath($Root, $_.FullName).Replace("\", "/")
         } |
         Sort-Object -CaseSensitive
 
     if ($files.Count -eq 0) {
-        throw "No .proto files were found under $Root."
+        throw "No .proto files were found under $WireRoot."
     }
 
     $sha256 = [System.Security.Cryptography.SHA256]::Create()
@@ -56,7 +62,7 @@ function Get-ProtoLockContent {
     }
 }
 
-$expected = Get-ProtoLockContent -Root $protoRoot
+$expected = Get-ProtoLockContent -Root $protoRoot -WireRoot $wireRoot
 
 if ($Check) {
     if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) {

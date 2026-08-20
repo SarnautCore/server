@@ -1,0 +1,93 @@
+// Row messages for the compiled runtime pack format (ADR 0029).
+//
+// This package is deliberately separate from the wire contract `sarnaut.v1`:
+// content rows carry fields no client ever sees, and binding them to the wire
+// evolution rules of ADR 0027 would be wrong.
+//
+// This file is the canonical definition. `tools` (the pack writer) and `server`
+// (the pack reader) each vendor a copy for a hermetic build; those copies name
+// this file as their source and must be kept identical to it.
+syntax = "proto3";
+
+package sarnaut.content.v1;
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1";
+
+// RowType identifies the message stored in a `.sptbl` table.
+//
+// The numeric value is written into the table header as `row_type_id` and is
+// checked against the `row_type` name recorded in the pack manifest.
+enum RowType {
+  ROW_TYPE_UNSPECIFIED = 0;
+  ROW_TYPE_ZONE = 1;
+  ROW_TYPE_PLACEMENT = 2;
+  ROW_TYPE_SPAWN_TABLE = 3;
+}
+
+// Vec3 is a world-space position. Z is the vertical axis.
+message Vec3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+// Zone is the single row of the `zone` table: what the shard needs to stand a
+// zone up before any entity exists.
+message Zone {
+  // Canonical id, for example `zone.inst-league1`.
+  string id = 1;
+  // `classic` or `modern`.
+  string ruleset = 2;
+  // Zone slug, for example `inst-league1`.
+  string slug = 3;
+  // Where an entering player is placed.
+  Vec3 player_spawn = 4;
+  // Facing of an entering player, in radians.
+  float player_spawn_heading = 5;
+  // Untyped passthrough, present only in a `keep_extra` pack. Values are
+  // JSON-encoded. See ADR 0029 and ADR 0011.
+  map<string, string> extra = 15;
+}
+
+// Placement is one authored object instance on a map.
+message Placement {
+  // Canonical id, for example
+  // `spawn.inst-league1.placement.000-020.1-2-server-objects.11`.
+  string id = 1;
+  // What is placed: a mob id (`mob.…`) or a spawn table id (`spawn.….table.…`).
+  string object_id = 2;
+  Vec3 position = 3;
+  // Yaw of the authored orientation, in radians.
+  float heading = 4;
+  // Authored spawn schedule slug. `time-never` means the placement is inert.
+  string spawn_time = 5;
+  // Server script hook name, verbatim from the authored document.
+  string script_id = 6;
+  // Canonical id of the patrol route this placement follows, if any.
+  string route_id = 7;
+  float scan_radius = 8;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}
+
+// SpawnTableEntry is one candidate object of a spawn table.
+message SpawnTableEntry {
+  // Canonical id of the spawned object.
+  string object_id = 1;
+  // Authored selection group, for example `commons`.
+  string group = 2;
+  float chance = 3;
+  // Authored spawn schedule slug. `time-never` means the entry is inert.
+  string spawn_time = 4;
+}
+
+// SpawnTable is an indirection from a placement to the objects it may spawn.
+message SpawnTable {
+  // Canonical id, for example `spawn.inst-league1.table.air-elemental`.
+  string id = 1;
+  repeated SpawnTableEntry entries = 2;
+  // True when the authored table is driven by a server script.
+  bool scripted = 3;
+  // Untyped passthrough; see Zone.extra.
+  map<string, string> extra = 15;
+}

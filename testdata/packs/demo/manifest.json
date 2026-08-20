@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "ruleset": "classic",
+  "zone": "paper-harbor",
+  "pack_id": "b2fa8016f2d8be24a116db81d6c093f254cc3b36b4e0e337872866de28a293dc",
+  "builder": {
+    "name": "sarnaut-pack",
+    "version": "0.1.0"
+  },
+  "source": {
+    "repo": "data-schemas",
+    "commit": "0000000000000000000000000000000000000000",
+    "overlays": []
+  },
+  "keep_extra": false,
+  "tables": [
+    {
+      "name": "placements",
+      "file": "tables/placements.sptbl",
+      "row_type": "ROW_TYPE_PLACEMENT",
+      "rows": 3,
+      "bytes": 437,
+      "blake3": "31af18bd36534397091e8f9648ffab2d9496d4ea23765b76f1dd3df8cb60dbca"
+    },
+    {
+      "name": "spawn-tables",
+      "file": "tables/spawn-tables.sptbl",
+      "row_type": "ROW_TYPE_SPAWN_TABLE",
+      "rows": 1,
+      "bytes": 156,
+      "blake3": "857a5e13c894c0d00b747eab60e218e84504871aa63450e6e01111846c4696a3"
+    },
+    {
+      "name": "zone",
+      "file": "tables/zone.sptbl",
+      "row_type": "ROW_TYPE_ZONE",
+      "rows": 1,
+      "bytes": 119,
+      "blake3": "67b83e7ef59ec1756ea3d212b54412cff749cc038ef2c3d888ca0478b638fa32"
+    }
+  ]
+}

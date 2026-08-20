@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -37,10 +38,15 @@ type WorldConfig struct {
 	MaxMoveSpeed     float32
 }
 
+// ContentConfig points the shard at one compiled runtime pack. There is no
+// default and no search path: a misconfigured shard fails loudly instead of
+// quietly loading something else (ADR 0029).
 type ContentConfig struct {
-	RootPath string
-	Ruleset  string
-	ZoneSlug string
+	// PackPath is the directory holding `manifest.json` and `tables/`.
+	PackPath string
+	// AllowExtra permits a pack built with `--keep-extra`, whose rows carry
+	// verbatim MY.GAMES attribute names (ADR 0011). Default false.
+	AllowExtra bool
 }
 
 type NATSConfig struct {
@@ -77,9 +83,8 @@ type fileConfig struct {
 		MaxMoveSpeed     *float32 `yaml:"max_move_speed"`
 	} `yaml:"world"`
 	Content struct {
-		RootPath *string `yaml:"root_path"`
-		Ruleset  *string `yaml:"ruleset"`
-		ZoneSlug *string `yaml:"zone_slug"`
+		PackPath   *string `yaml:"pack_path"`
+		AllowExtra *bool   `yaml:"allow_extra"`
 	} `yaml:"content"`
 	NATS struct {
 		URL *string `yaml:"url"`
@@ -119,12 +124,28 @@ func Load(serviceName string) (Config, error) {
 	if configuration.World.MaxMoveSpeed <= 0 {
 		return Config{}, fmt.Errorf("world maximum move speed must be positive")
 	}
-	if configuration.World.ZoneID == "" || configuration.Content.RootPath == "" || configuration.Content.Ruleset == "" || configuration.Content.ZoneSlug == "" {
-		return Config{}, fmt.Errorf("world and content identifiers must not be empty")
+	if configuration.World.ZoneID == "" {
+		return Config{}, fmt.Errorf("world zone id must not be empty")
+	}
+	if serviceName == shardServiceName && configuration.Content.PackPath == "" {
+		return Config{}, ErrNoContentPack
 	}
 
 	return configuration, nil
 }
+
+// shardServiceName is the only service that loads content.
+const shardServiceName = "shard"
+
+// ErrNoContentPack reports a shard started without a content pack. It spells
+// out the fix because there is deliberately no fallback: a shard with no pack
+// cannot serve a zone (ADR 0029).
+var ErrNoContentPack = errors.New(
+	"no content pack configured: set SARNAUT_CONTENT_PACK to a pack directory " +
+		"(one holding manifest.json and tables/), or set content.pack_path in the " +
+		"config file. Build one with `sarnaut-pack build`; there is no default and " +
+		"no fallback path",
+)
 
 func defaults(serviceName string) Config {
 	healthAddress := "127.0.0.1:8080"
@@ -150,11 +171,8 @@ func defaults(serviceName string) Config {
 			SnapshotInterval: time.Second / 15,
 			MaxMoveSpeed:     7,
 		},
-		Content: ContentConfig{
-			RootPath: `E:\SarnautCore\data`,
-			Ruleset:  "classic",
-			ZoneSlug: "inst-league1",
-		},
+		// Content deliberately has no default: a public repository must not
+		// ship a private path, and a shard must not guess where its content is.
 	}
 }
 
@@ -182,14 +200,15 @@ func applyFileValues(configuration *Config, values fileConfig) error {
 	setString(&configuration.QUIC.ListenAddress, values.QUIC.ListenAddress)
 	setString(&configuration.QUIC.ShardAddress, values.QUIC.ShardAddress)
 	setString(&configuration.World.ZoneID, values.World.ZoneID)
-	setString(&configuration.Content.RootPath, values.Content.RootPath)
-	setString(&configuration.Content.Ruleset, values.Content.Ruleset)
-	setString(&configuration.Content.ZoneSlug, values.Content.ZoneSlug)
+	setString(&configuration.Content.PackPath, values.Content.PackPath)
 	setString(&configuration.NATS.URL, values.NATS.URL)
 	setString(&configuration.Postgres.DSN, values.Postgres.DSN)
 	setString(&configuration.Valkey.Address, values.Valkey.Address)
 	setString(&configuration.Valkey.Password, values.Valkey.Password)
 	setString(&configuration.OTel.Endpoint, values.OTel.Endpoint)
+	if values.Content.AllowExtra != nil {
+		configuration.Content.AllowExtra = *values.Content.AllowExtra
+	}
 	if values.Valkey.DB != nil {
 		configuration.Valkey.DB = *values.Valkey.DB
 	}
@@ -223,9 +242,7 @@ func applyEnvironment(configuration *Config) error {
 	setFromEnvironment(&configuration.QUIC.ListenAddress, "SARNAUT_QUIC_LISTEN_ADDRESS")
 	setFromEnvironment(&configuration.QUIC.ShardAddress, "SARNAUT_SHARD_ADDRESS")
 	setFromEnvironment(&configuration.World.ZoneID, "SARNAUT_WORLD_ZONE_ID")
-	setFromEnvironment(&configuration.Content.RootPath, "SARNAUT_CONTENT_ROOT")
-	setFromEnvironment(&configuration.Content.Ruleset, "SARNAUT_CONTENT_RULESET")
-	setFromEnvironment(&configuration.Content.ZoneSlug, "SARNAUT_CONTENT_ZONE_SLUG")
+	setFromEnvironment(&configuration.Content.PackPath, "SARNAUT_CONTENT_PACK")
 	setFromEnvironment(&configuration.NATS.URL, "SARNAUT_NATS_URL")
 	setFromEnvironment(&configuration.Postgres.DSN, "SARNAUT_POSTGRES_DSN")
 	setFromEnvironment(&configuration.Valkey.Address, "SARNAUT_VALKEY_ADDRESS")
@@ -252,6 +269,13 @@ func applyEnvironment(configuration *Config) error {
 			return fmt.Errorf("parse SARNAUT_WORLD_MAX_MOVE_SPEED: %w", err)
 		}
 		configuration.World.MaxMoveSpeed = float32(speed)
+	}
+	if value := os.Getenv("SARNAUT_CONTENT_ALLOW_EXTRA"); value != "" {
+		allowExtra, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_CONTENT_ALLOW_EXTRA: %w", err)
+		}
+		configuration.Content.AllowExtra = allowExtra
 	}
 	if value := os.Getenv("SARNAUT_VALKEY_DB"); value != "" {
 		database, err := strconv.Atoi(value)
