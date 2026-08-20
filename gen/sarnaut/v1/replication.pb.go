@@ -127,8 +127,21 @@ type EntitySnapshot struct {
 	Heading        float32                `protobuf:"fixed32,4,opt,name=heading,proto3" json:"heading,omitempty"`
 	Velocity       *Vec3                  `protobuf:"bytes,5,opt,name=velocity,proto3" json:"velocity,omitempty"`
 	AnimationState AnimationState         `protobuf:"varint,6,opt,name=animation_state,json=animationState,proto3,enum=sarnaut.v1.AnimationState" json:"animation_state,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Identity and combat state. content_id and name_key are content references
+	// resolved against the runtime pack both peers agreed on in the handshake
+	// (ADR 0029); the client never receives display strings on the wire
+	// (ADR 0007). level, health, max_health and alive are the Combatant fields
+	// mechanics/combat.md section 4 defines, replicated so nameplates and target
+	// frames need no second round trip.
+	ContentId     string `protobuf:"bytes,7,opt,name=content_id,json=contentId,proto3" json:"content_id,omitempty"`
+	NameKey       string `protobuf:"bytes,8,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	Level         uint32 `protobuf:"varint,9,opt,name=level,proto3" json:"level,omitempty"`
+	Faction       string `protobuf:"bytes,10,opt,name=faction,proto3" json:"faction,omitempty"`
+	Health        int32  `protobuf:"varint,11,opt,name=health,proto3" json:"health,omitempty"`
+	MaxHealth     int32  `protobuf:"varint,12,opt,name=max_health,json=maxHealth,proto3" json:"max_health,omitempty"`
+	Alive         bool   `protobuf:"varint,13,opt,name=alive,proto3" json:"alive,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *EntitySnapshot) Reset() {
@@ -203,6 +216,55 @@ func (x *EntitySnapshot) GetAnimationState() AnimationState {
 	return AnimationState_ANIMATION_STATE_UNSPECIFIED
 }
 
+func (x *EntitySnapshot) GetContentId() string {
+	if x != nil {
+		return x.ContentId
+	}
+	return ""
+}
+
+func (x *EntitySnapshot) GetNameKey() string {
+	if x != nil {
+		return x.NameKey
+	}
+	return ""
+}
+
+func (x *EntitySnapshot) GetLevel() uint32 {
+	if x != nil {
+		return x.Level
+	}
+	return 0
+}
+
+func (x *EntitySnapshot) GetFaction() string {
+	if x != nil {
+		return x.Faction
+	}
+	return ""
+}
+
+func (x *EntitySnapshot) GetHealth() int32 {
+	if x != nil {
+		return x.Health
+	}
+	return 0
+}
+
+func (x *EntitySnapshot) GetMaxHealth() int32 {
+	if x != nil {
+		return x.MaxHealth
+	}
+	return 0
+}
+
+func (x *EntitySnapshot) GetAlive() bool {
+	if x != nil {
+		return x.Alive
+	}
+	return false
+}
+
 type SnapshotBatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ServerTick    uint64                 `protobuf:"varint,1,opt,name=server_tick,json=serverTick,proto3" json:"server_tick,omitempty"`
@@ -256,8 +318,14 @@ func (x *SnapshotBatch) GetEntities() []*EntitySnapshot {
 }
 
 type EnterZoneRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ZoneId        string                 `protobuf:"bytes,1,opt,name=zone_id,json=zoneId,proto3" json:"zone_id,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	ZoneId string                 `protobuf:"bytes,1,opt,name=zone_id,json=zoneId,proto3" json:"zone_id,omitempty"`
+	// The opaque single-use shard ticket minted by auth for one
+	// (account_id, character_id) pair (ADR 0030). It rides EnterZoneRequest
+	// rather than ClientHello because the ticket already names the character, so
+	// a separate authenticate message would carry nothing new
+	// (protocol/session.md rule 5.2.2).
+	Ticket        string `protobuf:"bytes,2,opt,name=ticket,proto3" json:"ticket,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -295,6 +363,13 @@ func (*EnterZoneRequest) Descriptor() ([]byte, []int) {
 func (x *EnterZoneRequest) GetZoneId() string {
 	if x != nil {
 		return x.ZoneId
+	}
+	return ""
+}
+
+func (x *EnterZoneRequest) GetTicket() string {
+	if x != nil {
+		return x.Ticket
 	}
 	return ""
 }
@@ -364,20 +439,31 @@ var File_sarnaut_v1_replication_proto protoreflect.FileDescriptor
 const file_sarnaut_v1_replication_proto_rawDesc = "" +
 	"\n" +
 	"\x1csarnaut/v1/replication.proto\x12\n" +
-	"sarnaut.v1\x1a\x19sarnaut/v1/movement.proto\"\x94\x02\n" +
+	"sarnaut.v1\x1a\x19sarnaut/v1/movement.proto\"\xcb\x03\n" +
 	"\x0eEntitySnapshot\x12\x1b\n" +
 	"\tentity_id\x18\x01 \x01(\x04R\bentityId\x12*\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x16.sarnaut.v1.EntityKindR\x04kind\x12,\n" +
 	"\bposition\x18\x03 \x01(\v2\x10.sarnaut.v1.Vec3R\bposition\x12\x18\n" +
 	"\aheading\x18\x04 \x01(\x02R\aheading\x12,\n" +
 	"\bvelocity\x18\x05 \x01(\v2\x10.sarnaut.v1.Vec3R\bvelocity\x12C\n" +
-	"\x0fanimation_state\x18\x06 \x01(\x0e2\x1a.sarnaut.v1.AnimationStateR\x0eanimationState\"h\n" +
+	"\x0fanimation_state\x18\x06 \x01(\x0e2\x1a.sarnaut.v1.AnimationStateR\x0eanimationState\x12\x1d\n" +
+	"\n" +
+	"content_id\x18\a \x01(\tR\tcontentId\x12\x19\n" +
+	"\bname_key\x18\b \x01(\tR\anameKey\x12\x14\n" +
+	"\x05level\x18\t \x01(\rR\x05level\x12\x18\n" +
+	"\afaction\x18\n" +
+	" \x01(\tR\afaction\x12\x16\n" +
+	"\x06health\x18\v \x01(\x05R\x06health\x12\x1d\n" +
+	"\n" +
+	"max_health\x18\f \x01(\x05R\tmaxHealth\x12\x14\n" +
+	"\x05alive\x18\r \x01(\bR\x05alive\"h\n" +
 	"\rSnapshotBatch\x12\x1f\n" +
 	"\vserver_tick\x18\x01 \x01(\x04R\n" +
 	"serverTick\x126\n" +
-	"\bentities\x18\x02 \x03(\v2\x1a.sarnaut.v1.EntitySnapshotR\bentities\"+\n" +
+	"\bentities\x18\x02 \x03(\v2\x1a.sarnaut.v1.EntitySnapshotR\bentities\"C\n" +
 	"\x10EnterZoneRequest\x12\x17\n" +
-	"\azone_id\x18\x01 \x01(\tR\x06zoneId\"\x89\x01\n" +
+	"\azone_id\x18\x01 \x01(\tR\x06zoneId\x12\x16\n" +
+	"\x06ticket\x18\x02 \x01(\tR\x06ticket\"\x89\x01\n" +
 	"\x11EnterZoneResponse\x12\x17\n" +
 	"\azone_id\x18\x01 \x01(\tR\x06zoneId\x12\"\n" +
 	"\rown_entity_id\x18\x02 \x01(\x04R\vownEntityId\x127\n" +
@@ -390,7 +476,7 @@ const file_sarnaut_v1_replication_proto_rawDesc = "" +
 	"\x0eAnimationState\x12\x1f\n" +
 	"\x1bANIMATION_STATE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14ANIMATION_STATE_IDLE\x10\x01\x12\x1a\n" +
-	"\x16ANIMATION_STATE_MOVING\x10\x02B8Z6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1b\x06proto3"
+	"\x16ANIMATION_STATE_MOVING\x10\x02BNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
 
 var (
 	file_sarnaut_v1_replication_proto_rawDescOnce sync.Once

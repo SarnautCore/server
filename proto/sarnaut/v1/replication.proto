@@ -5,6 +5,7 @@ package sarnaut.v1;
 import "sarnaut/v1/movement.proto";
 
 option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+option csharp_namespace = "Sarnaut.Protocol.V1";
 
 enum EntityKind {
   ENTITY_KIND_UNSPECIFIED = 0;
@@ -25,6 +26,20 @@ message EntitySnapshot {
   float heading = 4;
   Vec3 velocity = 5;
   AnimationState animation_state = 6;
+
+  // Identity and combat state. content_id and name_key are content references
+  // resolved against the runtime pack both peers agreed on in the handshake
+  // (ADR 0029); the client never receives display strings on the wire
+  // (ADR 0007). level, health, max_health and alive are the Combatant fields
+  // mechanics/combat.md section 4 defines, replicated so nameplates and target
+  // frames need no second round trip.
+  string content_id = 7;
+  string name_key = 8;
+  uint32 level = 9;
+  string faction = 10;
+  int32 health = 11;
+  int32 max_health = 12;
+  bool alive = 13;
 }
 
 message SnapshotBatch {
@@ -34,6 +49,13 @@ message SnapshotBatch {
 
 message EnterZoneRequest {
   string zone_id = 1;
+
+  // The opaque single-use shard ticket minted by auth for one
+  // (account_id, character_id) pair (ADR 0030). It rides EnterZoneRequest
+  // rather than ClientHello because the ticket already names the character, so
+  // a separate authenticate message would carry nothing new
+  // (protocol/session.md rule 5.2.2).
+  string ticket = 2;
 }
 
 message EnterZoneResponse {

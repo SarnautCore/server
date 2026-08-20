@@ -8,12 +8,13 @@ fmt:
 
 generate:
 	go generate ./proto
+	pwsh -NoProfile -File scripts/proto-lock.ps1
 
 lint:
 	golangci-lint run
 
 test:
-	go test ./...
+	go test -race ./...
 
 vet:
 	go vet ./...

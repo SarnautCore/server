@@ -75,7 +75,7 @@ const file_sarnaut_v1_common_proto_rawDesc = "" +
 	"sarnaut.v1*K\n" +
 	"\x0fProtocolVersion\x12 \n" +
 	"\x1cPROTOCOL_VERSION_UNSPECIFIED\x10\x00\x12\x16\n" +
-	"\x12PROTOCOL_VERSION_1\x10\x01B8Z6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1b\x06proto3"
+	"\x12PROTOCOL_VERSION_1\x10\x01BNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
 
 var (
 	file_sarnaut_v1_common_proto_rawDescOnce sync.Once

@@ -25,6 +25,10 @@ flowchart LR
 
 Wire definitions live in `proto/sarnaut/v1`. Generated Go code is committed under `gen/sarnaut/v1`.
 
+Every post-handshake frame in either direction is a `ClientMessage` or a `ServerMessage` from `proto/sarnaut/v1/envelope.proto`, on either carrier: a datagram carries a whole envelope, not a bare submessage. Only `ClientMessage.move_intent` and `ServerMessage.snapshot_batch` are eligible for datagrams; everything else, combat included, uses the reliable ordered stream. An unset or unrecognised oneof case is refused with `ServerMessage{error: UNSUPPORTED_MESSAGE}` and a close (ADR 0026).
+
+`proto/PROTO_LOCK.sha256` pins the digests of that `.proto` set and is byte-identical to the copy the client repository commits. `./scripts/generate.ps1` and `make generate` refresh it alongside `gen/`; CI runs `./scripts/proto-lock.ps1 -Check` and fails on a proto edited without regenerating (ADR 0027).
+
 ## Development quickstart
 
 Requirements:

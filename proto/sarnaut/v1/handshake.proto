@@ -5,13 +5,20 @@ package sarnaut.v1;
 import "sarnaut/v1/common.proto";
 
 option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+option csharp_namespace = "Sarnaut.Protocol.V1";
+
+// pack_id is the manifest digest of the compiled runtime pack the peer loaded:
+// 64 lowercase hex characters of BLAKE3-256 (ADR 0029). Unlike build_id it is a
+// gate, checked after protocol_version (ADR 0027, protocol/session.md rule 5.1).
 
 message ClientHello {
   ProtocolVersion protocol_version = 1;
   string build_id = 2;
+  string pack_id = 3;
 }
 
 message ServerHello {
   ProtocolVersion protocol_version = 1;
   string build_id = 2;
+  string pack_id = 3;
 }
