@@ -42,6 +42,8 @@ message ServerMessage {
     InventoryUpdate inventory_update = 15;
     QuestStateUpdate quest_state_update = 16;
     Error error = 17;
+    SpawnEvent spawn_event = 18;
+    DespawnEvent despawn_event = 19;
   }
 }
 
@@ -61,6 +63,20 @@ enum ErrorCode {
 message Error {
   ErrorCode code = 1;
   string detail = 2;
+}
+
+// SpawnEvent announces that one entity entered this session's replication
+// interest set. It travels reliably, unlike the lossy snapshots that carry
+// the entity's subsequent latest-value state.
+message SpawnEvent {
+  EntitySnapshot entity = 1;
+}
+
+// DespawnEvent announces that one entity left this session's replication
+// interest set. A missing snapshot entry cannot substitute for this event:
+// the snapshot may simply have been dropped or stalled.
+message DespawnEvent {
+  uint64 entity_id = 1;
 }
 
 // AbilityUse activates the caster's ability against one target. caster_id is

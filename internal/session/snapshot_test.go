@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/transport"
@@ -86,6 +88,114 @@ func TestSnapshotSenderSplitsDatagramsBelowPacketLimit(t *testing.T) {
 	}
 	if entityCount != 200 {
 		t.Errorf("replicated entities = %d, want 200", entityCount)
+	}
+}
+
+func TestSnapshotSenderWritesInterestTransitionsReliably(t *testing.T) {
+	connection := &stubConnection{unreliable: true}
+	sender := newSnapshotSender(connection, newReliableWriter(connection), nil)
+	spawn := world.EntitySnapshot{
+		EntityID:  41,
+		Kind:      world.EntityKindNPC,
+		ContentID: "mob.fixture.entering",
+		Alive:     true,
+	}
+	if err := sender.send(world.Snapshot{
+		ServerTick: 12,
+		Entities:   []world.EntitySnapshot{spawn},
+		Spawns:     []world.EntitySnapshot{spawn},
+		Despawns:   []uint64{39},
+	}); err != nil {
+		t.Fatalf("send() error = %v", err)
+	}
+	if err := sender.send(world.Snapshot{ServerTick: 13, Entities: []world.EntitySnapshot{spawn}}); err != nil {
+		t.Fatalf("send(next unchanged snapshot) error = %v", err)
+	}
+
+	spawnMessage := new(sarnautv1.ServerMessage)
+	if err := transport.ReadMessage(&connection.Buffer, spawnMessage); err != nil {
+		t.Fatalf("read spawn event: %v", err)
+	}
+	if got := spawnMessage.GetSpawnEvent().GetEntity().GetEntityId(); got != 41 {
+		t.Fatalf("spawn entity id = %d, want 41", got)
+	}
+	if spawnMessage.GetServerTick() != 12 {
+		t.Errorf("spawn server tick = %d, want 12", spawnMessage.GetServerTick())
+	}
+
+	despawnMessage := new(sarnautv1.ServerMessage)
+	if err := transport.ReadMessage(&connection.Buffer, despawnMessage); err != nil {
+		t.Fatalf("read despawn event: %v", err)
+	}
+	if got := despawnMessage.GetDespawnEvent().GetEntityId(); got != 39 {
+		t.Fatalf("despawn entity id = %d, want 39", got)
+	}
+	if despawnMessage.GetServerTick() != 12 {
+		t.Errorf("despawn server tick = %d, want 12", despawnMessage.GetServerTick())
+	}
+
+	unexpected := new(sarnautv1.ServerMessage)
+	if err := transport.ReadMessage(&connection.Buffer, unexpected); err == nil {
+		t.Fatalf("unexpected extra reliable interest event: %v", unexpected)
+	}
+	if len(connection.datagrams) != 2 {
+		t.Fatalf("snapshot datagrams = %d, want one for each tick", len(connection.datagrams))
+	}
+}
+
+func TestSnapshotSenderPreservesTransitionsWhenNewestSnapshotWins(t *testing.T) {
+	connection := newBlockingSnapshotConnection()
+	sender := newSnapshotSender(connection, newReliableWriter(connection), nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 2)
+
+	sender.OfferSnapshot(world.Snapshot{ServerTick: 1})
+	go func() { done <- sender.run(ctx) }()
+	<-connection.firstSendStarted
+
+	entity := world.EntitySnapshot{EntityID: 41, Kind: world.EntityKindNPC, Alive: true}
+	sender.OfferSnapshot(world.Snapshot{
+		ServerTick: 2,
+		Entities:   []world.EntitySnapshot{entity},
+		Spawns:     []world.EntitySnapshot{entity},
+	})
+	sender.OfferSnapshot(world.Snapshot{
+		ServerTick: 3,
+		Despawns:   []uint64{41},
+	})
+	go func() { done <- sender.runTransitions(ctx) }()
+	close(connection.releaseFirstSend)
+	<-connection.sent
+	<-connection.sent
+	for write := 0; write < 4; write++ {
+		select {
+		case <-connection.reliableWrites:
+		case <-time.After(2 * time.Second):
+			t.Fatal("interest sender did not finish two reliable event frames")
+		}
+	}
+	cancel()
+	for index := 0; index < 2; index++ {
+		if err := <-done; err != nil {
+			t.Fatalf("sender loop error = %v", err)
+		}
+	}
+
+	var spawns, despawns int
+	for connection.Len() > 0 {
+		message := new(sarnautv1.ServerMessage)
+		if err := transport.ReadMessage(&connection.Buffer, message); err != nil {
+			t.Fatalf("read reliable interest event: %v", err)
+		}
+		if message.GetSpawnEvent() != nil {
+			spawns++
+		}
+		if message.GetDespawnEvent() != nil {
+			despawns++
+		}
+	}
+	if spawns != 1 || despawns != 1 {
+		t.Fatalf("interest events after snapshot coalescing = %d spawn, %d despawn; want 1 each", spawns, despawns)
 	}
 }
 
@@ -285,6 +395,51 @@ type stubConnection struct {
 	bytes.Buffer
 	unreliable bool
 	datagrams  [][]byte
+}
+
+type blockingSnapshotConnection struct {
+	stubConnection
+	mu               sync.Mutex
+	firstSendStarted chan struct{}
+	releaseFirstSend chan struct{}
+	sent             chan struct{}
+	reliableWrites   chan struct{}
+	sendCount        int
+}
+
+func newBlockingSnapshotConnection() *blockingSnapshotConnection {
+	connection := &blockingSnapshotConnection{
+		firstSendStarted: make(chan struct{}),
+		releaseFirstSend: make(chan struct{}),
+		sent:             make(chan struct{}, 4),
+		reliableWrites:   make(chan struct{}, 4),
+	}
+	connection.unreliable = true
+	return connection
+}
+
+func (connection *blockingSnapshotConnection) Write(payload []byte) (int, error) {
+	connection.mu.Lock()
+	written, err := connection.Buffer.Write(payload)
+	connection.mu.Unlock()
+	connection.reliableWrites <- struct{}{}
+	return written, err
+}
+
+func (connection *blockingSnapshotConnection) SendUnreliable(payload []byte) error {
+	connection.mu.Lock()
+	connection.sendCount++
+	count := connection.sendCount
+	connection.mu.Unlock()
+	if count == 1 {
+		close(connection.firstSendStarted)
+		<-connection.releaseFirstSend
+	}
+	connection.mu.Lock()
+	connection.datagrams = append(connection.datagrams, bytes.Clone(payload))
+	connection.mu.Unlock()
+	connection.sent <- struct{}{}
+	return nil
 }
 
 func (connection *stubConnection) Close() error      { return nil }

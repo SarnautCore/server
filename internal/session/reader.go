@@ -53,9 +53,8 @@ func (via carrier) String() string {
 	return "reliable"
 }
 
-// reliableWriter serialises the ordered stream. Two goroutines write to it: the
-// snapshot sender on its datagram fallback, and the command readers reporting a
-// protocol violation.
+// reliableWriter serialises the ordered stream. Command readers, combat and
+// interest event senders, and the snapshot fallback all write through it.
 type reliableWriter struct {
 	mu         sync.Mutex
 	connection transport.Connection

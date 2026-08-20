@@ -142,6 +142,107 @@ func TestJoinedPlayerIsNotReplicatedUntilSubscribe(t *testing.T) {
 	}
 }
 
+func TestSnapshotExcludesEntitiesOutsideSubscriberInterest(t *testing.T) {
+	t.Parallel()
+
+	zone := newTestZone(t, world.Vec3{})
+	nearID := zone.SpawnNPC(world.NPCSpec{Position: world.Vec3{X: 10}})
+	farID := zone.SpawnNPC(world.NPCSpec{Position: world.Vec3{X: 1_000}})
+	playerID, _ := zone.Join()
+	sink := new(captureSink)
+	if err := zone.Subscribe(playerID, sink); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	zone.PublishSnapshot()
+
+	if _, ok := sink.find(nearID); !ok {
+		t.Error("an entity inside the subscriber's area of interest is absent")
+	}
+	if _, ok := sink.find(farID); ok {
+		t.Error("an entity outside the subscriber's area of interest is present")
+	}
+}
+
+func TestInterestCrossingEmitsOneSpawnAndOneDespawn(t *testing.T) {
+	t.Parallel()
+
+	zone := newTestZone(t, world.Vec3{})
+	entityID := zone.SpawnNPC(world.NPCSpec{Position: world.Vec3{X: 1_000}})
+	playerID, _ := zone.Join()
+	sink := new(captureSink)
+	if err := zone.Subscribe(playerID, sink); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	zone.PublishSnapshot()
+
+	moveNPC := func(position world.Vec3) {
+		t.Helper()
+		if err := zone.Command(func(tick *world.Tick) error {
+			tick.MoveTo(tick.Entity(entityID), position)
+			return nil
+		}); err != nil {
+			t.Fatalf("Command() error = %v", err)
+		}
+	}
+	moveNPC(world.Vec3{X: 47})
+	zone.PublishSnapshot()
+	zone.PublishSnapshot()
+	if got := sink.spawnCount(entityID); got != 1 {
+		t.Fatalf("spawn events for entity %d = %d, want exactly 1", entityID, got)
+	}
+
+	moveNPC(world.Vec3{X: 49})
+	zone.PublishSnapshot()
+	zone.PublishSnapshot()
+	if got := sink.despawnCount(entityID); got != 1 {
+		t.Fatalf("despawn events for entity %d = %d, want exactly 1", entityID, got)
+	}
+}
+
+func TestDifferentSubscribersReceiveIndependentBatches(t *testing.T) {
+	t.Parallel()
+
+	zone := newTestZone(t, world.Vec3{})
+	leftOnlyID := zone.SpawnNPC(world.NPCSpec{ContentID: "mob.fixture.left", Position: world.Vec3{X: -40}})
+	sharedID := zone.SpawnNPC(world.NPCSpec{ContentID: "mob.fixture.shared", Position: world.Vec3{X: 20}})
+	rightOnlyID := zone.SpawnNPC(world.NPCSpec{ContentID: "mob.fixture.right", Position: world.Vec3{X: 80}})
+
+	leftID, _ := zone.JoinAt(world.Vec3{}, 0)
+	rightID, _ := zone.JoinAt(world.Vec3{X: 40}, 0)
+	left, right := new(captureSink), new(captureSink)
+	if err := zone.Subscribe(leftID, left); err != nil {
+		t.Fatalf("Subscribe(left) error = %v", err)
+	}
+	if err := zone.Subscribe(rightID, right); err != nil {
+		t.Fatalf("Subscribe(right) error = %v", err)
+	}
+	zone.PublishSnapshot()
+
+	if _, ok := left.find(leftOnlyID); !ok {
+		t.Error("left subscriber did not receive its nearby entity")
+	}
+	if _, ok := left.find(rightOnlyID); ok {
+		t.Error("left subscriber received the right-only entity")
+	}
+	if _, ok := right.find(rightOnlyID); !ok {
+		t.Error("right subscriber did not receive its nearby entity")
+	}
+	if _, ok := right.find(leftOnlyID); ok {
+		t.Error("right subscriber received the left-only entity")
+	}
+
+	leftIndex := left.index(sharedID)
+	rightIndex := right.index(sharedID)
+	if leftIndex < 0 || rightIndex < 0 {
+		t.Fatalf("shared entity %d is missing from one of the batches", sharedID)
+	}
+	left.snapshot.Entities[leftIndex].ContentID = "mutated"
+	if got := right.snapshot.Entities[rightIndex].ContentID; got != "mob.fixture.shared" {
+		t.Fatalf("mutating the left batch changed the right batch to %q", got)
+	}
+}
+
 func TestPublishSnapshotGivesEverySinkTheSameValue(t *testing.T) {
 	t.Parallel()
 
@@ -202,9 +303,13 @@ func TestSnapshotEntitiesAreInAscendingIDOrder(t *testing.T) {
 
 type captureSink struct {
 	snapshot world.Snapshot
+	history  []world.Snapshot
 }
 
-func (sink *captureSink) OfferSnapshot(snapshot world.Snapshot) { sink.snapshot = snapshot }
+func (sink *captureSink) OfferSnapshot(snapshot world.Snapshot) {
+	sink.snapshot = snapshot
+	sink.history = append(sink.history, snapshot)
+}
 
 func (sink *captureSink) find(entityID uint64) (world.EntitySnapshot, bool) {
 	for _, view := range sink.snapshot.Entities {
@@ -213,4 +318,37 @@ func (sink *captureSink) find(entityID uint64) (world.EntitySnapshot, bool) {
 		}
 	}
 	return world.EntitySnapshot{}, false
+}
+
+func (sink *captureSink) index(entityID uint64) int {
+	for index, view := range sink.snapshot.Entities {
+		if view.EntityID == entityID {
+			return index
+		}
+	}
+	return -1
+}
+
+func (sink *captureSink) spawnCount(entityID uint64) int {
+	count := 0
+	for _, snapshot := range sink.history {
+		for _, spawn := range snapshot.Spawns {
+			if spawn.EntityID == entityID {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func (sink *captureSink) despawnCount(entityID uint64) int {
+	count := 0
+	for _, snapshot := range sink.history {
+		for _, despawn := range snapshot.Despawns {
+			if despawn == entityID {
+				count++
+			}
+		}
+	}
+	return count
 }

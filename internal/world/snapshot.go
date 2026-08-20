@@ -28,13 +28,18 @@ type EntitySnapshot struct {
 type Snapshot struct {
 	ServerTick uint64
 	Entities   []EntitySnapshot
+	// Spawns and Despawns are reliable interest-set transitions associated
+	// with this view. Entities remains the latest-value snapshot; these deltas
+	// let a client create an entity on entry and remove it on exit without
+	// guessing from a missing or stalled snapshot.
+	Spawns   []EntitySnapshot
+	Despawns []uint64
 }
 
 // SnapshotSink accepts the newest view of a zone.
 //
-// Implementations must not retain or mutate the slice: it is shared across
-// every sink of one publish, which is safe precisely because nothing writes to
-// it.
+// Implementations must treat every slice as immutable. PublishSnapshot builds
+// a separate Snapshot, including separate backing memory, for each sink.
 type SnapshotSink interface {
 	OfferSnapshot(Snapshot)
 }
