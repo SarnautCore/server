@@ -45,6 +45,20 @@ message EntitySnapshot {
 message SnapshotBatch {
   uint64 server_tick = 1;
   repeated EntitySnapshot entities = 2;
+
+  // Datagram chunking (protocol/session.md rule 5.5.7). A snapshot too large for
+  // one datagram is split into chunk_count parts that all carry the same
+  // server_tick, and a receiver must hold them until it has all chunk_count of
+  // them before publishing the tick: a chunk on its own is a fragment of the
+  // world, not a view of it, and acting on one alone despawns every entity that
+  // landed in a sibling chunk.
+  //
+  // chunk_count is 1 for a whole snapshot, including every batch on the reliable
+  // fallback, so the receiving rule is uniform rather than conditional on the
+  // carrier. chunk_index is 0-based and the chunks of one tick partition its
+  // entities in order.
+  uint32 chunk_index = 3;
+  uint32 chunk_count = 4;
 }
 
 message EnterZoneRequest {

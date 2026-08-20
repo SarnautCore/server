@@ -6,12 +6,34 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
+	"time"
 
 	"github.com/quic-go/quic-go"
 )
 
+// acceptStreamTimeout bounds how long a peer may hold an accepted QUIC
+// connection without opening the session stream on it.
+const acceptStreamTimeout = 10 * time.Second
+
 type quicListener struct {
 	listener *quic.Listener
+
+	// accepted carries connections whose session stream is already open. It
+	// exists because accepting the stream cannot happen on the caller's
+	// goroutine: a QUIC stream is invisible to the peer until the opener writes
+	// on it, so a client that connects and stays silent would block AcceptStream
+	// — and with it the shard's whole accept loop — for everyone else. The stream
+	// accept therefore runs per connection, with a deadline of its own.
+	accepted chan acceptedConnection
+	start    sync.Once
+	stop     sync.Once
+	closed   chan struct{}
+}
+
+type acceptedConnection struct {
+	connection Connection
+	err        error
 }
 
 type quicConnection struct {
@@ -25,7 +47,11 @@ func ListenQUIC(address string, tlsConfig *tls.Config) (Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen for QUIC connections: %w", err)
 	}
-	return &quicListener{listener: listener}, nil
+	return &quicListener{
+		listener: listener,
+		accepted: make(chan acceptedConnection),
+		closed:   make(chan struct{}),
+	}, nil
 }
 
 // DialQUIC opens a QUIC connection and its first bidirectional stream.
@@ -49,18 +75,57 @@ func quicConfig() *quic.Config {
 }
 
 func (listener *quicListener) Accept(ctx context.Context) (Connection, error) {
-	connection, err := listener.listener.Accept(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("accept QUIC connection: %w", err)
+	listener.start.Do(func() { go listener.pump() })
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-listener.closed:
+		return nil, net.ErrClosed
+	case accepted := <-listener.accepted:
+		return accepted.connection, accepted.err
 	}
+}
+
+// pump accepts QUIC connections and opens each one's session stream on a
+// goroutine of its own, so a peer that never opens one delays nobody but itself.
+func (listener *quicListener) pump() {
+	for {
+		connection, err := listener.listener.Accept(context.Background())
+		if err != nil {
+			listener.offer(acceptedConnection{err: fmt.Errorf("accept QUIC connection: %w", err)})
+			return
+		}
+		go listener.acceptStream(connection)
+	}
+}
+
+func (listener *quicListener) acceptStream(connection *quic.Conn) {
+	ctx, cancel := context.WithTimeout(context.Background(), acceptStreamTimeout)
+	defer cancel()
 
 	stream, err := connection.AcceptStream(ctx)
 	if err != nil {
-		_ = connection.CloseWithError(0, "accept stream failed")
-		return nil, fmt.Errorf("accept QUIC stream: %w", err)
+		// A connection with no session stream is not a listener failure and must
+		// not be reported as one: it is one peer that never started talking.
+		_ = connection.CloseWithError(0, "no session stream was opened")
+		return
 	}
+	if !listener.offer(acceptedConnection{
+		connection: &quicConnection{connection: connection, stream: stream},
+	}) {
+		_ = connection.CloseWithError(0, "listener closed")
+	}
+}
 
-	return &quicConnection{connection: connection, stream: stream}, nil
+// offer hands one accept result to whoever is calling Accept, and reports
+// whether anyone took it before the listener closed.
+func (listener *quicListener) offer(accepted acceptedConnection) bool {
+	select {
+	case listener.accepted <- accepted:
+		return true
+	case <-listener.closed:
+		return false
+	}
 }
 
 func (listener *quicListener) Addr() net.Addr {
@@ -68,6 +133,7 @@ func (listener *quicListener) Addr() net.Addr {
 }
 
 func (listener *quicListener) Close() error {
+	listener.stop.Do(func() { close(listener.closed) })
 	return listener.listener.Close()
 }
 

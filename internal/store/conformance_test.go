@@ -119,6 +119,82 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) sto
 		}
 	})
 
+	// The schema's own CHECK and FOREIGN KEY constraints, exercised through the
+	// same suite as everything else. Without these the in-memory store is not
+	// evidence about Postgres in the direction that matters: a wave-3 chargen
+	// test writing a two-character name or an orphan account_id goes green here
+	// and fails in production as an unclassified insert error.
+	t.Run("a character name outside 3-16 characters is rejected", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+
+		account := newAccount()
+		if err := repository.CreateAccount(ctx, account); err != nil {
+			t.Fatalf("create account: %v", err)
+		}
+		for _, name := range []string{"", "Ab", strings.Repeat("A", 17)} {
+			err := repository.CreateCharacter(ctx, newCharacter(account.AccountID, name))
+			if !errors.Is(err, store.ErrConstraintViolated) {
+				t.Errorf("create character %q (%d chars) error = %v, want ErrConstraintViolated",
+					name, len(name), err)
+			}
+		}
+		// The bounds themselves are inclusive.
+		for _, name := range []string{"Abc", strings.Repeat("A", 16)} {
+			if err := repository.CreateCharacter(ctx, newCharacter(account.AccountID, name)); err != nil {
+				t.Errorf("create character %q error = %v, want it accepted", name, err)
+			}
+		}
+	})
+
+	t.Run("a character with no account is rejected", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+
+		err := repository.CreateCharacter(ctx, newCharacter(uuid.New(), "Orphan"))
+		if !errors.Is(err, store.ErrConstraintViolated) {
+			t.Errorf("create orphan character error = %v, want ErrConstraintViolated", err)
+		}
+	})
+
+	t.Run("character state below its column checks is rejected", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+
+		valid := store.CharacterState{
+			CharacterID: uuid.New(),
+			ZoneID:      "InstLeague1",
+			Level:       1,
+			Health:      100,
+			SaveSeq:     1,
+		}
+		for name, corrupt := range map[string]func(*store.CharacterState){
+			"level below one":     func(state *store.CharacterState) { state.Level = 0 },
+			"negative experience": func(state *store.CharacterState) { state.Experience = -1 },
+			"negative save_seq":   func(state *store.CharacterState) { state.SaveSeq = -1 },
+		} {
+			state := valid
+			state.CharacterID = uuid.New()
+			corrupt(&state)
+			if err := repository.SaveCharacterState(ctx, state); !errors.Is(err, store.ErrConstraintViolated) {
+				t.Errorf("save with %s error = %v, want ErrConstraintViolated", name, err)
+			}
+		}
+	})
+
+	t.Run("a negative inventory slot is rejected", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+
+		characterID := uuid.New()
+		err := repository.PutItem(ctx, characterID, store.InventoryItem{
+			Slot: -1, ItemID: "item.fixture", Quantity: 1,
+		})
+		if !errors.Is(err, store.ErrConstraintViolated) {
+			t.Errorf("put item in slot -1 error = %v, want ErrConstraintViolated", err)
+		}
+	})
+
 	t.Run("character state save rejects a non-advancing sequence", func(t *testing.T) {
 		repository := newRepository(t)
 		ctx := t.Context()

@@ -108,6 +108,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA auth TO sarnaut_aut
 GRANT USAGE ON SCHEMA shard TO sarnaut_shard;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shard TO sarnaut_shard;
 
+-- GRANT ... ON ALL TABLES is a point-in-time grant over the tables that exist
+-- right now, so a table added by a later migration would have no grants at all
+-- and the ownership boundary above would hold only for the tables of this one.
+-- Default privileges cover what the migrating role creates from here on.
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sarnaut_auth;
+ALTER DEFAULT PRIVILEGES IN SCHEMA shard
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sarnaut_shard;
+
 -- +goose Down
 
 -- CASCADE takes the tables, indexes and grants with the schema. The roles are
@@ -116,17 +125,29 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shard TO sarnaut_sh
 DROP SCHEMA IF EXISTS shard CASCADE;
 DROP SCHEMA IF EXISTS auth CASCADE;
 
+-- DROP OWNED BY is per-database. If any *other* database in the same cluster
+-- grants to these roles — a second environment sharing one Postgres, which the
+-- compose file does not stop anyone doing — DROP ROLE fails with "role cannot be
+-- dropped because some objects depend on it" and takes the whole `down-to 0`
+-- with it. A rollback that cannot finish because of an unrelated database is a
+-- worse outcome than a role left behind, so the drop is attempted and its
+-- failure is reported and swallowed.
 -- +goose StatementBegin
 DO $$
+DECLARE
+    role_name text;
 BEGIN
-    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'sarnaut_shard') THEN
-        EXECUTE 'DROP OWNED BY sarnaut_shard';
-        DROP ROLE sarnaut_shard;
-    END IF;
-    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'sarnaut_auth') THEN
-        EXECUTE 'DROP OWNED BY sarnaut_auth';
-        DROP ROLE sarnaut_auth;
-    END IF;
+    FOREACH role_name IN ARRAY ARRAY['sarnaut_shard', 'sarnaut_auth'] LOOP
+        IF EXISTS (SELECT FROM pg_roles WHERE rolname = role_name) THEN
+            BEGIN
+                EXECUTE format('DROP OWNED BY %I', role_name);
+                EXECUTE format('DROP ROLE %I', role_name);
+            EXCEPTION WHEN dependent_objects_still_exist OR insufficient_privilege THEN
+                RAISE NOTICE
+                    'left role % in place: %', role_name, SQLERRM;
+            END;
+        END IF;
+    END LOOP;
 END
 $$;
 -- +goose StatementEnd

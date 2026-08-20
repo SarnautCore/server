@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -163,8 +164,13 @@ func Load(directory string, options Options) (*Pack, error) {
 
 	tables := make(map[string]*table, len(document.Tables))
 	digestInput := make([]namedTable, 0, len(document.Tables))
+	listed := make(map[string]struct{}, len(document.Tables))
 	for _, entry := range document.Tables {
-		path := filepath.Join(directory, filepath.FromSlash(entry.File))
+		path, err := tablePath(directory, entry.File)
+		if err != nil {
+			return nil, err
+		}
+		listed[entry.File] = struct{}{}
 		payload, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read pack table %q: %w", path, err)
@@ -200,6 +206,10 @@ func Load(directory string, options Options) (*Pack, error) {
 		}
 		tables[entry.Name] = loaded
 		digestInput = append(digestInput, namedTable{Name: entry.Name, Bytes: payload})
+	}
+
+	if err := rejectUnlistedTables(directory, listed); err != nil {
+		return nil, err
 	}
 
 	sort.Slice(digestInput, func(left, right int) bool {
@@ -431,6 +441,62 @@ func inert(spawnTime string) bool {
 
 func vec3(value *contentv1.Vec3) Vec3 {
 	return Vec3{X: value.GetX(), Y: value.GetY(), Z: value.GetZ()}
+}
+
+// tablesDirectory is the one place inside a pack where table files live. It is
+// where an unlisted file is looked for, and the only prefix a manifest entry may
+// name.
+const tablesDirectory = "tables"
+
+// tablePath resolves one manifest `file` entry against the pack directory and
+// refuses anything that escapes it.
+//
+// Without this, a manifest naming `../../../../etc/shadow` makes the shard read
+// that file. The digest check would then reject the pack, but not before the
+// error messages had reported the file's exact length and BLAKE3 — a size and
+// hash oracle for any path, offered to whoever can write a manifest.json.
+func tablePath(directory string, file string) (string, error) {
+	clean := path.Clean(file)
+	if file == "" ||
+		clean != file ||
+		path.IsAbs(file) ||
+		filepath.IsAbs(file) ||
+		strings.Contains(file, `\`) ||
+		clean == ".." ||
+		strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf(
+			"%w: manifest entry names file %q, which is not a plain path inside the pack",
+			ErrMalformedTable, file,
+		)
+	}
+	return filepath.Join(directory, filepath.FromSlash(clean)), nil
+}
+
+// rejectUnlistedTables refuses a pack directory holding a table the manifest
+// does not name.
+//
+// Two directories that differ only by an unlisted file would otherwise share a
+// pack_id, and a stale table left by a partial rebuild would be invisible. The
+// Rust verifier bails on exactly this case, and `sarnaut-pack verify` is only
+// worth running if it accepts the same set of packs the shard does.
+func rejectUnlistedTables(directory string, listed map[string]struct{}) error {
+	entries, err := os.ReadDir(filepath.Join(directory, tablesDirectory))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("list pack tables: %w", err)
+	}
+	for _, entry := range entries {
+		relative := tablesDirectory + "/" + entry.Name()
+		if _, ok := listed[relative]; !ok {
+			return fmt.Errorf(
+				"%w: pack %q holds %s, which the manifest does not list",
+				ErrMalformedTable, directory, relative,
+			)
+		}
+	}
+	return nil
 }
 
 // namedTable pairs a table's manifest name with its bytes for digesting.

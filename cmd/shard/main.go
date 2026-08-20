@@ -196,6 +196,12 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         settings.BuildID,
+		// The shard states the identity of the pack it actually opened, so the
+		// ADR 0027 content check has something to compare against. Left empty it
+		// is worse than unwired: ServerHello would carry no pack id, and every
+		// client that names its own would refuse the handshake.
+		PackID:              content.ID(),
+		AllowUnverifiedPack: settings.Content.AllowUnverifiedPack,
 		Zones: map[string]session.ZoneBinding{
 			zone.ID(): {World: zone, Combat: combatModule},
 		},

@@ -80,6 +80,12 @@ type ContentConfig struct {
 	// AllowExtra permits a pack built with `--keep-extra`, whose rows carry
 	// verbatim MY.GAMES attribute names (ADR 0011). Default false.
 	AllowExtra bool
+	// AllowUnverifiedPack admits a client whose ClientHello names no pack at all
+	// (protocol/session.md rule 5.1.4). Default false. A client that names a
+	// different pack is refused either way; this only covers the client that
+	// makes no claim, which today is every client that has not shipped a pack of
+	// its own yet.
+	AllowUnverifiedPack bool
 }
 
 type NATSConfig struct {
@@ -130,8 +136,9 @@ type fileConfig struct {
 		SpawnSeed        *uint64  `yaml:"spawn_seed"`
 	} `yaml:"world"`
 	Content struct {
-		PackPath   *string `yaml:"pack_path"`
-		AllowExtra *bool   `yaml:"allow_extra"`
+		PackPath            *string `yaml:"pack_path"`
+		AllowExtra          *bool   `yaml:"allow_extra"`
+		AllowUnverifiedPack *bool   `yaml:"allow_unverified_pack"`
 	} `yaml:"content"`
 	NATS struct {
 		URL *string `yaml:"url"`
@@ -294,6 +301,9 @@ func applyFileValues(configuration *Config, values fileConfig) error {
 	if values.Content.AllowExtra != nil {
 		configuration.Content.AllowExtra = *values.Content.AllowExtra
 	}
+	if values.Content.AllowUnverifiedPack != nil {
+		configuration.Content.AllowUnverifiedPack = *values.Content.AllowUnverifiedPack
+	}
 	if values.Auth.NameBlocklist != nil {
 		configuration.Auth.NameBlocklist = *values.Auth.NameBlocklist
 	}
@@ -400,6 +410,13 @@ func applyEnvironment(configuration *Config) error {
 			return fmt.Errorf("parse SARNAUT_CONTENT_ALLOW_EXTRA: %w", err)
 		}
 		configuration.Content.AllowExtra = allowExtra
+	}
+	if value := os.Getenv("SARNAUT_CONTENT_ALLOW_UNVERIFIED_PACK"); value != "" {
+		allowUnverified, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_CONTENT_ALLOW_UNVERIFIED_PACK: %w", err)
+		}
+		configuration.Content.AllowUnverifiedPack = allowUnverified
 	}
 	if value := os.Getenv("SARNAUT_PERSISTENCE_SAVE_INTERVAL"); value != "" {
 		duration, err := time.ParseDuration(value)

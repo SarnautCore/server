@@ -38,6 +38,10 @@ $ErrorActionPreference = "Stop"
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $contentPack = Join-Path $repositoryRoot "testdata\packs\demo"
 $zoneId = "InstLeague1"
+# The shard states this digest in its ServerHello and refuses a client that names
+# a different one (ADR 0027, protocol/session.md rule 5.1.4). The probe is a real
+# client, so it names it too — this slice proves the gate is wired, not bypassed.
+$packId = (Get-Content -LiteralPath (Join-Path $contentPack "manifest.json") -Raw | ConvertFrom-Json).pack_id
 
 function Resolve-Go {
     $command = Get-Command go -ErrorAction SilentlyContinue
@@ -144,14 +148,14 @@ try {
 
     Write-Output "== an unauthenticated connection is refused =="
     & (Join-Path $temporaryRoot ("probe" + $binaryExtension)) `
-        -address $Address -zone $zoneId -expect-refusal -duration 10s
+        -address $Address -zone $zoneId -pack $packId -expect-refusal -duration 10s
     if ($LASTEXITCODE -ne 0) {
         throw "The shard did not refuse an unauthenticated connection."
     }
 
     Write-Output "== register, log in, create a character, enter the zone =="
     $firstRun = & (Join-Path $temporaryRoot ("probe" + $binaryExtension)) `
-        -address $Address -zone $zoneId -auth "http://$AuthAddress" `
+        -address $Address -zone $zoneId -pack $packId -auth "http://$AuthAddress" `
         -email $email -password $password -character $characterName -duration 6s
     if ($LASTEXITCODE -ne 0) {
         throw "The authenticated probe failed with exit code $LASTEXITCODE."
@@ -198,7 +202,7 @@ try {
 
     Write-Output "== reconnecting restores the saved position =="
     $secondRun = & (Join-Path $temporaryRoot ("probe" + $binaryExtension)) `
-        -address $Address -zone $zoneId -auth "http://$AuthAddress" `
+        -address $Address -zone $zoneId -pack $packId -auth "http://$AuthAddress" `
         -email $email -password $password -character $characterName -duration 6s
     if ($LASTEXITCODE -ne 0) {
         throw "The reconnect probe failed with exit code $LASTEXITCODE."

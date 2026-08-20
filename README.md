@@ -107,6 +107,20 @@ go run ./cmd/gateway
 `auth` reads its character-creation options from the same pack the shard loads,
 so `SARNAUT_CONTENT_PACK` is required by both.
 
+The shard states that pack's digest in its `ServerHello` and refuses a client
+that names a different one, or none at all
+([ADR 0027](https://github.com/SarnautCore/docs/blob/main/adr/0027-proto-contract-and-wire-evolution.md),
+`protocol/session.md` rule 5.1.4). A client that has not shipped a pack of its
+own yet — which today includes the Godot client and `cmd/probe` without `-pack` —
+needs the shard told to take it:
+
+```powershell
+$env:SARNAUT_CONTENT_ALLOW_UNVERIFIED_PACK = "true"
+```
+
+The alternative is to hand the client the digest the shard logs at startup as
+`pack_id`, which is what the smoke scripts do.
+
 To see what a pack resolves to without starting a listener:
 
 ```powershell
@@ -192,6 +206,7 @@ Copy `config.example.yaml`, set `SARNAUT_CONFIG` to its path, and override indiv
 | `SARNAUT_HEALTH_ADDRESS` | Per-process health listener |
 | `SARNAUT_CONTENT_PACK` | Compiled runtime pack directory. Required by the shard; no default |
 | `SARNAUT_CONTENT_ALLOW_EXTRA` | Accept a pack built with `--keep-extra`, default `false` |
+| `SARNAUT_CONTENT_ALLOW_UNVERIFIED_PACK` | Admit a client that names no pack, default `false` |
 | `SARNAUT_WORLD_ZONE_ID` | Network zone ID, default `InstLeague1` |
 | `SARNAUT_WORLD_TICK_INTERVAL` | Fixed simulation interval, default 30 Hz |
 | `SARNAUT_WORLD_SNAPSHOT_INTERVAL` | Replication interval, default 15 Hz |

@@ -68,7 +68,15 @@ func snapshotToProto(snapshot world.Snapshot) (*sarnautv1.SnapshotBatch, error) 
 			Alive:          view.Alive,
 		})
 	}
-	return &sarnautv1.SnapshotBatch{ServerTick: snapshot.ServerTick, Entities: entities}, nil
+	// ChunkCount 1 says "this is the whole tick". splitSnapshot overwrites it
+	// when a datagram cannot hold the batch; on the reliable fallback it stands,
+	// so a receiver applies the same completeness rule on both carriers instead
+	// of inferring one from the carrier (protocol/session.md rule 5.5.7).
+	return &sarnautv1.SnapshotBatch{
+		ServerTick: snapshot.ServerTick,
+		Entities:   entities,
+		ChunkCount: 1,
+	}, nil
 }
 
 // combatEventToProto projects one domain event onto the wire.
