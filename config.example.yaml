@@ -6,7 +6,16 @@ quic:
   shard_address: 127.0.0.1:4242
 
 world:
-  tick_interval: 50ms
+  zone_id: InstLeague1
+  tick_interval: 33.333333ms
+  snapshot_interval: 66.666666ms
+  max_move_speed: 7
+
+# Runtime-only source. Keep the private data repository separate from this repo.
+content:
+  root_path: E:\SarnautCore\data
+  ruleset: classic
+  zone_slug: inst-league1
 
 # Leave these empty to run without the Docker-managed development services.
 nats:

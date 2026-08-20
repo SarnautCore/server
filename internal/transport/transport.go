@@ -13,6 +13,9 @@ type Connection interface {
 	io.Writer
 	io.Closer
 	CloseWrite() error
+	SupportsUnreliable() bool
+	SendUnreliable([]byte) error
+	ReceiveUnreliable(context.Context) ([]byte, error)
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
 }

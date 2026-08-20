@@ -11,7 +11,7 @@ import (
 
 func TestLoadAppliesYAMLThenEnvironmentOverrides(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	contents := []byte("build_id: yaml-build\nworld:\n  tick_interval: 75ms\n")
+	contents := []byte("build_id: yaml-build\nworld:\n  tick_interval: 75ms\n  snapshot_interval: 100ms\ncontent:\n  root_path: fixture-data\n")
 	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		t.Fatalf("write test config: %v", err)
 	}
@@ -27,6 +27,12 @@ func TestLoadAppliesYAMLThenEnvironmentOverrides(t *testing.T) {
 	}
 	if got.World.TickInterval != 75*time.Millisecond {
 		t.Errorf("World.TickInterval = %s, want 75ms", got.World.TickInterval)
+	}
+	if got.World.SnapshotInterval != 100*time.Millisecond {
+		t.Errorf("World.SnapshotInterval = %s, want 100ms", got.World.SnapshotInterval)
+	}
+	if got.Content.RootPath != "fixture-data" {
+		t.Errorf("Content.RootPath = %q, want fixture-data", got.Content.RootPath)
 	}
 	if got.ServiceName != "shard" {
 		t.Errorf("ServiceName = %q, want %q", got.ServiceName, "shard")

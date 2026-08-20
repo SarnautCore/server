@@ -11,6 +11,7 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/config"
+	"github.com/SarnautCore/server/internal/content"
 	"github.com/SarnautCore/server/internal/health"
 	"github.com/SarnautCore/server/internal/infra"
 	"github.com/SarnautCore/server/internal/observability"
@@ -70,12 +71,39 @@ func run(ctx context.Context) error {
 	status := new(health.Status)
 	healthErrors := startHealthServer(ctx, settings.HealthAddress, status)
 
-	worldModule := world.New(settings.World.TickInterval, logger)
+	zone, err := world.NewZone(world.ZoneConfig{
+		ID:               settings.World.ZoneID,
+		TickInterval:     settings.World.TickInterval,
+		SnapshotInterval: settings.World.SnapshotInterval,
+		MaxMoveSpeed:     settings.World.MaxMoveSpeed,
+	})
+	if err != nil {
+		return fmt.Errorf("create zone: %w", err)
+	}
+	spawns, err := content.LoadZoneNPCs(
+		settings.Content.RootPath,
+		settings.Content.Ruleset,
+		settings.Content.ZoneSlug,
+	)
+	if err != nil {
+		return fmt.Errorf("load zone NPCs: %w", err)
+	}
+	for _, spawn := range spawns {
+		zone.SpawnNPC(world.Vec3{
+			X: spawn.Position.X,
+			Y: spawn.Position.Y,
+			Z: spawn.Position.Z,
+		}, spawn.Heading)
+	}
+	logger.Info("zone content loaded", "zone_id", zone.ID(), "npc_count", len(spawns))
+
+	worldModule := world.New(logger, zone)
 	go worldModule.Run(ctx)
 
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         settings.BuildID,
+		Zones:           map[string]*world.Zone{zone.ID(): zone},
 	}
 	sessionErrors := make(chan error, 1)
 	go func() {

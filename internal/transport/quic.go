@@ -21,7 +21,7 @@ type quicConnection struct {
 
 // ListenQUIC listens for QUIC connections and exposes their first bidirectional stream.
 func ListenQUIC(address string, tlsConfig *tls.Config) (Listener, error) {
-	listener, err := quic.ListenAddr(address, tlsConfig, nil)
+	listener, err := quic.ListenAddr(address, tlsConfig, quicConfig())
 	if err != nil {
 		return nil, fmt.Errorf("listen for QUIC connections: %w", err)
 	}
@@ -30,7 +30,7 @@ func ListenQUIC(address string, tlsConfig *tls.Config) (Listener, error) {
 
 // DialQUIC opens a QUIC connection and its first bidirectional stream.
 func DialQUIC(ctx context.Context, address string, tlsConfig *tls.Config) (Connection, error) {
-	connection, err := quic.DialAddr(ctx, address, tlsConfig, nil)
+	connection, err := quic.DialAddr(ctx, address, tlsConfig, quicConfig())
 	if err != nil {
 		return nil, fmt.Errorf("dial QUIC endpoint: %w", err)
 	}
@@ -42,6 +42,10 @@ func DialQUIC(ctx context.Context, address string, tlsConfig *tls.Config) (Conne
 	}
 
 	return &quicConnection{connection: connection, stream: stream}, nil
+}
+
+func quicConfig() *quic.Config {
+	return &quic.Config{EnableDatagrams: true}
 }
 
 func (listener *quicListener) Accept(ctx context.Context) (Connection, error) {
@@ -84,6 +88,19 @@ func (connection *quicConnection) Close() error {
 
 func (connection *quicConnection) CloseWrite() error {
 	return connection.stream.Close()
+}
+
+func (connection *quicConnection) SupportsUnreliable() bool {
+	state := connection.connection.ConnectionState().SupportsDatagrams
+	return state.Local && state.Remote
+}
+
+func (connection *quicConnection) SendUnreliable(payload []byte) error {
+	return connection.connection.SendDatagram(payload)
+}
+
+func (connection *quicConnection) ReceiveUnreliable(ctx context.Context) ([]byte, error) {
+	return connection.connection.ReceiveDatagram(ctx)
 }
 
 func (connection *quicConnection) LocalAddr() net.Addr {

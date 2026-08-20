@@ -1,6 +1,6 @@
 # SarnautCore server
 
-This repository contains the Go services for SarnautCore. The current milestone is a runnable skeleton: the processes start, expose health probes, and complete a protobuf hello over QUIC. There is no gameplay yet.
+This repository contains the Go services for SarnautCore. The shard currently hosts a fixed-rate zone, loads NPC placements from the private runtime data repository, and replicates authoritative movement over QUIC.
 
 ## Architecture
 
@@ -45,7 +45,7 @@ Generate, test, lint, and build on Windows:
 
 The equivalent Make targets are `make generate`, `make test`, `make lint`, and `make build`.
 
-Run the hello demo in separate PowerShell terminals. Start the shard first:
+Run the services in separate PowerShell terminals. Start the shard first. It reads `classic/zones/inst-league1` from `E:\SarnautCore\data` by default:
 
 ```powershell
 go run ./cmd/shard
@@ -63,6 +63,12 @@ Invoke-WebRequest http://127.0.0.1:8082/readyz  # auth
 
 The shard creates an ephemeral self-signed certificate at startup. The gateway's development TLS configuration accepts it. This is local-only behavior.
 
+Use the probe to enter the zone, send movement input, and print the number of snapshot packets and entity records received:
+
+```powershell
+go run ./cmd/probe -duration 5s
+```
+
 Copy `config.example.yaml`, set `SARNAUT_CONFIG` to its path, and override individual values with `SARNAUT_*` variables when needed. The main connection variables are:
 
 | Variable | Purpose |
@@ -70,6 +76,12 @@ Copy `config.example.yaml`, set `SARNAUT_CONFIG` to its path, and override indiv
 | `SARNAUT_SHARD_ADDRESS` | Gateway target, default `127.0.0.1:4242` |
 | `SARNAUT_QUIC_LISTEN_ADDRESS` | Shard QUIC listener |
 | `SARNAUT_HEALTH_ADDRESS` | Per-process health listener |
+| `SARNAUT_CONTENT_ROOT` | Private runtime data root, default `E:\SarnautCore\data` |
+| `SARNAUT_CONTENT_RULESET` | Content ruleset, default `classic` |
+| `SARNAUT_CONTENT_ZONE_SLUG` | Content directory under `zones`, default `inst-league1` |
+| `SARNAUT_WORLD_ZONE_ID` | Network zone ID, default `InstLeague1` |
+| `SARNAUT_WORLD_TICK_INTERVAL` | Fixed simulation interval, default 30 Hz |
+| `SARNAUT_WORLD_SNAPSHOT_INTERVAL` | Replication interval, default 15 Hz |
 | `SARNAUT_NATS_URL` | NATS server URL |
 | `SARNAUT_POSTGRES_DSN` | PostgreSQL connection string |
 | `SARNAUT_VALKEY_ADDRESS` | Valkey host and port |
