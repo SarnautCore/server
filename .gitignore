@@ -36,3 +36,8 @@ vendor/
 *.swp
 .DS_Store
 Thumbs.db
+
+# `sarnaut-pack build` writes a build report beside every manifest. It carries
+# curation notes and reference counts, it is not an input to pack_id, and
+# testdata/packs/README.md says it is deliberately not committed.
+testdata/packs/*/build-report.json

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "ruleset": "classic",
   "zone": "paper-harbor",
-  "pack_id": "5fb9f7bf2e7b007a4cf2491098f991d5e6eeeb78c75341eb3bed4359af7a1d67",
+  "pack_id": "9e1db72b1ef03cc1f61d16d03381d2744b51a009623bead25701490a230c3df5",
   "builder": {
     "name": "sarnaut-pack",
     "version": "0.1.0"
@@ -42,9 +42,9 @@
       "name": "items",
       "file": "tables/items.sptbl",
       "row_type": "ROW_TYPE_ITEM",
-      "rows": 3,
-      "bytes": 319,
-      "blake3": "6332c364d978283e9331e34b2b0cced490d4ec40a34d5aa6d084887fdee6793b"
+      "rows": 4,
+      "bytes": 406,
+      "blake3": "b629fd056b482a5e4cee5a3d022649ef6018163c3815838499a1500203b68e44"
     },
     {
       "name": "level-curve",
@@ -59,8 +59,8 @@
       "file": "tables/locale.sptbl",
       "row_type": "ROW_TYPE_LOCALE",
       "rows": 1,
-      "bytes": 1509,
-      "blake3": "e0c2fded9ce83231020fd83c3006519baa022da77f0486d1fab8f649f941978b"
+      "bytes": 3292,
+      "blake3": "d0fb3d88a9603be98b95487b66b1016652a212bcfa9c3145680809425320da57"
     },
     {
       "name": "loot-tables",
@@ -82,25 +82,25 @@
       "name": "mobs",
       "file": "tables/mobs.sptbl",
       "row_type": "ROW_TYPE_MOB",
-      "rows": 2,
-      "bytes": 583,
-      "blake3": "d0998bd988a4160df3d18aab6c0b850900b2c42415d663b27f49cb5e708c2298"
+      "rows": 3,
+      "bytes": 813,
+      "blake3": "05515f07e423ec24cddfa42c6af608b6b49136c37b40bcec8f334c1c55481d7b"
     },
     {
       "name": "placements",
       "file": "tables/placements.sptbl",
       "row_type": "ROW_TYPE_PLACEMENT",
-      "rows": 6,
-      "bytes": 777,
-      "blake3": "28ac71f92910d1bec3d967f2f5711c958b165f8331009376eac99e61549fae27"
+      "rows": 7,
+      "bytes": 895,
+      "blake3": "7e72d68d6a1263d20f06188fb622e54e3fe302f6d8af36b51f17003377948301"
     },
     {
       "name": "quests",
       "file": "tables/quests.sptbl",
       "row_type": "ROW_TYPE_QUEST",
-      "rows": 1,
-      "bytes": 380,
-      "blake3": "076d45b12cf5218c43f45df76e1be6c27d0bd6bc6adc1ee9c44ad36e31e0af96"
+      "rows": 6,
+      "bytes": 2116,
+      "blake3": "4badaf15fd6f19557a137c580011f3e6954303230fa069d503dd3c7159b526b7"
     },
     {
       "name": "routes",

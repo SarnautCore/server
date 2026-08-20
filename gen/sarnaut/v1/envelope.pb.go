@@ -241,6 +241,179 @@ func (LootRefusal) EnumDescriptor() ([]byte, []int) {
 	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{2}
 }
 
+// QuestState is the state machine of mechanics/quests.md rule 5.1.
+//
+// `unavailable` and `offered` are carried even though no instance exists in
+// either: the update that clears an offer marker has to say what it cleared it
+// to, and a client that only ever heard about quests it holds could not draw
+// the marker in the first place.
+type QuestState int32
+
+const (
+	QuestState_QUEST_STATE_UNSPECIFIED QuestState = 0
+	// The gates of rule 5.3 fail. No instance exists.
+	QuestState_QUEST_STATE_UNAVAILABLE QuestState = 1
+	// The gates pass and the starter will hand it over. No instance exists yet.
+	QuestState_QUEST_STATE_OFFERED QuestState = 2
+	// Accepted, every counter zero.
+	QuestState_QUEST_STATE_ACCEPTED QuestState = 3
+	// At least one counter above zero and at least one below its limit.
+	QuestState_QUEST_STATE_IN_PROGRESS QuestState = 4
+	// Every counter has reached its limit.
+	QuestState_QUEST_STATE_COMPLETABLE QuestState = 5
+	// Terminal. Rewards granted.
+	QuestState_QUEST_STATE_TURNED_IN QuestState = 6
+	// Terminal for this instance; the quest may be offered again.
+	QuestState_QUEST_STATE_ABANDONED QuestState = 7
+)
+
+// Enum value maps for QuestState.
+var (
+	QuestState_name = map[int32]string{
+		0: "QUEST_STATE_UNSPECIFIED",
+		1: "QUEST_STATE_UNAVAILABLE",
+		2: "QUEST_STATE_OFFERED",
+		3: "QUEST_STATE_ACCEPTED",
+		4: "QUEST_STATE_IN_PROGRESS",
+		5: "QUEST_STATE_COMPLETABLE",
+		6: "QUEST_STATE_TURNED_IN",
+		7: "QUEST_STATE_ABANDONED",
+	}
+	QuestState_value = map[string]int32{
+		"QUEST_STATE_UNSPECIFIED": 0,
+		"QUEST_STATE_UNAVAILABLE": 1,
+		"QUEST_STATE_OFFERED":     2,
+		"QUEST_STATE_ACCEPTED":    3,
+		"QUEST_STATE_IN_PROGRESS": 4,
+		"QUEST_STATE_COMPLETABLE": 5,
+		"QUEST_STATE_TURNED_IN":   6,
+		"QUEST_STATE_ABANDONED":   7,
+	}
+)
+
+func (x QuestState) Enum() *QuestState {
+	p := new(QuestState)
+	*p = x
+	return p
+}
+
+func (x QuestState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (QuestState) Descriptor() protoreflect.EnumDescriptor {
+	return file_sarnaut_v1_envelope_proto_enumTypes[3].Descriptor()
+}
+
+func (QuestState) Type() protoreflect.EnumType {
+	return &file_sarnaut_v1_envelope_proto_enumTypes[3]
+}
+
+func (x QuestState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use QuestState.Descriptor instead.
+func (QuestState) EnumDescriptor() ([]byte, []int) {
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{3}
+}
+
+// QuestRefusal names why a quest verb resolved to nothing.
+//
+// Like AbilityRejection and LootRefusal it is not an ErrorCode. An ErrorCode is
+// a protocol violation and closes the connection; walking up to a finisher with
+// a full bag, or clicking accept twice, is ordinary play and must leave the
+// session running (mechanics/quests.md transitions T4, T12 and T13).
+type QuestRefusal int32
+
+const (
+	QuestRefusal_QUEST_REFUSAL_UNSPECIFIED QuestRefusal = 0
+	// The verb resolved.
+	QuestRefusal_QUEST_REFUSAL_NONE QuestRefusal = 1
+	// The runtime pack carries no quest with that id.
+	QuestRefusal_QUEST_REFUSAL_UNKNOWN_QUEST QuestRefusal = 2
+	// Rule 5.3: a prerequisite is unfinished, the required level is not met, or
+	// an instance already exists. T4.
+	QuestRefusal_QUEST_REFUSAL_UNAVAILABLE QuestRefusal = 3
+	// Rule 5.2 T3: the quest log is at QUEST_LOG_CAPACITY.
+	QuestRefusal_QUEST_REFUSAL_LOG_FULL QuestRefusal = 4
+	// Further than TURN_IN_RANGE_M from the NPC. T4, T13.
+	QuestRefusal_QUEST_REFUSAL_OUT_OF_RANGE QuestRefusal = 5
+	// The entity named is not this quest's starter, or not its finisher. T13.
+	QuestRefusal_QUEST_REFUSAL_WRONG_NPC QuestRefusal = 6
+	// A turn-in before every counter reached its limit.
+	QuestRefusal_QUEST_REFUSAL_NOT_COMPLETE QuestRefusal = 7
+	// T17: the quest is already turned in. A retransmit lands here, and it
+	// grants nothing.
+	QuestRefusal_QUEST_REFUSAL_ALREADY_COMPLETE QuestRefusal = 8
+	// Rule 5.7.3. No experience, no money, no items, and the instance is
+	// unchanged. T12.
+	QuestRefusal_QUEST_REFUSAL_BAG_FULL QuestRefusal = 9
+	// T15: the definition sets can_cancel false.
+	QuestRefusal_QUEST_REFUSAL_CANNOT_CANCEL QuestRefusal = 10
+	// The grant could not be committed. Nothing was applied. T12.
+	QuestRefusal_QUEST_REFUSAL_INTERNAL QuestRefusal = 11
+)
+
+// Enum value maps for QuestRefusal.
+var (
+	QuestRefusal_name = map[int32]string{
+		0:  "QUEST_REFUSAL_UNSPECIFIED",
+		1:  "QUEST_REFUSAL_NONE",
+		2:  "QUEST_REFUSAL_UNKNOWN_QUEST",
+		3:  "QUEST_REFUSAL_UNAVAILABLE",
+		4:  "QUEST_REFUSAL_LOG_FULL",
+		5:  "QUEST_REFUSAL_OUT_OF_RANGE",
+		6:  "QUEST_REFUSAL_WRONG_NPC",
+		7:  "QUEST_REFUSAL_NOT_COMPLETE",
+		8:  "QUEST_REFUSAL_ALREADY_COMPLETE",
+		9:  "QUEST_REFUSAL_BAG_FULL",
+		10: "QUEST_REFUSAL_CANNOT_CANCEL",
+		11: "QUEST_REFUSAL_INTERNAL",
+	}
+	QuestRefusal_value = map[string]int32{
+		"QUEST_REFUSAL_UNSPECIFIED":      0,
+		"QUEST_REFUSAL_NONE":             1,
+		"QUEST_REFUSAL_UNKNOWN_QUEST":    2,
+		"QUEST_REFUSAL_UNAVAILABLE":      3,
+		"QUEST_REFUSAL_LOG_FULL":         4,
+		"QUEST_REFUSAL_OUT_OF_RANGE":     5,
+		"QUEST_REFUSAL_WRONG_NPC":        6,
+		"QUEST_REFUSAL_NOT_COMPLETE":     7,
+		"QUEST_REFUSAL_ALREADY_COMPLETE": 8,
+		"QUEST_REFUSAL_BAG_FULL":         9,
+		"QUEST_REFUSAL_CANNOT_CANCEL":    10,
+		"QUEST_REFUSAL_INTERNAL":         11,
+	}
+)
+
+func (x QuestRefusal) Enum() *QuestRefusal {
+	p := new(QuestRefusal)
+	*p = x
+	return p
+}
+
+func (x QuestRefusal) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (QuestRefusal) Descriptor() protoreflect.EnumDescriptor {
+	return file_sarnaut_v1_envelope_proto_enumTypes[4].Descriptor()
+}
+
+func (QuestRefusal) Type() protoreflect.EnumType {
+	return &file_sarnaut_v1_envelope_proto_enumTypes[4]
+}
+
+func (x QuestRefusal) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use QuestRefusal.Descriptor instead.
+func (QuestRefusal) EnumDescriptor() ([]byte, []int) {
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{4}
+}
+
 type ClientMessage struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	ClientSeq uint64                 `protobuf:"varint,1,opt,name=client_seq,json=clientSeq,proto3" json:"client_seq,omitempty"`
@@ -1523,22 +1696,122 @@ func (x *InventoryUpdate) GetCurrency() int64 {
 	return 0
 }
 
+// QuestObjectiveProgress is one counter of one quest instance
+// (mechanics/quests.md rule 5.5.7).
+//
+// `index` is the objective's position in the definition, which is the counter's
+// identity (rule 7.5). Objectives marked `internal` never appear here.
+type QuestObjectiveProgress struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Index   uint32                 `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
+	Counter int32                  `protobuf:"varint,2,opt,name=counter,proto3" json:"counter,omitempty"`
+	Limit   int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Render `n / limit` rather than a plain incomplete marker.
+	ShowCount bool `protobuf:"varint,4,opt,name=show_count,json=showCount,proto3" json:"show_count,omitempty"`
+	// Localization key of the counter's display name (ADR 0007).
+	CounterKey    string `protobuf:"bytes,5,opt,name=counter_key,json=counterKey,proto3" json:"counter_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuestObjectiveProgress) Reset() {
+	*x = QuestObjectiveProgress{}
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuestObjectiveProgress) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuestObjectiveProgress) ProtoMessage() {}
+
+func (x *QuestObjectiveProgress) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuestObjectiveProgress.ProtoReflect.Descriptor instead.
+func (*QuestObjectiveProgress) Descriptor() ([]byte, []int) {
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *QuestObjectiveProgress) GetIndex() uint32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+func (x *QuestObjectiveProgress) GetCounter() int32 {
+	if x != nil {
+		return x.Counter
+	}
+	return 0
+}
+
+func (x *QuestObjectiveProgress) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *QuestObjectiveProgress) GetShowCount() bool {
+	if x != nil {
+		return x.ShowCount
+	}
+	return false
+}
+
+func (x *QuestObjectiveProgress) GetCounterKey() string {
+	if x != nil {
+		return x.CounterKey
+	}
+	return ""
+}
+
 // QuestStateUpdate is the server's report of one quest instance changing state.
 // It is named for the message, not for the QuestState enum in
-// mechanics/quests.md rule 5.1, which the quest task adds separately; the wire
-// case is quest_state_update so the two never collide (2026-08-20 amendment to
-// ADR 0026).
+// mechanics/quests.md rule 5.1; the wire case is quest_state_update so the two
+// never collide (2026-08-20 amendment to ADR 0026).
 //
-// TODO(m2-quests): fields per mechanics/quests.md rule 5.2.
+// It is only ever written to the character the quest belongs to. A quest log is
+// nobody else's business, and unlike a snapshot there is no radius at which it
+// becomes public.
 type QuestStateUpdate struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state      protoimpl.MessageState    `protogen:"open.v1"`
+	QuestId    string                    `protobuf:"bytes,1,opt,name=quest_id,json=questId,proto3" json:"quest_id,omitempty"`
+	State      QuestState                `protobuf:"varint,2,opt,name=state,proto3,enum=sarnaut.v1.QuestState" json:"state,omitempty"`
+	Objectives []*QuestObjectiveProgress `protobuf:"bytes,3,rep,name=objectives,proto3" json:"objectives,omitempty"`
+	// QUEST_REFUSAL_NONE on an update that reports a real transition. Anything
+	// else means nothing changed and names why.
+	Refusal QuestRefusal `protobuf:"varint,4,opt,name=refusal,proto3,enum=sarnaut.v1.QuestRefusal" json:"refusal,omitempty"`
+	// What a turn-in granted. Zero and empty on every other update, including a
+	// refused turn-in: rule 5.7.6 leaves no partial grant to report.
+	Experience int64 `protobuf:"varint,5,opt,name=experience,proto3" json:"experience,omitempty"`
+	Money      int64 `protobuf:"varint,6,opt,name=money,proto3" json:"money,omitempty"`
+	Honor      int64 `protobuf:"varint,7,opt,name=honor,proto3" json:"honor,omitempty"`
+	// Reward items, as ids and counts. LootItem is reused because that is
+	// exactly what it is — an item id and a count, not a bag slot — and the
+	// slots the grant actually produced arrive in the InventoryUpdate that
+	// follows.
+	Items         []*LootItem `protobuf:"bytes,8,rep,name=items,proto3" json:"items,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QuestStateUpdate) Reset() {
 	*x = QuestStateUpdate{}
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1550,7 +1823,7 @@ func (x *QuestStateUpdate) String() string {
 func (*QuestStateUpdate) ProtoMessage() {}
 
 func (x *QuestStateUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_v1_envelope_proto_msgTypes[17]
+	mi := &file_sarnaut_v1_envelope_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1563,7 +1836,63 @@ func (x *QuestStateUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestStateUpdate.ProtoReflect.Descriptor instead.
 func (*QuestStateUpdate) Descriptor() ([]byte, []int) {
-	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{17}
+	return file_sarnaut_v1_envelope_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *QuestStateUpdate) GetQuestId() string {
+	if x != nil {
+		return x.QuestId
+	}
+	return ""
+}
+
+func (x *QuestStateUpdate) GetState() QuestState {
+	if x != nil {
+		return x.State
+	}
+	return QuestState_QUEST_STATE_UNSPECIFIED
+}
+
+func (x *QuestStateUpdate) GetObjectives() []*QuestObjectiveProgress {
+	if x != nil {
+		return x.Objectives
+	}
+	return nil
+}
+
+func (x *QuestStateUpdate) GetRefusal() QuestRefusal {
+	if x != nil {
+		return x.Refusal
+	}
+	return QuestRefusal_QUEST_REFUSAL_UNSPECIFIED
+}
+
+func (x *QuestStateUpdate) GetExperience() int64 {
+	if x != nil {
+		return x.Experience
+	}
+	return 0
+}
+
+func (x *QuestStateUpdate) GetMoney() int64 {
+	if x != nil {
+		return x.Money
+	}
+	return 0
+}
+
+func (x *QuestStateUpdate) GetHonor() int64 {
+	if x != nil {
+		return x.Honor
+	}
+	return 0
+}
+
+func (x *QuestStateUpdate) GetItems() []*LootItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
 }
 
 var File_sarnaut_v1_envelope_proto protoreflect.FileDescriptor
@@ -1662,8 +1991,28 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x05count\x18\x03 \x01(\x05R\x05count\"^\n" +
 	"\x0fInventoryUpdate\x12/\n" +
 	"\x05slots\x18\x01 \x03(\v2\x19.sarnaut.v1.InventorySlotR\x05slots\x12\x1a\n" +
-	"\bcurrency\x18\x02 \x01(\x03R\bcurrency\"\x12\n" +
-	"\x10QuestStateUpdate*\xfd\x01\n" +
+	"\bcurrency\x18\x02 \x01(\x03R\bcurrency\"\x9e\x01\n" +
+	"\x16QuestObjectiveProgress\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\rR\x05index\x12\x18\n" +
+	"\acounter\x18\x02 \x01(\x05R\acounter\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\n" +
+	"show_count\x18\x04 \x01(\bR\tshowCount\x12\x1f\n" +
+	"\vcounter_key\x18\x05 \x01(\tR\n" +
+	"counterKey\"\xcb\x02\n" +
+	"\x10QuestStateUpdate\x12\x19\n" +
+	"\bquest_id\x18\x01 \x01(\tR\aquestId\x12,\n" +
+	"\x05state\x18\x02 \x01(\x0e2\x16.sarnaut.v1.QuestStateR\x05state\x12B\n" +
+	"\n" +
+	"objectives\x18\x03 \x03(\v2\".sarnaut.v1.QuestObjectiveProgressR\n" +
+	"objectives\x122\n" +
+	"\arefusal\x18\x04 \x01(\x0e2\x18.sarnaut.v1.QuestRefusalR\arefusal\x12\x1e\n" +
+	"\n" +
+	"experience\x18\x05 \x01(\x03R\n" +
+	"experience\x12\x14\n" +
+	"\x05money\x18\x06 \x01(\x03R\x05money\x12\x14\n" +
+	"\x05honor\x18\a \x01(\x03R\x05honor\x12*\n" +
+	"\x05items\x18\b \x03(\v2\x14.sarnaut.v1.LootItemR\x05items*\xfd\x01\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eERROR_CODE_UNSUPPORTED_MESSAGE\x10\x01\x12 \n" +
@@ -1690,7 +2039,31 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x1bLOOT_REFUSAL_ALREADY_LOOTED\x10\x04\x12\x19\n" +
 	"\x15LOOT_REFUSAL_BAG_FULL\x10\x05\x12\x1c\n" +
 	"\x18LOOT_REFUSAL_IN_PROGRESS\x10\x06\x12\x19\n" +
-	"\x15LOOT_REFUSAL_INTERNAL\x10\aBNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
+	"\x15LOOT_REFUSAL_INTERNAL\x10\a*\xe9\x01\n" +
+	"\n" +
+	"QuestState\x12\x1b\n" +
+	"\x17QUEST_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17QUEST_STATE_UNAVAILABLE\x10\x01\x12\x17\n" +
+	"\x13QUEST_STATE_OFFERED\x10\x02\x12\x18\n" +
+	"\x14QUEST_STATE_ACCEPTED\x10\x03\x12\x1b\n" +
+	"\x17QUEST_STATE_IN_PROGRESS\x10\x04\x12\x1b\n" +
+	"\x17QUEST_STATE_COMPLETABLE\x10\x05\x12\x19\n" +
+	"\x15QUEST_STATE_TURNED_IN\x10\x06\x12\x19\n" +
+	"\x15QUEST_STATE_ABANDONED\x10\a*\xfb\x02\n" +
+	"\fQuestRefusal\x12\x1d\n" +
+	"\x19QUEST_REFUSAL_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12QUEST_REFUSAL_NONE\x10\x01\x12\x1f\n" +
+	"\x1bQUEST_REFUSAL_UNKNOWN_QUEST\x10\x02\x12\x1d\n" +
+	"\x19QUEST_REFUSAL_UNAVAILABLE\x10\x03\x12\x1a\n" +
+	"\x16QUEST_REFUSAL_LOG_FULL\x10\x04\x12\x1e\n" +
+	"\x1aQUEST_REFUSAL_OUT_OF_RANGE\x10\x05\x12\x1b\n" +
+	"\x17QUEST_REFUSAL_WRONG_NPC\x10\x06\x12\x1e\n" +
+	"\x1aQUEST_REFUSAL_NOT_COMPLETE\x10\a\x12\"\n" +
+	"\x1eQUEST_REFUSAL_ALREADY_COMPLETE\x10\b\x12\x1a\n" +
+	"\x16QUEST_REFUSAL_BAG_FULL\x10\t\x12\x1f\n" +
+	"\x1bQUEST_REFUSAL_CANNOT_CANCEL\x10\n" +
+	"\x12\x1a\n" +
+	"\x16QUEST_REFUSAL_INTERNAL\x10\vBNZ6github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1\xaa\x02\x13Sarnaut.Protocol.V1b\x06proto3"
 
 var (
 	file_sarnaut_v1_envelope_proto_rawDescOnce sync.Once
@@ -1704,61 +2077,68 @@ func file_sarnaut_v1_envelope_proto_rawDescGZIP() []byte {
 	return file_sarnaut_v1_envelope_proto_rawDescData
 }
 
-var file_sarnaut_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_sarnaut_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_sarnaut_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_sarnaut_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_sarnaut_v1_envelope_proto_goTypes = []any{
-	(ErrorCode)(0),           // 0: sarnaut.v1.ErrorCode
-	(AbilityRejection)(0),    // 1: sarnaut.v1.AbilityRejection
-	(LootRefusal)(0),         // 2: sarnaut.v1.LootRefusal
-	(*ClientMessage)(nil),    // 3: sarnaut.v1.ClientMessage
-	(*ServerMessage)(nil),    // 4: sarnaut.v1.ServerMessage
-	(*Error)(nil),            // 5: sarnaut.v1.Error
-	(*AbilityUse)(nil),       // 6: sarnaut.v1.AbilityUse
-	(*Interact)(nil),         // 7: sarnaut.v1.Interact
-	(*LootTake)(nil),         // 8: sarnaut.v1.LootTake
-	(*QuestAccept)(nil),      // 9: sarnaut.v1.QuestAccept
-	(*QuestTurnIn)(nil),      // 10: sarnaut.v1.QuestTurnIn
-	(*QuestAbandon)(nil),     // 11: sarnaut.v1.QuestAbandon
-	(*Logout)(nil),           // 12: sarnaut.v1.Logout
-	(*CombatEvent)(nil),      // 13: sarnaut.v1.CombatEvent
-	(*DeathEvent)(nil),       // 14: sarnaut.v1.DeathEvent
-	(*LootItem)(nil),         // 15: sarnaut.v1.LootItem
-	(*LootOffer)(nil),        // 16: sarnaut.v1.LootOffer
-	(*LootResult)(nil),       // 17: sarnaut.v1.LootResult
-	(*InventorySlot)(nil),    // 18: sarnaut.v1.InventorySlot
-	(*InventoryUpdate)(nil),  // 19: sarnaut.v1.InventoryUpdate
-	(*QuestStateUpdate)(nil), // 20: sarnaut.v1.QuestStateUpdate
-	(*ClientMoveIntent)(nil), // 21: sarnaut.v1.ClientMoveIntent
-	(*SnapshotBatch)(nil),    // 22: sarnaut.v1.SnapshotBatch
+	(ErrorCode)(0),                 // 0: sarnaut.v1.ErrorCode
+	(AbilityRejection)(0),          // 1: sarnaut.v1.AbilityRejection
+	(LootRefusal)(0),               // 2: sarnaut.v1.LootRefusal
+	(QuestState)(0),                // 3: sarnaut.v1.QuestState
+	(QuestRefusal)(0),              // 4: sarnaut.v1.QuestRefusal
+	(*ClientMessage)(nil),          // 5: sarnaut.v1.ClientMessage
+	(*ServerMessage)(nil),          // 6: sarnaut.v1.ServerMessage
+	(*Error)(nil),                  // 7: sarnaut.v1.Error
+	(*AbilityUse)(nil),             // 8: sarnaut.v1.AbilityUse
+	(*Interact)(nil),               // 9: sarnaut.v1.Interact
+	(*LootTake)(nil),               // 10: sarnaut.v1.LootTake
+	(*QuestAccept)(nil),            // 11: sarnaut.v1.QuestAccept
+	(*QuestTurnIn)(nil),            // 12: sarnaut.v1.QuestTurnIn
+	(*QuestAbandon)(nil),           // 13: sarnaut.v1.QuestAbandon
+	(*Logout)(nil),                 // 14: sarnaut.v1.Logout
+	(*CombatEvent)(nil),            // 15: sarnaut.v1.CombatEvent
+	(*DeathEvent)(nil),             // 16: sarnaut.v1.DeathEvent
+	(*LootItem)(nil),               // 17: sarnaut.v1.LootItem
+	(*LootOffer)(nil),              // 18: sarnaut.v1.LootOffer
+	(*LootResult)(nil),             // 19: sarnaut.v1.LootResult
+	(*InventorySlot)(nil),          // 20: sarnaut.v1.InventorySlot
+	(*InventoryUpdate)(nil),        // 21: sarnaut.v1.InventoryUpdate
+	(*QuestObjectiveProgress)(nil), // 22: sarnaut.v1.QuestObjectiveProgress
+	(*QuestStateUpdate)(nil),       // 23: sarnaut.v1.QuestStateUpdate
+	(*ClientMoveIntent)(nil),       // 24: sarnaut.v1.ClientMoveIntent
+	(*SnapshotBatch)(nil),          // 25: sarnaut.v1.SnapshotBatch
 }
 var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
-	21, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
-	6,  // 1: sarnaut.v1.ClientMessage.ability_use:type_name -> sarnaut.v1.AbilityUse
-	7,  // 2: sarnaut.v1.ClientMessage.interact:type_name -> sarnaut.v1.Interact
-	8,  // 3: sarnaut.v1.ClientMessage.loot_take:type_name -> sarnaut.v1.LootTake
-	9,  // 4: sarnaut.v1.ClientMessage.quest_accept:type_name -> sarnaut.v1.QuestAccept
-	10, // 5: sarnaut.v1.ClientMessage.quest_turn_in:type_name -> sarnaut.v1.QuestTurnIn
-	11, // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
-	12, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
-	22, // 8: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
-	13, // 9: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
-	14, // 10: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
-	16, // 11: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
-	17, // 12: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
-	19, // 13: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
-	20, // 14: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
-	5,  // 15: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
+	24, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
+	8,  // 1: sarnaut.v1.ClientMessage.ability_use:type_name -> sarnaut.v1.AbilityUse
+	9,  // 2: sarnaut.v1.ClientMessage.interact:type_name -> sarnaut.v1.Interact
+	10, // 3: sarnaut.v1.ClientMessage.loot_take:type_name -> sarnaut.v1.LootTake
+	11, // 4: sarnaut.v1.ClientMessage.quest_accept:type_name -> sarnaut.v1.QuestAccept
+	12, // 5: sarnaut.v1.ClientMessage.quest_turn_in:type_name -> sarnaut.v1.QuestTurnIn
+	13, // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
+	14, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
+	25, // 8: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
+	15, // 9: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
+	16, // 10: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
+	18, // 11: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
+	19, // 12: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
+	21, // 13: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
+	23, // 14: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
+	7,  // 15: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
 	0,  // 16: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
 	1,  // 17: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
-	15, // 18: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
+	17, // 18: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
 	2,  // 19: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
-	15, // 20: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
-	18, // 21: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
-	22, // [22:22] is the sub-list for method output_type
-	22, // [22:22] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	17, // 20: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
+	20, // 21: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
+	3,  // 22: sarnaut.v1.QuestStateUpdate.state:type_name -> sarnaut.v1.QuestState
+	22, // 23: sarnaut.v1.QuestStateUpdate.objectives:type_name -> sarnaut.v1.QuestObjectiveProgress
+	4,  // 24: sarnaut.v1.QuestStateUpdate.refusal:type_name -> sarnaut.v1.QuestRefusal
+	17, // 25: sarnaut.v1.QuestStateUpdate.items:type_name -> sarnaut.v1.LootItem
+	26, // [26:26] is the sub-list for method output_type
+	26, // [26:26] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_v1_envelope_proto_init() }
@@ -1793,8 +2173,8 @@ func file_sarnaut_v1_envelope_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_v1_envelope_proto_rawDesc), len(file_sarnaut_v1_envelope_proto_rawDesc)),
-			NumEnums:      3,
-			NumMessages:   18,
+			NumEnums:      5,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

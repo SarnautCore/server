@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
+
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/loot"
+	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 )
@@ -77,13 +79,17 @@ type commandReader struct {
 	zone       *world.Zone
 	combat     *combat.Module
 	loot       *loot.Module
+	quests     *quests.Module
 	// character is this session's view of its own persisted state. The loot
 	// take refreshes it, because the award commits the bag and the session's
 	// next checkpoint must not write the pre-loot one back over it.
 	character *characterSession
 	entityID  uint64
-	datagrams bool
-	span      trace.Span
+	// characterID is the identity the quest log is keyed on. Unlike entityID it
+	// survives a reconnect, which is why the quest module is addressed by it.
+	characterID uuid.UUID
+	datagrams   bool
+	span        trace.Span
 }
 
 // readReliable drains the ordered stream. It is always started, whether or not
@@ -157,21 +163,23 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 			return reader.refuseCarrier("loot_take", via)
 		}
 		return reader.lootTake(payload.LootTake)
-	case *sarnautv1.ClientMessage_QuestAccept,
-		*sarnautv1.ClientMessage_QuestTurnIn,
-		*sarnautv1.ClientMessage_QuestAbandon:
+	case *sarnautv1.ClientMessage_QuestAccept:
 		if via != carrierReliable {
-			return reader.refuseCarrier(payloadName(message), via)
+			// A quest verb is never a datagram: it answers with what was
+			// committed, and an answer that may be dropped is not an answer.
+			return reader.refuseCarrier("quest_accept", via)
 		}
-		// A verb that is on the M2 case list but whose handler lands with its
-		// mechanics task. Dropping it keeps the envelope honest: the frame was
-		// understood, so it is not a protocol violation, and the move path is
-		// unaffected.
-		// TODO(m2-quests): route these to their module.
-		reader.span.AddEvent("session.command.unhandled", trace.WithAttributes(
-			attribute.String("sarnaut.payload", payloadName(message)),
-		))
-		return nil
+		return reader.questAccept(payload.QuestAccept)
+	case *sarnautv1.ClientMessage_QuestTurnIn:
+		if via != carrierReliable {
+			return reader.refuseCarrier("quest_turn_in", via)
+		}
+		return reader.questTurnIn(payload.QuestTurnIn)
+	case *sarnautv1.ClientMessage_QuestAbandon:
+		if via != carrierReliable {
+			return reader.refuseCarrier("quest_abandon", via)
+		}
+		return reader.questAbandon(payload.QuestAbandon)
 	default:
 		return reader.refuse(
 			sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,
@@ -217,22 +225,6 @@ func (reader *commandReader) useAbility(use *sarnautv1.AbilityUse, clientSeq uin
 		reader.span.RecordError(err)
 	}
 	return nil
-}
-
-// payloadName reports the wire name of the case a client envelope carries, so
-// a refusal quotes "ability_use" rather than a Go wrapper type the peer has
-// never heard of.
-func payloadName(message *sarnautv1.ClientMessage) string {
-	reflected := message.ProtoReflect()
-	oneof := reflected.Descriptor().Oneofs().ByName("payload")
-	if oneof == nil {
-		return "unknown"
-	}
-	field := reflected.WhichOneof(oneof)
-	if field == nil {
-		return "unset"
-	}
-	return string(field.Name())
 }
 
 func (reader *commandReader) refuseCarrier(name string, via carrier) error {

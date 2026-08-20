@@ -53,6 +53,12 @@ func validateCharacterState(state CharacterState) error {
 	case state.Experience < 0:
 		return fmt.Errorf(
 			"%w: experience is %d, must not be negative", ErrConstraintViolated, state.Experience)
+	case state.Currency < 0:
+		return fmt.Errorf(
+			"%w: currency is %d, must not be negative", ErrConstraintViolated, state.Currency)
+	case state.Honor < 0:
+		return fmt.Errorf(
+			"%w: honor is %d, must not be negative", ErrConstraintViolated, state.Honor)
 	case state.SaveSeq < 0:
 		return fmt.Errorf(
 			"%w: save_seq is %d, must not be negative", ErrConstraintViolated, state.SaveSeq)

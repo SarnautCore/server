@@ -113,11 +113,6 @@ message QuestAbandon {
 // to ADR 0026). It carries no fields: the actor is the session.
 message Logout {}
 
-// QuestStateUpdate is declared here so the envelope holds the complete M2 case
-// list from the first commit. Its fields land with the task that implements
-// mechanics/quests.md; adding fields to it is additive and does not bump
-// ProtocolVersion.
-
 // AbilityRejection names why an ability use resolved to nothing.
 //
 // It is not an ErrorCode. An ErrorCode is a protocol violation and closes the
@@ -253,11 +248,104 @@ message InventoryUpdate {
   int64 currency = 2;
 }
 
+// QuestState is the state machine of mechanics/quests.md rule 5.1.
+//
+// `unavailable` and `offered` are carried even though no instance exists in
+// either: the update that clears an offer marker has to say what it cleared it
+// to, and a client that only ever heard about quests it holds could not draw
+// the marker in the first place.
+enum QuestState {
+  QUEST_STATE_UNSPECIFIED = 0;
+  // The gates of rule 5.3 fail. No instance exists.
+  QUEST_STATE_UNAVAILABLE = 1;
+  // The gates pass and the starter will hand it over. No instance exists yet.
+  QUEST_STATE_OFFERED = 2;
+  // Accepted, every counter zero.
+  QUEST_STATE_ACCEPTED = 3;
+  // At least one counter above zero and at least one below its limit.
+  QUEST_STATE_IN_PROGRESS = 4;
+  // Every counter has reached its limit.
+  QUEST_STATE_COMPLETABLE = 5;
+  // Terminal. Rewards granted.
+  QUEST_STATE_TURNED_IN = 6;
+  // Terminal for this instance; the quest may be offered again.
+  QUEST_STATE_ABANDONED = 7;
+}
+
+// QuestRefusal names why a quest verb resolved to nothing.
+//
+// Like AbilityRejection and LootRefusal it is not an ErrorCode. An ErrorCode is
+// a protocol violation and closes the connection; walking up to a finisher with
+// a full bag, or clicking accept twice, is ordinary play and must leave the
+// session running (mechanics/quests.md transitions T4, T12 and T13).
+enum QuestRefusal {
+  QUEST_REFUSAL_UNSPECIFIED = 0;
+  // The verb resolved.
+  QUEST_REFUSAL_NONE = 1;
+  // The runtime pack carries no quest with that id.
+  QUEST_REFUSAL_UNKNOWN_QUEST = 2;
+  // Rule 5.3: a prerequisite is unfinished, the required level is not met, or
+  // an instance already exists. T4.
+  QUEST_REFUSAL_UNAVAILABLE = 3;
+  // Rule 5.2 T3: the quest log is at QUEST_LOG_CAPACITY.
+  QUEST_REFUSAL_LOG_FULL = 4;
+  // Further than TURN_IN_RANGE_M from the NPC. T4, T13.
+  QUEST_REFUSAL_OUT_OF_RANGE = 5;
+  // The entity named is not this quest's starter, or not its finisher. T13.
+  QUEST_REFUSAL_WRONG_NPC = 6;
+  // A turn-in before every counter reached its limit.
+  QUEST_REFUSAL_NOT_COMPLETE = 7;
+  // T17: the quest is already turned in. A retransmit lands here, and it
+  // grants nothing.
+  QUEST_REFUSAL_ALREADY_COMPLETE = 8;
+  // Rule 5.7.3. No experience, no money, no items, and the instance is
+  // unchanged. T12.
+  QUEST_REFUSAL_BAG_FULL = 9;
+  // T15: the definition sets can_cancel false.
+  QUEST_REFUSAL_CANNOT_CANCEL = 10;
+  // The grant could not be committed. Nothing was applied. T12.
+  QUEST_REFUSAL_INTERNAL = 11;
+}
+
+// QuestObjectiveProgress is one counter of one quest instance
+// (mechanics/quests.md rule 5.5.7).
+//
+// `index` is the objective's position in the definition, which is the counter's
+// identity (rule 7.5). Objectives marked `internal` never appear here.
+message QuestObjectiveProgress {
+  uint32 index = 1;
+  int32 counter = 2;
+  int32 limit = 3;
+  // Render `n / limit` rather than a plain incomplete marker.
+  bool show_count = 4;
+  // Localization key of the counter's display name (ADR 0007).
+  string counter_key = 5;
+}
+
 // QuestStateUpdate is the server's report of one quest instance changing state.
 // It is named for the message, not for the QuestState enum in
-// mechanics/quests.md rule 5.1, which the quest task adds separately; the wire
-// case is quest_state_update so the two never collide (2026-08-20 amendment to
-// ADR 0026).
+// mechanics/quests.md rule 5.1; the wire case is quest_state_update so the two
+// never collide (2026-08-20 amendment to ADR 0026).
 //
-// TODO(m2-quests): fields per mechanics/quests.md rule 5.2.
-message QuestStateUpdate {}
+// It is only ever written to the character the quest belongs to. A quest log is
+// nobody else's business, and unlike a snapshot there is no radius at which it
+// becomes public.
+message QuestStateUpdate {
+  string quest_id = 1;
+  QuestState state = 2;
+  repeated QuestObjectiveProgress objectives = 3;
+  // QUEST_REFUSAL_NONE on an update that reports a real transition. Anything
+  // else means nothing changed and names why.
+  QuestRefusal refusal = 4;
+
+  // What a turn-in granted. Zero and empty on every other update, including a
+  // refused turn-in: rule 5.7.6 leaves no partial grant to report.
+  int64 experience = 5;
+  int64 money = 6;
+  int64 honor = 7;
+  // Reward items, as ids and counts. LootItem is reused because that is
+  // exactly what it is — an item id and a count, not a bag slot — and the
+  // slots the grant actually produced arrive in the InventoryUpdate that
+  // follows.
+  repeated LootItem items = 8;
+}

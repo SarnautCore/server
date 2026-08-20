@@ -15,7 +15,7 @@ import (
 // fixturePackID pins the digest of the vendored golden fixture. A silent change
 // to the pack format, to the compiler, or to the demo dataset fails this test
 // rather than surfacing as a mismatched handshake at connect time.
-const fixturePackID = "5fb9f7bf2e7b007a4cf2491098f991d5e6eeeb78c75341eb3bed4359af7a1d67"
+const fixturePackID = "9e1db72b1ef03cc1f61d16d03381d2744b51a009623bead25701490a230c3df5"
 
 // fixtureDirectory is the vendored pack every server test shares. It is
 // compiled from `data-schemas/demo`, which is invented content, so no

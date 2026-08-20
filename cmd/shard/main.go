@@ -20,6 +20,7 @@ import (
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/observability"
 	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
@@ -207,12 +208,35 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	lootModule := loot.New(logger, zone, lootRules, bags, loot.Options{
 		WorldSeed: settings.World.WorldSeed,
 	})
-	combatModule.SetKillSink(lootModule)
 	logger.Info("zone loot wired",
 		"loot_tables", lootRules.TableCount(),
 		"items", content.ItemCount(),
 		"bag_slots", bags.Slots(),
 	)
+
+	// Quests read the same pack and grant through the same bag. The catalog is
+	// built before anything is served so that a definition this build cannot
+	// play — mechanics/quests.md rule 5.5.6's `count-special` objective, a
+	// prerequisite status M2 does not implement, a reward naming an item the
+	// pack does not carry — stops the boot and names the quest, rather than
+	// surfacing when a player clicks an NPC.
+	catalog, err := quests.CatalogFromPack(content)
+	if err != nil {
+		return fmt.Errorf("read quests from content pack: %w", err)
+	}
+	questModule := quests.New(logger, zone, catalog, bags)
+	go questModule.Run(ctx)
+	logger.Info("zone quests wired", "quests", catalog.Count())
+
+	binding := session.ZoneBinding{
+		World:  zone,
+		Combat: combatModule,
+		Loot:   lootModule,
+		Quests: questModule,
+	}
+	// One death, two consumers, and neither of them knows the other exists
+	// (mechanics/combat.md rules 5.9.3 and 5.9.4).
+	combatModule.SetKillSink(binding.KillSink())
 
 	instanceID := shardInstanceID(settings.Auth.InstanceID)
 	logger.Info("shard admission wired",
@@ -229,13 +253,11 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		// client that names its own would refuse the handshake.
 		PackID:              content.ID(),
 		AllowUnverifiedPack: settings.Content.AllowUnverifiedPack,
-		Zones: map[string]session.ZoneBinding{
-			zone.ID(): {World: zone, Combat: combatModule, Loot: lootModule},
-		},
-		Authority:    session.NewNATSAuthority(clients.NATS, instanceID, settings.Auth.RequestTimeout),
-		Characters:   characters,
-		SaveInterval: settings.Persistence.SaveInterval,
-		Logger:       logger,
+		Zones:               map[string]session.ZoneBinding{zone.ID(): binding},
+		Authority:           session.NewNATSAuthority(clients.NATS, instanceID, settings.Auth.RequestTimeout),
+		Characters:          characters,
+		SaveInterval:        settings.Persistence.SaveInterval,
+		Logger:              logger,
 	}
 	sessionErrors := make(chan error, 1)
 	go func() {

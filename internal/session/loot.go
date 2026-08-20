@@ -27,13 +27,21 @@ import (
 // exists so a wedged database ends the session instead of the session.
 const lootTakeTimeout = 5 * time.Second
 
-// interact answers ClientMessage.interact against a corpse.
+// interact answers ClientMessage.interact against a corpse or a quest giver.
 //
-// A target that is not a corpse is not an error. `Interact` is the generic "use
-// the thing I am looking at" verb and quest starters land on it too; a corpse
-// refusal is reported as a LootResult so the client learns why, and anything
-// else is ignored until the verb that owns it exists.
+// `Interact` is the generic "use the thing I am looking at" verb, so it is
+// dispatched by what the target turns out to be rather than by what the client
+// meant. Quests are asked first because a quest giver is a live NPC and a
+// corpse container is not, so the two answers can never both be right; a target
+// that is neither is not an error, and the verb resolves to nothing.
 func (reader *commandReader) interact(request *sarnautv1.Interact) error {
+	handled, err := reader.questInteract(request.GetTargetEntityId())
+	if err != nil {
+		return err
+	}
+	if handled {
+		return nil
+	}
 	if reader.loot == nil {
 		return nil
 	}

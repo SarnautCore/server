@@ -82,6 +82,30 @@ type Kill struct {
 	DespawnTick uint64
 }
 
+// KillSinks delivers one death to several sinks in order.
+//
+// A zone has more than one thing to tell about a kill — the corpse to stand up
+// and the quest counters to advance — and combat holds exactly one sink because
+// two would be a list with special cases for zero and one. This is that list,
+// and it is here rather than in either consumer because neither of them may
+// know the other exists (mechanics/combat.md rules 5.9.3 and 5.9.4).
+//
+// Order is registration order and it matters: loot rolls the drop at corpse
+// creation (mechanics/loot.md rule 5.1.1), so a sink registered after it sees a
+// world in which the corpse already exists.
+type KillSinks []KillSink
+
+// MobKilled implements [KillSink]. A nil member is skipped, so a composition
+// that omits one module needs no branch at the call site.
+func (sinks KillSinks) MobKilled(tick *world.Tick, kill Kill) {
+	for _, sink := range sinks {
+		if sink == nil {
+			continue
+		}
+		sink.MobKilled(tick, kill)
+	}
+}
+
 // KillSink is told about a mob death from inside the tick that caused it.
 //
 // It is called with the zone lock held, so an implementation must do exactly

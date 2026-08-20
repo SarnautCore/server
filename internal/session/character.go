@@ -51,6 +51,10 @@ type characterSession struct {
 	// advanced by every checkpoint and re-synchronised by [adopt] when some
 	// other unit of work commits at a higher one.
 	saveSeq int64
+	// quests is where the live quest log lives, when the zone hosts one. The
+	// counters move on the tick goroutine as kills land, so a checkpoint has to
+	// ask for them rather than keep a copy that is stale by one kill.
+	quests questRows
 }
 
 func newCharacterSession(admission Admission, zoneID string, loaded store.Snapshot) *characterSession {
@@ -74,6 +78,31 @@ func (character *characterSession) spawn() (world.Vec3, float32) {
 	}, character.loaded.State.Heading
 }
 
+// bindQuests points the checkpoint at the live quest log. It is called once, at
+// zone entry, before the first checkpoint runs.
+func (character *characterSession) bindQuests(rows questRows) {
+	character.mu.Lock()
+	defer character.mu.Unlock()
+	character.quests = rows
+}
+
+// questSnapshotLocked is the quest half of a checkpoint. The caller holds the
+// mutex.
+//
+// A nil answer from the module is not "no quests": it is the ordinary answer
+// once the session has been released, and writing it would erase the log. The
+// rows the session loaded are the fallback, which is exactly what a session
+// with no quest module saves.
+func (character *characterSession) questSnapshotLocked() []store.QuestState {
+	if character.quests == nil {
+		return character.loaded.Quests
+	}
+	if rows := character.quests.Rows(character.characterID); rows != nil {
+		return rows
+	}
+	return character.loaded.Quests
+}
+
 // snapshotFrom folds one zone view into a full character snapshot and advances
 // the save sequence. A save whose sequence does not advance past the stored one
 // is rejected, which is what stops a slow write from a dying session clobbering
@@ -95,7 +124,7 @@ func (character *characterSession) snapshotFrom(view world.CharacterSnapshot) st
 	return store.Snapshot{
 		State:     state,
 		Inventory: character.loaded.Inventory,
-		Quests:    character.loaded.Quests,
+		Quests:    character.questSnapshotLocked(),
 	}
 }
 

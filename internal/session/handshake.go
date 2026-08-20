@@ -12,6 +12,7 @@ import (
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/loot"
+	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 	"go.opentelemetry.io/otel"
@@ -341,6 +342,9 @@ type ZoneBinding struct {
 	// unrewarding, composition; a zone with loot but no combat has nothing to
 	// create a corpse.
 	Loot *loot.Module
+	// Quests may be nil, in which case a session in this zone refuses the three
+	// quest verbs and interact falls through to the loot handler.
+	Quests *quests.Module
 }
 
 // DefaultSaveInterval is protocol/session.md's PERIODIC_SAVE_INTERVAL_S: the
@@ -515,6 +519,13 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 
 	position, heading := character.spawn()
 	entityID, spawn := zone.JoinAt(position, heading)
+	if binding.Quests != nil {
+		// Armed before the teardown defer below, which means it runs *after*
+		// it. Deferred calls unwind last-in-first-out, and teardown takes
+		// checkpoint S1 by reading this module's quest log: released first, the
+		// session would persist an empty quest set over a real one.
+		defer binding.Quests.Release(entityID)
+	}
 	// Teardown is armed the moment the entity exists, in the same statement
 	// sequence — not after the response is written and not after the
 	// subscription succeeds (protocol/session.md rule 5.4.5). It runs S1 from a
@@ -539,6 +550,26 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if binding.Loot != nil {
 		binding.Loot.Admit(entityID, admission.CharacterID)
 		defer binding.Loot.Release(entityID)
+	}
+	// The quest log is loaded from the rows L1 just read and reconciled against
+	// the bag it read with them (mechanics/quests.md rule 5.5.3). It happens
+	// before S0 so that the first checkpoint of the session writes the log this
+	// module now owns rather than the one the session is about to stop reading.
+	if binding.Quests != nil {
+		if err := binding.Quests.Admit(entityID, admission.CharacterID, quests.Character{
+			Level:     characterLevel(loaded.State.Level),
+			Quests:    loaded.Quests,
+			Inventory: loaded.Inventory,
+		}); err != nil {
+			server.logger().ErrorContext(ctx, "quest log load failed",
+				"character_id", admission.CharacterID.String(),
+				"zone_id", zone.ID(),
+				"error", err,
+			)
+			return server.refuseEnterZone(connection, sarnautv1.ErrorCode_ERROR_CODE_INTERNAL,
+				"the character's quest log could not be loaded")
+		}
+		character.bindQuests(binding.Quests)
 	}
 
 	// S0 stamps the zone this character is now in. It is not a redundant
@@ -572,29 +603,37 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if binding.Combat != nil {
 		binding.Combat.Subscribe(entityID, events)
 	}
+	questUpdates := newQuestSender(writer, span)
+	if binding.Quests != nil {
+		binding.Quests.Subscribe(admission.CharacterID, questUpdates)
+		defer binding.Quests.Unsubscribe(admission.CharacterID)
+	}
 	if err := zone.Subscribe(entityID, sender); err != nil {
 		return err
 	}
 
 	reader := &commandReader{
-		connection: connection,
-		writer:     writer,
-		zone:       zone,
-		combat:     binding.Combat,
-		loot:       binding.Loot,
-		character:  character,
-		entityID:   entityID,
-		datagrams:  connection.SupportsUnreliable(),
-		span:       span,
+		connection:  connection,
+		writer:      writer,
+		zone:        zone,
+		combat:      binding.Combat,
+		loot:        binding.Loot,
+		quests:      binding.Quests,
+		character:   character,
+		entityID:    entityID,
+		characterID: admission.CharacterID,
+		datagrams:   connection.SupportsUnreliable(),
+		span:        span,
 	}
 	// Every goroutine below reports exactly once into results, and handle does
 	// not return until it has read all of them: the deferred teardown must not
 	// run while a sender still holds the sink (ADR 0026). The buffer is sized to
 	// the maximum so none of them blocks on a send after the first error.
-	results := make(chan error, 5)
-	running := 4
+	results := make(chan error, 6)
+	running := 5
 	go func() { results <- sender.run(sessionCtx) }()
 	go func() { results <- events.run(sessionCtx) }()
+	go func() { results <- questUpdates.run(sessionCtx) }()
 	go func() { results <- reader.readReliable(sessionCtx) }()
 	go func() {
 		results <- character.runPeriodicSaves(
@@ -608,8 +647,16 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		)
 	}()
 	if reader.datagrams {
-		running = 5
+		running = 6
 		go func() { results <- reader.readUnreliable(sessionCtx) }()
+	}
+	// The whole quest log goes out once the readers are running, so a client
+	// draws its journal from the same source every later update comes from
+	// rather than from a snapshot that does not carry quests.
+	if binding.Quests != nil {
+		for _, update := range binding.Quests.Log(admission.CharacterID) {
+			questUpdates.OfferQuestUpdate(update)
+		}
 	}
 
 	first := <-results
@@ -627,6 +674,17 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		return nil
 	}
 	return first
+}
+
+// characterLevel converts a stored level into the unsigned one the gameplay
+// modules use. The schema's own CHECK keeps it at or above one; the floor here
+// is for the fixture stores that have no schema, where a zero would otherwise
+// underflow into a level no quest could ever gate against.
+func characterLevel(level int32) uint32 {
+	if level < 1 {
+		return 1
+	}
+	return uint32(level)
 }
 
 func (server Server) saveInterval() time.Duration {

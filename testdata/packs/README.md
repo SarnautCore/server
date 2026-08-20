@@ -16,7 +16,15 @@ It carries fourteen tables: the six every pack writes, plus `chargen`,
 `level-curve`, which appear only when the source tree authors documents of that
 kind.
 
-It carries two loot trees and three items. The two trees are deliberately
+It carries six quests, and the set is chosen so that the quest state machine can
+be driven entirely from content: one with no `objectives` key at all
+(`mechanics/quests.md` rule 5.6), one gated on another finishing, one gated on a
+level a fresh character does not have, one that counts held items rather than
+kills, and two that count kills. The NPC that offers them stands in the player's
+own faction with an aggro radius of zero, so nothing a test does can kill the
+holder of its own turn-in.
+
+It carries two loot trees and four items. The two trees are deliberately
 different shapes — `loot.fixture.m2-nested` is the curated depth-3 tree of
 `mechanics/loot.md` section 6.1, `loot.fixture.m2-flat` is the flat `and` root
 that section 8 counts as the shape of 4,225 of the 4,234 reference tables — so
@@ -64,5 +72,29 @@ carrying the curation notes, the layer list and the reference counts. It is a
 private-path artifact, it is not an input to `pack_id`, and it is deliberately
 not committed here.
 
+## demo-quest-unsupported
+
+The same dataset with `data-schemas/demo/overlays/m2-quest-unsupported` layered
+on: one quest whose only objective is `quest-count-special`, and nothing else.
+
+It is the one vendored pack the shard is required to **refuse**. `pack.Load`
+accepts it — the bytes are well formed and the objective kind is a value the
+row type defines — and `quests.CatalogFromPack` then fails, naming the quest.
+That split is the point: `mechanics/quests.md` rule 5.5.6 puts the refusal at
+content-load rather than at completion time, because the alternative is offering
+a player a quest that can never be finished.
+
+```powershell
+cargo run -p sarnaut-pack -- build --fixture `
+  --src ..\data-schemas\demo `
+  --overlay m2-quest-unsupported `
+  --out ..\server\testdata\packs\demo-quest-unsupported
+```
+
+## Rules for every pack here
+
 `--keep-extra` output must never be committed here: `scripts/check-fixture-pack.ps1`
 fails the build if any committed manifest records `keep_extra: true`.
+
+`build-report.json` is written beside every manifest and is git-ignored: it is a
+private-path artifact and it is not an input to `pack_id`.
