@@ -95,19 +95,30 @@ func TestQuestSliceOverQUIC(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SendCommand(early quest_turn_in) error = %v", err)
 	}
-	early := awaitQuestUpdate(t, player, questSliceID)
+	early := awaitQuestRefusal(t, player, questSliceID)
 	if early.GetRefusal() != sarnautv1.QuestRefusal_QUEST_REFUSAL_NOT_COMPLETE {
 		t.Fatalf("early turn-in answered %v, want NOT_COMPLETE", early.GetRefusal())
 	}
 
 	// Kill the objective mob. The credit arrives through combat's MobKilled
-	// event and the counter update is pushed unasked.
+	// event.
 	target := findEntityInSnapshots(t, fixture.ctx, player, questTargetID)
 	death := castUntilDead(t, player, target)
 	if death.GetKillerEntityId() != player.entityID {
 		t.Fatalf("kill credit went to entity %d, want %d", death.GetKillerEntityId(), player.entityID)
 	}
-	completed := awaitQuestState(t, player, questSliceID, sarnautv1.QuestState_QUEST_STATE_COMPLETABLE)
+
+	// The counter update is pushed unasked, and it races the death event: the
+	// two are published by independent fan-out goroutines and nothing orders
+	// them, so a reader looking for a death can legitimately consume the quest
+	// update on the way past. That the push happens at all is asserted in
+	// `internal/quests`, against the module rather than against a scheduler.
+	// What is deterministic here is asking, which is also what a client does
+	// when it walks back to the giver.
+	completed := askTheGiver(t, player, giver.GetEntityId(), questSliceID)
+	if completed.GetState() != sarnautv1.QuestState_QUEST_STATE_COMPLETABLE {
+		t.Fatalf("state = %v after the kill, want completable", completed.GetState())
+	}
 	if got := completed.GetObjectives()[0].GetCounter(); got != 1 {
 		t.Errorf("counter = %d, want 1", got)
 	}
@@ -182,7 +193,7 @@ func TestQuestSliceOverQUIC(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SendCommand(duplicate quest_turn_in) error = %v", err)
 	}
-	duplicate := awaitQuestUpdate(t, player, questSliceID)
+	duplicate := awaitQuestRefusal(t, player, questSliceID)
 	if duplicate.GetRefusal() != sarnautv1.QuestRefusal_QUEST_REFUSAL_ALREADY_COMPLETE {
 		t.Errorf("duplicate turn-in answered %v, want ALREADY_COMPLETE", duplicate.GetRefusal())
 	}
@@ -396,6 +407,28 @@ func questInteract(t *testing.T, actor *lootSession, targetEntityID uint64) map[
 	return seen
 }
 
+// askTheGiver interacts with an NPC and returns what it says about one quest.
+//
+// It is a request and a response, which is what makes it usable as an
+// assertion: the pushed updates a session also receives are ordered against
+// nothing.
+func askTheGiver(
+	t *testing.T,
+	actor *lootSession,
+	giverEntityID uint64,
+	questID string,
+) *sarnautv1.QuestStateUpdate {
+	t.Helper()
+	if err := actor.client.SendCommand(actor.connection, &sarnautv1.ClientMessage{
+		Payload: &sarnautv1.ClientMessage_Interact{
+			Interact: &sarnautv1.Interact{TargetEntityId: giverEntityID},
+		},
+	}); err != nil {
+		t.Fatalf("SendCommand(interact) error = %v", err)
+	}
+	return awaitQuestUpdate(t, actor, questID)
+}
+
 func awaitQuestUpdate(t *testing.T, actor *lootSession, questID string) *sarnautv1.QuestStateUpdate {
 	t.Helper()
 	for {
@@ -407,6 +440,20 @@ func awaitQuestUpdate(t *testing.T, actor *lootSession, questID string) *sarnaut
 			return update
 		}
 	}
+}
+
+// awaitQuestRefusal drains until the named quest is refused something. A push
+// that was still in flight is not an answer to the verb just sent.
+func awaitQuestRefusal(t *testing.T, actor *lootSession, questID string) *sarnautv1.QuestStateUpdate {
+	t.Helper()
+	for attempt := 0; attempt < 64; attempt++ {
+		update := awaitQuestUpdate(t, actor, questID)
+		if update.GetRefusal() != sarnautv1.QuestRefusal_QUEST_REFUSAL_NONE {
+			return update
+		}
+	}
+	t.Fatalf("%s was never refused", questID)
+	return nil
 }
 
 // awaitQuestState drains until the named quest reports the state asked for. A
