@@ -18,6 +18,7 @@ type Config struct {
 	HealthAddress string
 	QUIC          QUICConfig
 	World         WorldConfig
+	Content       ContentConfig
 	NATS          NATSConfig
 	Postgres      PostgresConfig
 	Valkey        ValkeyConfig
@@ -30,7 +31,16 @@ type QUICConfig struct {
 }
 
 type WorldConfig struct {
-	TickInterval time.Duration
+	ZoneID           string
+	TickInterval     time.Duration
+	SnapshotInterval time.Duration
+	MaxMoveSpeed     float32
+}
+
+type ContentConfig struct {
+	RootPath string
+	Ruleset  string
+	ZoneSlug string
 }
 
 type NATSConfig struct {
@@ -61,8 +71,16 @@ type fileConfig struct {
 		ShardAddress  *string `yaml:"shard_address"`
 	} `yaml:"quic"`
 	World struct {
-		TickInterval *string `yaml:"tick_interval"`
+		ZoneID           *string  `yaml:"zone_id"`
+		TickInterval     *string  `yaml:"tick_interval"`
+		SnapshotInterval *string  `yaml:"snapshot_interval"`
+		MaxMoveSpeed     *float32 `yaml:"max_move_speed"`
 	} `yaml:"world"`
+	Content struct {
+		RootPath *string `yaml:"root_path"`
+		Ruleset  *string `yaml:"ruleset"`
+		ZoneSlug *string `yaml:"zone_slug"`
+	} `yaml:"content"`
 	NATS struct {
 		URL *string `yaml:"url"`
 	} `yaml:"nats"`
@@ -95,6 +113,15 @@ func Load(serviceName string) (Config, error) {
 	if configuration.World.TickInterval <= 0 {
 		return Config{}, fmt.Errorf("world tick interval must be positive")
 	}
+	if configuration.World.SnapshotInterval <= 0 {
+		return Config{}, fmt.Errorf("world snapshot interval must be positive")
+	}
+	if configuration.World.MaxMoveSpeed <= 0 {
+		return Config{}, fmt.Errorf("world maximum move speed must be positive")
+	}
+	if configuration.World.ZoneID == "" || configuration.Content.RootPath == "" || configuration.Content.Ruleset == "" || configuration.Content.ZoneSlug == "" {
+		return Config{}, fmt.Errorf("world and content identifiers must not be empty")
+	}
 
 	return configuration, nil
 }
@@ -117,7 +144,17 @@ func defaults(serviceName string) Config {
 			ListenAddress: "127.0.0.1:4242",
 			ShardAddress:  "127.0.0.1:4242",
 		},
-		World: WorldConfig{TickInterval: 50 * time.Millisecond},
+		World: WorldConfig{
+			ZoneID:           "InstLeague1",
+			TickInterval:     time.Second / 30,
+			SnapshotInterval: time.Second / 15,
+			MaxMoveSpeed:     7,
+		},
+		Content: ContentConfig{
+			RootPath: `E:\SarnautCore\data`,
+			Ruleset:  "classic",
+			ZoneSlug: "inst-league1",
+		},
 	}
 }
 
@@ -144,6 +181,10 @@ func applyFileValues(configuration *Config, values fileConfig) error {
 	setString(&configuration.HealthAddress, values.HealthAddress)
 	setString(&configuration.QUIC.ListenAddress, values.QUIC.ListenAddress)
 	setString(&configuration.QUIC.ShardAddress, values.QUIC.ShardAddress)
+	setString(&configuration.World.ZoneID, values.World.ZoneID)
+	setString(&configuration.Content.RootPath, values.Content.RootPath)
+	setString(&configuration.Content.Ruleset, values.Content.Ruleset)
+	setString(&configuration.Content.ZoneSlug, values.Content.ZoneSlug)
 	setString(&configuration.NATS.URL, values.NATS.URL)
 	setString(&configuration.Postgres.DSN, values.Postgres.DSN)
 	setString(&configuration.Valkey.Address, values.Valkey.Address)
@@ -162,6 +203,16 @@ func applyFileValues(configuration *Config, values fileConfig) error {
 		}
 		configuration.World.TickInterval = duration
 	}
+	if values.World.SnapshotInterval != nil {
+		duration, err := time.ParseDuration(*values.World.SnapshotInterval)
+		if err != nil {
+			return fmt.Errorf("parse world.snapshot_interval: %w", err)
+		}
+		configuration.World.SnapshotInterval = duration
+	}
+	if values.World.MaxMoveSpeed != nil {
+		configuration.World.MaxMoveSpeed = *values.World.MaxMoveSpeed
+	}
 	return nil
 }
 
@@ -171,6 +222,10 @@ func applyEnvironment(configuration *Config) error {
 	setFromEnvironment(&configuration.HealthAddress, "SARNAUT_HEALTH_ADDRESS")
 	setFromEnvironment(&configuration.QUIC.ListenAddress, "SARNAUT_QUIC_LISTEN_ADDRESS")
 	setFromEnvironment(&configuration.QUIC.ShardAddress, "SARNAUT_SHARD_ADDRESS")
+	setFromEnvironment(&configuration.World.ZoneID, "SARNAUT_WORLD_ZONE_ID")
+	setFromEnvironment(&configuration.Content.RootPath, "SARNAUT_CONTENT_ROOT")
+	setFromEnvironment(&configuration.Content.Ruleset, "SARNAUT_CONTENT_RULESET")
+	setFromEnvironment(&configuration.Content.ZoneSlug, "SARNAUT_CONTENT_ZONE_SLUG")
 	setFromEnvironment(&configuration.NATS.URL, "SARNAUT_NATS_URL")
 	setFromEnvironment(&configuration.Postgres.DSN, "SARNAUT_POSTGRES_DSN")
 	setFromEnvironment(&configuration.Valkey.Address, "SARNAUT_VALKEY_ADDRESS")
@@ -183,6 +238,20 @@ func applyEnvironment(configuration *Config) error {
 			return fmt.Errorf("parse SARNAUT_WORLD_TICK_INTERVAL: %w", err)
 		}
 		configuration.World.TickInterval = duration
+	}
+	if value := os.Getenv("SARNAUT_WORLD_SNAPSHOT_INTERVAL"); value != "" {
+		duration, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_WORLD_SNAPSHOT_INTERVAL: %w", err)
+		}
+		configuration.World.SnapshotInterval = duration
+	}
+	if value := os.Getenv("SARNAUT_WORLD_MAX_MOVE_SPEED"); value != "" {
+		speed, err := strconv.ParseFloat(value, 32)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_WORLD_MAX_MOVE_SPEED: %w", err)
+		}
+		configuration.World.MaxMoveSpeed = float32(speed)
 	}
 	if value := os.Getenv("SARNAUT_VALKEY_DB"); value != "" {
 		database, err := strconv.Atoi(value)

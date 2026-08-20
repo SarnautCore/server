@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package sarnaut.v1;
+
+import "sarnaut/v1/movement.proto";
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+
+enum EntityKind {
+  ENTITY_KIND_UNSPECIFIED = 0;
+  ENTITY_KIND_PLAYER = 1;
+  ENTITY_KIND_NPC = 2;
+}
+
+enum AnimationState {
+  ANIMATION_STATE_UNSPECIFIED = 0;
+  ANIMATION_STATE_IDLE = 1;
+  ANIMATION_STATE_MOVING = 2;
+}
+
+message EntitySnapshot {
+  uint64 entity_id = 1;
+  EntityKind kind = 2;
+  Vec3 position = 3;
+  float heading = 4;
+  Vec3 velocity = 5;
+  AnimationState animation_state = 6;
+}
+
+message SnapshotBatch {
+  uint64 server_tick = 1;
+  repeated EntitySnapshot entities = 2;
+}
+
+message EnterZoneRequest {
+  string zone_id = 1;
+}
+
+message EnterZoneResponse {
+  string zone_id = 1;
+  uint64 own_entity_id = 2;
+  Vec3 spawn_position = 3;
+}

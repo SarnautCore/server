@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package sarnaut.v1;
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+
+message Vec3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message ClientMoveIntent {
+  uint64 seq = 1;
+  Vec3 input = 2;
+  float heading = 3;
+  float dt_seconds = 4;
+}

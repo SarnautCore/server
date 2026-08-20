@@ -1,0 +1,181 @@
+package session_test
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/content"
+	"github.com/SarnautCore/server/internal/session"
+	"github.com/SarnautCore/server/internal/transport"
+	"github.com/SarnautCore/server/internal/world"
+)
+
+func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T) {
+	t.Parallel()
+
+	spawns := loadFixtureSpawns(t)
+	zone, err := world.NewZone(world.ZoneConfig{
+		ID:               "FixtureZone",
+		TickInterval:     5 * time.Millisecond,
+		SnapshotInterval: 10 * time.Millisecond,
+		MaxMoveSpeed:     6,
+	})
+	if err != nil {
+		t.Fatalf("NewZone() error = %v", err)
+	}
+	for _, spawn := range spawns {
+		zone.SpawnNPC(world.Vec3{
+			X: spawn.Position.X,
+			Y: spawn.Position.Y,
+			Z: spawn.Position.Z,
+		}, spawn.Heading)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go zone.Run(ctx)
+
+	serverTLS, err := transport.NewDevServerTLSConfig()
+	if err != nil {
+		t.Fatalf("NewDevServerTLSConfig() error = %v", err)
+	}
+	listener, err := transport.ListenQUIC("127.0.0.1:0", serverTLS)
+	if err != nil {
+		t.Fatalf("ListenQUIC() error = %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+
+	server := session.Server{
+		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
+		BuildID:         "shard-test",
+		Zones:           map[string]*world.Zone{zone.ID(): zone},
+	}
+	serveErrors := make(chan error, 1)
+	go func() { serveErrors <- server.Serve(ctx, listener) }()
+
+	connection, err := transport.DialQUIC(ctx, listener.Addr().String(), transport.NewDevClientTLSConfig())
+	if err != nil {
+		t.Fatalf("DialQUIC() error = %v", err)
+	}
+	defer func() { _ = connection.Close() }()
+	client := session.Client{
+		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
+		BuildID:         "client-test",
+	}
+	if _, err := client.Handshake(ctx, connection); err != nil {
+		t.Fatalf("Handshake() error = %v", err)
+	}
+	entered, err := client.EnterZone(connection, zone.ID())
+	if err != nil {
+		t.Fatalf("EnterZone() error = %v", err)
+	}
+	if !connection.SupportsUnreliable() {
+		t.Fatal("QUIC connection did not negotiate datagrams")
+	}
+
+	waitForNPC(t, ctx, client, connection)
+	if err := client.SendMoveIntent(connection, &sarnautv1.ClientMoveIntent{
+		Seq:       1,
+		Input:     &sarnautv1.Vec3{X: 1},
+		Heading:   0.5,
+		DtSeconds: 0.2,
+	}); err != nil {
+		t.Fatalf("SendMoveIntent() error = %v", err)
+	}
+	waitForAdvance(t, ctx, client, connection, entered.GetOwnEntityId(), entered.GetSpawnPosition().GetX())
+
+	cancel()
+	select {
+	case err := <-serveErrors:
+		if err != nil {
+			t.Fatalf("Serve() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Serve() did not stop after cancellation")
+	}
+}
+
+func loadFixtureSpawns(t *testing.T) []content.NPCSpawn {
+	t.Helper()
+	root := t.TempDir()
+	tables := filepath.Join(root, "classic", "zones", "fixture-zone", "spawns", "tables")
+	placements := filepath.Join(root, "classic", "zones", "fixture-zone", "spawns", "placements")
+	if err := os.MkdirAll(tables, 0o755); err != nil {
+		t.Fatalf("create fixture table directory: %v", err)
+	}
+	if err := os.MkdirAll(placements, 0o755); err != nil {
+		t.Fatalf("create fixture placement directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tables, "critter.yaml"), []byte(`
+id: spawn.fixture.table.critter
+entries:
+- object:
+    id: mob.fixture.critter
+`), 0o600); err != nil {
+		t.Fatalf("write fixture table: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(placements, "field.yaml"), []byte(`
+placements:
+- id: spawn.fixture.placement.critter
+  object:
+    id: spawn.fixture.table.critter
+  position: {x: 10, y: 20, z: 3}
+  orientation: {yaw: 1.25}
+`), 0o600); err != nil {
+		t.Fatalf("write fixture placement: %v", err)
+	}
+	spawns, err := content.LoadZoneNPCs(root, "classic", "fixture-zone")
+	if err != nil {
+		t.Fatalf("LoadZoneNPCs() error = %v", err)
+	}
+	if len(spawns) == 0 {
+		t.Fatal("fixture loaded no NPCs")
+	}
+	return spawns
+}
+
+func waitForNPC(
+	t *testing.T,
+	ctx context.Context,
+	client session.Client,
+	connection transport.Connection,
+) {
+	t.Helper()
+	for {
+		snapshot, err := client.ReadSnapshot(ctx, connection)
+		if err != nil {
+			t.Fatalf("ReadSnapshot() error = %v", err)
+		}
+		for _, entity := range snapshot.GetEntities() {
+			if entity.GetKind() == sarnautv1.EntityKind_ENTITY_KIND_NPC {
+				return
+			}
+		}
+	}
+}
+
+func waitForAdvance(
+	t *testing.T,
+	ctx context.Context,
+	client session.Client,
+	connection transport.Connection,
+	entityID uint64,
+	startX float32,
+) {
+	t.Helper()
+	for {
+		snapshot, err := client.ReadSnapshot(ctx, connection)
+		if err != nil {
+			t.Fatalf("ReadSnapshot() error = %v", err)
+		}
+		for _, entity := range snapshot.GetEntities() {
+			if entity.GetEntityId() == entityID && entity.GetPosition().GetX() > startX {
+				return
+			}
+		}
+	}
+}
