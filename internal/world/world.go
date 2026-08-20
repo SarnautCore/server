@@ -16,6 +16,15 @@ import (
 
 const maxIntentDuration = 250 * time.Millisecond
 
+// Placeholder combat identity for entities the content pack has not described
+// yet. HP_BASE comes from mechanics/combat.md section 3; the level curve and
+// the per-mob draw land with the combat task.
+// TODO(m2-combat): derive level, health and max_health from content.
+const (
+	defaultLevel     uint32 = 1
+	defaultMaxHealth int32  = 100
+)
+
 var ErrUnknownEntity = errors.New("unknown world entity")
 
 // Vec3 is a world-space vector. Z is the vertical axis.
@@ -34,7 +43,14 @@ type ZoneConfig struct {
 	PlayerSpawn      Vec3
 }
 
-// SnapshotSink accepts the newest immutable view of a zone.
+// SnapshotSink accepts the newest view of a zone.
+//
+// Every sink receives its own batch: the zone builds one message tree per
+// recipient rather than sharing a pointer, so a sink that rewrites a field —
+// per-session masking, a chunking pass that reuses the value — cannot be seen
+// by another session. The value is still read-only by convention until
+// ADR 0028 replaces the protobuf pointer at this boundary with a domain type
+// and removes the hazard by construction.
 type SnapshotSink interface {
 	OfferSnapshot(*sarnautv1.SnapshotBatch)
 }
@@ -46,9 +62,35 @@ type entity struct {
 	heading         float32
 	velocity        Vec3
 	animation       sarnautv1.AnimationState
+	contentID       string
+	nameKey         string
+	faction         string
+	level           uint32
+	health          int32
+	maxHealth       int32
+	alive           bool
 	hasIntent       bool
 	lastIntentSeq   uint64
 	intentRemaining time.Duration
+}
+
+// entityView is one entity copied out from under the zone mutex. Building
+// protobuf messages from a value slice keeps the lock hold proportional to the
+// entity count rather than to the entity count times the session count.
+type entityView struct {
+	id        uint64
+	kind      sarnautv1.EntityKind
+	position  Vec3
+	heading   float32
+	velocity  Vec3
+	animation sarnautv1.AnimationState
+	contentID string
+	nameKey   string
+	faction   string
+	level     uint32
+	health    int32
+	maxHealth int32
+	alive     bool
 }
 
 // Zone owns one entity registry and its fixed-rate simulation.
@@ -196,6 +238,10 @@ func (zone *Zone) addEntityLocked(kind sarnautv1.EntityKind, position Vec3, head
 		position:  position,
 		heading:   heading,
 		animation: sarnautv1.AnimationState_ANIMATION_STATE_IDLE,
+		level:     defaultLevel,
+		health:    defaultMaxHealth,
+		maxHealth: defaultMaxHealth,
+		alive:     true,
 	}
 	return zone.nextID
 }
@@ -223,41 +269,72 @@ func (zone *Zone) step() {
 
 func (zone *Zone) publishSnapshot() {
 	zone.mu.Lock()
-	batch := &sarnautv1.SnapshotBatch{
-		ServerTick: zone.serverTick,
-		Entities:   zone.interestedEntitiesLocked(),
-	}
+	tick := zone.serverTick
+	views := zone.interestedEntitiesLocked()
 	sinks := make([]SnapshotSink, 0, len(zone.sessions))
 	for _, sink := range zone.sessions {
 		sinks = append(sinks, sink)
 	}
 	zone.mu.Unlock()
 
+	// One batch per sink, built outside the lock. Sharing a single message tree
+	// is an optimisation that is only valid while every recipient gets
+	// identical content, and it stops being valid the moment interest becomes
+	// per-session (ADR 0026).
 	for _, sink := range sinks {
-		sink.OfferSnapshot(batch)
+		sink.OfferSnapshot(protobufBatch(tick, views))
 	}
 }
 
-func (zone *Zone) interestedEntitiesLocked() []*sarnautv1.EntitySnapshot {
+func (zone *Zone) interestedEntitiesLocked() []entityView {
 	// TODO(SAR-19): replace all-entities interest with a spatial query.
 	ids := make([]uint64, 0, len(zone.entities))
 	for id := range zone.entities {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
-	result := make([]*sarnautv1.EntitySnapshot, 0, len(ids))
+	result := make([]entityView, 0, len(ids))
 	for _, id := range ids {
 		current := zone.entities[id]
-		result = append(result, &sarnautv1.EntitySnapshot{
-			EntityId:       current.id,
-			Kind:           current.kind,
-			Position:       protobufVec(current.position),
-			Heading:        current.heading,
-			Velocity:       protobufVec(current.velocity),
-			AnimationState: current.animation,
+		result = append(result, entityView{
+			id:        current.id,
+			kind:      current.kind,
+			position:  current.position,
+			heading:   current.heading,
+			velocity:  current.velocity,
+			animation: current.animation,
+			contentID: current.contentID,
+			nameKey:   current.nameKey,
+			faction:   current.faction,
+			level:     current.level,
+			health:    current.health,
+			maxHealth: current.maxHealth,
+			alive:     current.alive,
 		})
 	}
 	return result
+}
+
+func protobufBatch(tick uint64, views []entityView) *sarnautv1.SnapshotBatch {
+	entities := make([]*sarnautv1.EntitySnapshot, 0, len(views))
+	for _, view := range views {
+		entities = append(entities, &sarnautv1.EntitySnapshot{
+			EntityId:       view.id,
+			Kind:           view.kind,
+			Position:       protobufVec(view.position),
+			Heading:        view.heading,
+			Velocity:       protobufVec(view.velocity),
+			AnimationState: view.animation,
+			ContentId:      view.contentID,
+			NameKey:        view.nameKey,
+			Level:          view.level,
+			Faction:        view.faction,
+			Health:         view.health,
+			MaxHealth:      view.maxHealth,
+			Alive:          view.alive,
+		})
+	}
+	return &sarnautv1.SnapshotBatch{ServerTick: tick, Entities: entities}
 }
 
 func normalized(x, y float32) (float32, float32) {
