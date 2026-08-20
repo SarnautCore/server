@@ -1,5 +1,7 @@
 package combat
 
+import "github.com/SarnautCore/server/internal/world"
+
 // EventKind distinguishes the two things combat tells the rest of the server
 // about.
 type EventKind uint8
@@ -49,4 +51,43 @@ type Event struct {
 // EventSink receives combat events for one session.
 type EventSink interface {
 	OfferCombatEvent(Event)
+}
+
+// Kill is everything a downstream system needs about one mob death, handed
+// over at the instant rule 5.9 creates the corpse.
+//
+// It carries more than the client's DeathEvent does, and that is the point:
+// mechanics/loot.md rule 5.2.2 seeds a roll from the spawn slot and the death
+// tick, and rule 5.8.1 copies kill credit onto the corpse. Both are facts only
+// this module holds, and neither may reach the wire.
+type Kill struct {
+	VictimEntityID uint64
+	KillerEntityID uint64
+	// VictimContentID and PlacementID name the content record and the authored
+	// spawn slot. The slot is the stable identity across a respawn, which is
+	// what makes it a seed input rather than the entity id.
+	VictimContentID string
+	PlacementID     string
+	// LootTableID is the tree the victim's mob record names, empty when it
+	// names none.
+	LootTableID string
+	VictimLevel uint32
+	Position    world.Vec3
+	Heading     float32
+	DeathTick   uint64
+	// DespawnTick is when the corpse goes, rule 5.9.4. loot.md section 3 sets
+	// LOOT_OWNERSHIP_S equal to CORPSE_TIMER_S deliberately, so a downstream
+	// container schedules itself against this same tick rather than computing a
+	// second deadline that could drift from it.
+	DespawnTick uint64
+}
+
+// KillSink is told about a mob death from inside the tick that caused it.
+//
+// It is called with the zone lock held, so an implementation must do exactly
+// what a world.System may do: mutate through the *Tick it is handed, and
+// nothing that blocks. `internal/loot` is the implementation; combat does not
+// import it, which is what keeps the dependency pointing one way.
+type KillSink interface {
+	MobKilled(*world.Tick, Kill)
 }

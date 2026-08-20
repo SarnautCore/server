@@ -56,10 +56,12 @@ type Module struct {
 	level   uint32
 	faction string
 
-	// mobs, casters and stream are read and written only under the zone lock.
-	mobs    map[uint64]*mobState
-	casters map[uint64]*casterState
-	stream  *spawnStream
+	// mobs, casters, stream and killSink are read and written only under the
+	// zone lock.
+	mobs     map[uint64]*mobState
+	casters  map[uint64]*casterState
+	stream   *spawnStream
+	killSink KillSink
 
 	events  chan Event
 	dropped atomic.Uint64
@@ -97,6 +99,21 @@ func New(logger *slog.Logger, zone *world.Zone, rules Rules, options Options) *M
 
 // Rules is the rule set this module resolves against.
 func (module *Module) Rules() Rules { return module.rules }
+
+// SetKillSink registers what to tell about a mob death, replacing whatever was
+// there. Passing nil detaches.
+//
+// It is a setter rather than an Options field because the sink needs the zone
+// and so does this module, and one of the two has to be built second. The write
+// goes through Zone.Command so the field is published under the same lock the
+// tick loop reads it under, rather than being raced into place while a kill is
+// resolving.
+func (module *Module) SetKillSink(sink KillSink) {
+	_ = module.zone.Command(func(*world.Tick) error {
+		module.killSink = sink
+		return nil
+	})
+}
 
 // Populate spawns every NPC the pack resolved, drawing each mob's level from
 // the zone spawn stream in placement order.

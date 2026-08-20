@@ -247,3 +247,51 @@ func TestLoadReadsAuthFromYAMLAndEnvironment(t *testing.T) {
 		t.Errorf("Auth.NameBlocklist = %v, want empty", got.Auth.NameBlocklist)
 	}
 }
+
+// TestWorldSeedIsConfigurationRatherThanAProcessValue is mechanics/loot.md rule
+// 5.2.4. A shard restart must not change the drop a given corpse would produce,
+// which is only true if the seed comes from a config file or an environment
+// variable and never from the clock or the pid.
+func TestWorldSeedIsConfigurationRatherThanAProcessValue(t *testing.T) {
+	defaults, err := config.Load("gateway")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if defaults.World.WorldSeed == "" {
+		t.Error("World.WorldSeed defaults to empty; every shard would share one loot stream")
+	}
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := []byte("world:\n  world_seed: from-yaml\ncontent:\n  pack_path: fixture-pack\n")
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatalf("write test config: %v", err)
+	}
+	t.Setenv("SARNAUT_CONFIG", path)
+
+	fromFile, err := config.Load("shard")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if fromFile.World.WorldSeed != "from-yaml" {
+		t.Errorf("World.WorldSeed = %q, want the file's value", fromFile.World.WorldSeed)
+	}
+
+	t.Setenv("SARNAUT_WORLD_SEED", "from-environment")
+	fromEnvironment, err := config.Load("shard")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if fromEnvironment.World.WorldSeed != "from-environment" {
+		t.Errorf("World.WorldSeed = %q, want the environment to win", fromEnvironment.World.WorldSeed)
+	}
+
+	// Two loads of one configuration produce one seed. It is the whole point of
+	// the rule, and it is what a clock-derived default would break.
+	repeat, err := config.Load("shard")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if repeat.World.WorldSeed != fromEnvironment.World.WorldSeed {
+		t.Errorf("two loads gave %q then %q", fromEnvironment.World.WorldSeed, repeat.World.WorldSeed)
+	}
+}

@@ -10,6 +10,11 @@ world:
   tick_interval: 33.333333ms
   snapshot_interval: 66.666666ms
   max_move_speed: 7
+  # The per-shard-instance half of the loot roll seed (mechanics/loot.md rule
+  # 5.2.4). It is configuration and not a process-start value on purpose: a
+  # restart that changed it would change the drop every corpse in the zone
+  # would have produced. Give two instances of the same zone two values.
+  world_seed: sarnaut-shard
 
 # The compiled runtime pack this shard serves: a directory holding manifest.json
 # and tables/, produced by `sarnaut-pack build`. There is no default and no

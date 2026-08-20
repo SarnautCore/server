@@ -46,6 +46,8 @@ const (
 	RowType_ROW_TYPE_ABILITY        RowType = 5
 	RowType_ROW_TYPE_FACTION        RowType = 6
 	RowType_ROW_TYPE_MOB            RowType = 7
+	RowType_ROW_TYPE_ITEM           RowType = 8
+	RowType_ROW_TYPE_LOOT_TABLE     RowType = 9
 )
 
 // Enum value maps for RowType.
@@ -59,6 +61,8 @@ var (
 		5: "ROW_TYPE_ABILITY",
 		6: "ROW_TYPE_FACTION",
 		7: "ROW_TYPE_MOB",
+		8: "ROW_TYPE_ITEM",
+		9: "ROW_TYPE_LOOT_TABLE",
 	}
 	RowType_value = map[string]int32{
 		"ROW_TYPE_UNSPECIFIED":    0,
@@ -69,6 +73,8 @@ var (
 		"ROW_TYPE_ABILITY":        5,
 		"ROW_TYPE_FACTION":        6,
 		"ROW_TYPE_MOB":            7,
+		"ROW_TYPE_ITEM":           8,
+		"ROW_TYPE_LOOT_TABLE":     9,
 	}
 )
 
@@ -97,6 +103,67 @@ func (x RowType) Number() protoreflect.EnumNumber {
 // Deprecated: Use RowType.Descriptor instead.
 func (RowType) EnumDescriptor() ([]byte, []int) {
 	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{0}
+}
+
+// LootNodeKind names one node of a loot tree (mechanics/loot.md section 4).
+//
+// It is an enum rather than the authored slug that abilities use, because
+// unlike an effect kind this taxonomy is closed: the reference set contains
+// these four node types and no others, and a fifth would be a new evaluation
+// rule rather than new content.
+type LootNodeKind int32
+
+const (
+	LootNodeKind_LOOT_NODE_KIND_UNSPECIFIED LootNodeKind = 0
+	LootNodeKind_LOOT_NODE_KIND_AND         LootNodeKind = 1
+	LootNodeKind_LOOT_NODE_KIND_OR          LootNodeKind = 2
+	LootNodeKind_LOOT_NODE_KIND_SINGLE_ITEM LootNodeKind = 3
+	LootNodeKind_LOOT_NODE_KIND_MONEY       LootNodeKind = 4
+)
+
+// Enum value maps for LootNodeKind.
+var (
+	LootNodeKind_name = map[int32]string{
+		0: "LOOT_NODE_KIND_UNSPECIFIED",
+		1: "LOOT_NODE_KIND_AND",
+		2: "LOOT_NODE_KIND_OR",
+		3: "LOOT_NODE_KIND_SINGLE_ITEM",
+		4: "LOOT_NODE_KIND_MONEY",
+	}
+	LootNodeKind_value = map[string]int32{
+		"LOOT_NODE_KIND_UNSPECIFIED": 0,
+		"LOOT_NODE_KIND_AND":         1,
+		"LOOT_NODE_KIND_OR":          2,
+		"LOOT_NODE_KIND_SINGLE_ITEM": 3,
+		"LOOT_NODE_KIND_MONEY":       4,
+	}
+)
+
+func (x LootNodeKind) Enum() *LootNodeKind {
+	p := new(LootNodeKind)
+	*p = x
+	return p
+}
+
+func (x LootNodeKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (LootNodeKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_sarnaut_content_v1_content_proto_enumTypes[1].Descriptor()
+}
+
+func (LootNodeKind) Type() protoreflect.EnumType {
+	return &file_sarnaut_content_v1_content_proto_enumTypes[1]
+}
+
+func (x LootNodeKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use LootNodeKind.Descriptor instead.
+func (LootNodeKind) EnumDescriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{1}
 }
 
 // Vec3 is a world-space position. Z is the vertical axis.
@@ -1354,6 +1421,288 @@ func (x *ChargenOption) GetStartingQuests() []string {
 	return nil
 }
 
+// Item is one item definition: the fields the shard needs to hold an item
+// instance in a bag, and nothing else.
+//
+// `stack_limit` is the load-bearing one. mechanics/loot.md rule 5.7.1 says the
+// limit is per-item content and never a constant, so it is a field here rather
+// than a number in Go, and rule 5.7.6 makes a limit of 1 a legal value rather
+// than a missing one.
+type Item struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `item.consumable.harbor-tonic`.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Localization key for the display name (ADR 0007).
+	NameKey string `protobuf:"bytes,2,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
+	// Authored category slug, for example `consumable`.
+	Category      string `protobuf:"bytes,3,opt,name=category,proto3" json:"category,omitempty"`
+	Level         uint32 `protobuf:"varint,4,opt,name=level,proto3" json:"level,omitempty"`
+	RequiredLevel uint32 `protobuf:"varint,5,opt,name=required_level,json=requiredLevel,proto3" json:"required_level,omitempty"`
+	// Maximum units in one stack. Zero means the authored record carried none,
+	// which the shard reads as unstackable (loot.md rule 5.7.6).
+	StackLimit int32 `protobuf:"varint,6,opt,name=stack_limit,json=stackLimit,proto3" json:"stack_limit,omitempty"`
+	VendorSell int64 `protobuf:"varint,7,opt,name=vendor_sell,json=vendorSell,proto3" json:"vendor_sell,omitempty"`
+	VendorBuy  int64 `protobuf:"varint,8,opt,name=vendor_buy,json=vendorBuy,proto3" json:"vendor_buy,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Item) Reset() {
+	*x = Item{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Item) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Item) ProtoMessage() {}
+
+func (x *Item) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Item.ProtoReflect.Descriptor instead.
+func (*Item) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *Item) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Item) GetNameKey() string {
+	if x != nil {
+		return x.NameKey
+	}
+	return ""
+}
+
+func (x *Item) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *Item) GetLevel() uint32 {
+	if x != nil {
+		return x.Level
+	}
+	return 0
+}
+
+func (x *Item) GetRequiredLevel() uint32 {
+	if x != nil {
+		return x.RequiredLevel
+	}
+	return 0
+}
+
+func (x *Item) GetStackLimit() int32 {
+	if x != nil {
+		return x.StackLimit
+	}
+	return 0
+}
+
+func (x *Item) GetVendorSell() int64 {
+	if x != nil {
+		return x.VendorSell
+	}
+	return 0
+}
+
+func (x *Item) GetVendorBuy() int64 {
+	if x != nil {
+		return x.VendorBuy
+	}
+	return 0
+}
+
+func (x *Item) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
+// LootNode is one node of a loot tree, carrying its children inline.
+//
+// `entries` and `chances` are positionally paired and must be the same length;
+// nothing in the authored file links entry `i` to chance `i` other than ordinal
+// position, so the pairing is preserved as two parallel arrays rather than
+// being folded into one message. The reader enforces the length equality.
+//
+// `chances` is `double`, not `float`. Reference chances are written with eight
+// significant digits — `0.00618751` is one of them — and narrowing to binary32
+// would change the number between the authored document and the evaluator.
+type LootNode struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Kind    LootNodeKind           `protobuf:"varint,1,opt,name=kind,proto3,enum=sarnaut.content.v1.LootNodeKind" json:"kind,omitempty"`
+	Entries []*LootNode            `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty"`
+	Chances []float64              `protobuf:"fixed64,3,rep,packed,name=chances,proto3" json:"chances,omitempty"`
+	// Canonical item id. Set on a SINGLE_ITEM leaf and empty everywhere else: a
+	// MONEY leaf has no item reference at all (loot.md rule 5.6.1).
+	ItemId string `protobuf:"bytes,4,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	// Inclusive count bounds of a leaf. `max_number >= min_number` is enforced by
+	// the reader.
+	MinNumber     int32 `protobuf:"varint,5,opt,name=min_number,json=minNumber,proto3" json:"min_number,omitempty"`
+	MaxNumber     int32 `protobuf:"varint,6,opt,name=max_number,json=maxNumber,proto3" json:"max_number,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LootNode) Reset() {
+	*x = LootNode{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LootNode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LootNode) ProtoMessage() {}
+
+func (x *LootNode) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LootNode.ProtoReflect.Descriptor instead.
+func (*LootNode) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *LootNode) GetKind() LootNodeKind {
+	if x != nil {
+		return x.Kind
+	}
+	return LootNodeKind_LOOT_NODE_KIND_UNSPECIFIED
+}
+
+func (x *LootNode) GetEntries() []*LootNode {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *LootNode) GetChances() []float64 {
+	if x != nil {
+		return x.Chances
+	}
+	return nil
+}
+
+func (x *LootNode) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *LootNode) GetMinNumber() int32 {
+	if x != nil {
+		return x.MinNumber
+	}
+	return 0
+}
+
+func (x *LootNode) GetMaxNumber() int32 {
+	if x != nil {
+		return x.MaxNumber
+	}
+	return 0
+}
+
+// LootTable is one tree with exactly one root node.
+type LootTable struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `loot.fixture.m2-nested`.
+	Id   string    `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Root *LootNode `protobuf:"bytes,2,opt,name=root,proto3" json:"root,omitempty"`
+	// Untyped passthrough; see Zone.extra.
+	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LootTable) Reset() {
+	*x = LootTable{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LootTable) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LootTable) ProtoMessage() {}
+
+func (x *LootTable) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LootTable.ProtoReflect.Descriptor instead.
+func (*LootTable) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *LootTable) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *LootTable) GetRoot() *LootNode {
+	if x != nil {
+		return x.Root
+	}
+	return nil
+}
+
+func (x *LootTable) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
 var File_sarnaut_content_v1_content_proto protoreflect.FileDescriptor
 
 const file_sarnaut_content_v1_content_proto_rawDesc = "" +
@@ -1501,7 +1850,41 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xc3\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe0\x02\n" +
+	"\x04Item\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
+	"\bname_key\x18\x02 \x01(\tR\anameKey\x12\x1a\n" +
+	"\bcategory\x18\x03 \x01(\tR\bcategory\x12\x14\n" +
+	"\x05level\x18\x04 \x01(\rR\x05level\x12%\n" +
+	"\x0erequired_level\x18\x05 \x01(\rR\rrequiredLevel\x12\x1f\n" +
+	"\vstack_limit\x18\x06 \x01(\x05R\n" +
+	"stackLimit\x12\x1f\n" +
+	"\vvendor_sell\x18\a \x01(\x03R\n" +
+	"vendorSell\x12\x1d\n" +
+	"\n" +
+	"vendor_buy\x18\b \x01(\x03R\tvendorBuy\x129\n" +
+	"\x05extra\x18\x0f \x03(\v2#.sarnaut.content.v1.Item.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe9\x01\n" +
+	"\bLootNode\x124\n" +
+	"\x04kind\x18\x01 \x01(\x0e2 .sarnaut.content.v1.LootNodeKindR\x04kind\x126\n" +
+	"\aentries\x18\x02 \x03(\v2\x1c.sarnaut.content.v1.LootNodeR\aentries\x12\x18\n" +
+	"\achances\x18\x03 \x03(\x01R\achances\x12\x17\n" +
+	"\aitem_id\x18\x04 \x01(\tR\x06itemId\x12\x1d\n" +
+	"\n" +
+	"min_number\x18\x05 \x01(\x05R\tminNumber\x12\x1d\n" +
+	"\n" +
+	"max_number\x18\x06 \x01(\x05R\tmaxNumber\"\xc7\x01\n" +
+	"\tLootTable\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x120\n" +
+	"\x04root\x18\x02 \x01(\v2\x1c.sarnaut.content.v1.LootNodeR\x04root\x12>\n" +
+	"\x05extra\x18\x0f \x03(\v2(.sarnaut.content.v1.LootTable.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xef\x01\n" +
 	"\aRowType\x12\x18\n" +
 	"\x14ROW_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rROW_TYPE_ZONE\x10\x01\x12\x16\n" +
@@ -1510,7 +1893,15 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x17ROW_TYPE_CHARGEN_OPTION\x10\x04\x12\x14\n" +
 	"\x10ROW_TYPE_ABILITY\x10\x05\x12\x14\n" +
 	"\x10ROW_TYPE_FACTION\x10\x06\x12\x10\n" +
-	"\fROW_TYPE_MOB\x10\aB@Z>github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1b\x06proto3"
+	"\fROW_TYPE_MOB\x10\a\x12\x11\n" +
+	"\rROW_TYPE_ITEM\x10\b\x12\x17\n" +
+	"\x13ROW_TYPE_LOOT_TABLE\x10\t*\x97\x01\n" +
+	"\fLootNodeKind\x12\x1e\n" +
+	"\x1aLOOT_NODE_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12LOOT_NODE_KIND_AND\x10\x01\x12\x15\n" +
+	"\x11LOOT_NODE_KIND_OR\x10\x02\x12\x1e\n" +
+	"\x1aLOOT_NODE_KIND_SINGLE_ITEM\x10\x03\x12\x18\n" +
+	"\x14LOOT_NODE_KIND_MONEY\x10\x04B@Z>github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1b\x06proto3"
 
 var (
 	file_sarnaut_content_v1_content_proto_rawDescOnce sync.Once
@@ -1524,52 +1915,63 @@ func file_sarnaut_content_v1_content_proto_rawDescGZIP() []byte {
 	return file_sarnaut_content_v1_content_proto_rawDescData
 }
 
-var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_sarnaut_content_v1_content_proto_goTypes = []any{
 	(RowType)(0),            // 0: sarnaut.content.v1.RowType
-	(*Vec3)(nil),            // 1: sarnaut.content.v1.Vec3
-	(*Zone)(nil),            // 2: sarnaut.content.v1.Zone
-	(*Placement)(nil),       // 3: sarnaut.content.v1.Placement
-	(*SpawnTableEntry)(nil), // 4: sarnaut.content.v1.SpawnTableEntry
-	(*SpawnTable)(nil),      // 5: sarnaut.content.v1.SpawnTable
-	(*AbilityEffect)(nil),   // 6: sarnaut.content.v1.AbilityEffect
-	(*Ability)(nil),         // 7: sarnaut.content.v1.Ability
-	(*FactionRelation)(nil), // 8: sarnaut.content.v1.FactionRelation
-	(*Faction)(nil),         // 9: sarnaut.content.v1.Faction
-	(*Mob)(nil),             // 10: sarnaut.content.v1.Mob
-	(*StatEntry)(nil),       // 11: sarnaut.content.v1.StatEntry
-	(*LoadoutEntry)(nil),    // 12: sarnaut.content.v1.LoadoutEntry
-	(*ChargenOption)(nil),   // 13: sarnaut.content.v1.ChargenOption
-	nil,                     // 14: sarnaut.content.v1.Zone.ExtraEntry
-	nil,                     // 15: sarnaut.content.v1.Placement.ExtraEntry
-	nil,                     // 16: sarnaut.content.v1.SpawnTable.ExtraEntry
-	nil,                     // 17: sarnaut.content.v1.Ability.ExtraEntry
-	nil,                     // 18: sarnaut.content.v1.Faction.ExtraEntry
-	nil,                     // 19: sarnaut.content.v1.Mob.ExtraEntry
-	nil,                     // 20: sarnaut.content.v1.ChargenOption.ExtraEntry
+	(LootNodeKind)(0),       // 1: sarnaut.content.v1.LootNodeKind
+	(*Vec3)(nil),            // 2: sarnaut.content.v1.Vec3
+	(*Zone)(nil),            // 3: sarnaut.content.v1.Zone
+	(*Placement)(nil),       // 4: sarnaut.content.v1.Placement
+	(*SpawnTableEntry)(nil), // 5: sarnaut.content.v1.SpawnTableEntry
+	(*SpawnTable)(nil),      // 6: sarnaut.content.v1.SpawnTable
+	(*AbilityEffect)(nil),   // 7: sarnaut.content.v1.AbilityEffect
+	(*Ability)(nil),         // 8: sarnaut.content.v1.Ability
+	(*FactionRelation)(nil), // 9: sarnaut.content.v1.FactionRelation
+	(*Faction)(nil),         // 10: sarnaut.content.v1.Faction
+	(*Mob)(nil),             // 11: sarnaut.content.v1.Mob
+	(*StatEntry)(nil),       // 12: sarnaut.content.v1.StatEntry
+	(*LoadoutEntry)(nil),    // 13: sarnaut.content.v1.LoadoutEntry
+	(*ChargenOption)(nil),   // 14: sarnaut.content.v1.ChargenOption
+	(*Item)(nil),            // 15: sarnaut.content.v1.Item
+	(*LootNode)(nil),        // 16: sarnaut.content.v1.LootNode
+	(*LootTable)(nil),       // 17: sarnaut.content.v1.LootTable
+	nil,                     // 18: sarnaut.content.v1.Zone.ExtraEntry
+	nil,                     // 19: sarnaut.content.v1.Placement.ExtraEntry
+	nil,                     // 20: sarnaut.content.v1.SpawnTable.ExtraEntry
+	nil,                     // 21: sarnaut.content.v1.Ability.ExtraEntry
+	nil,                     // 22: sarnaut.content.v1.Faction.ExtraEntry
+	nil,                     // 23: sarnaut.content.v1.Mob.ExtraEntry
+	nil,                     // 24: sarnaut.content.v1.ChargenOption.ExtraEntry
+	nil,                     // 25: sarnaut.content.v1.Item.ExtraEntry
+	nil,                     // 26: sarnaut.content.v1.LootTable.ExtraEntry
 }
 var file_sarnaut_content_v1_content_proto_depIdxs = []int32{
-	1,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
-	14, // 1: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
-	1,  // 2: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
-	15, // 3: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
-	4,  // 4: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
-	16, // 5: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
-	6,  // 6: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
-	17, // 7: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
-	8,  // 8: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
-	18, // 9: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
-	19, // 10: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
-	1,  // 11: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
-	11, // 12: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
-	20, // 13: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
-	12, // 14: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	2,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
+	18, // 1: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
+	2,  // 2: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
+	19, // 3: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
+	5,  // 4: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
+	20, // 5: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
+	7,  // 6: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
+	21, // 7: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
+	9,  // 8: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
+	22, // 9: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
+	23, // 10: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
+	2,  // 11: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
+	12, // 12: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
+	24, // 13: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
+	13, // 14: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
+	25, // 15: sarnaut.content.v1.Item.extra:type_name -> sarnaut.content.v1.Item.ExtraEntry
+	1,  // 16: sarnaut.content.v1.LootNode.kind:type_name -> sarnaut.content.v1.LootNodeKind
+	16, // 17: sarnaut.content.v1.LootNode.entries:type_name -> sarnaut.content.v1.LootNode
+	16, // 18: sarnaut.content.v1.LootTable.root:type_name -> sarnaut.content.v1.LootNode
+	26, // 19: sarnaut.content.v1.LootTable.extra:type_name -> sarnaut.content.v1.LootTable.ExtraEntry
+	20, // [20:20] is the sub-list for method output_type
+	20, // [20:20] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_content_v1_content_proto_init() }
@@ -1582,8 +1984,8 @@ func file_sarnaut_content_v1_content_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_content_v1_content_proto_rawDesc), len(file_sarnaut_content_v1_content_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   20,
+			NumEnums:      2,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

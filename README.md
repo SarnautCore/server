@@ -211,6 +211,7 @@ Copy `config.example.yaml`, set `SARNAUT_CONFIG` to its path, and override indiv
 | `SARNAUT_WORLD_TICK_INTERVAL` | Fixed simulation interval, default 30 Hz |
 | `SARNAUT_WORLD_SNAPSHOT_INTERVAL` | Replication interval, default 15 Hz |
 | `SARNAUT_WORLD_SPAWN_SEED` | Seeds the zone spawn stream that draws mob levels and respawn delays, default `0` |
+| `SARNAUT_WORLD_SEED` | Per-shard-instance half of the loot roll seed (mechanics/loot.md rule 5.2.4), default `sarnaut-shard` |
 | `SARNAUT_NATS_URL` | NATS server URL |
 | `SARNAUT_POSTGRES_DSN` | PostgreSQL connection string |
 | `SARNAUT_VALKEY_ADDRESS` | Valkey host and port. Required by `auth` and `shard` |

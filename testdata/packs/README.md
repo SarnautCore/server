@@ -11,6 +11,15 @@ Every server test that needs content loads this pack, as does the SAR-20 client
 smoke, so the Rust writer and the Go reader are exercised against the same
 bytes.
 
+It carries two loot trees and three items. The two trees are deliberately
+different shapes — `loot.fixture.m2-nested` is the curated depth-3 tree of
+`mechanics/loot.md` section 6.1, `loot.fixture.m2-flat` is the flat `and` root
+that section 8 counts as the shape of 4,225 of the 4,234 reference tables — so
+that "adding a loot table is content" is a claim `internal/loot` can be tested
+against rather than one it asserts about itself. The flat tree also carries a
+chance of `0.00618751`, which is not representable in binary32 and is what pins
+`LootNode.chances` to a double.
+
 Rebuild it from the `tools` repository after changing the pack format or the
 demo dataset:
 

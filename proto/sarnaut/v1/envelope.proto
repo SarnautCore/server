@@ -113,10 +113,10 @@ message QuestAbandon {
 // to ADR 0026). It carries no fields: the actor is the session.
 message Logout {}
 
-// LootOffer, LootResult, InventoryUpdate and QuestStateUpdate are declared
-// here so the envelope holds the complete M2 case list from the first commit.
-// Their fields land with the task that implements the matching mechanics spec;
-// adding fields to them is additive and does not bump ProtocolVersion.
+// QuestStateUpdate is declared here so the envelope holds the complete M2 case
+// list from the first commit. Its fields land with the task that implements
+// mechanics/quests.md; adding fields to it is additive and does not bump
+// ProtocolVersion.
 
 // AbilityRejection names why an ability use resolved to nothing.
 //
@@ -175,14 +175,83 @@ message DeathEvent {
   uint64 corpse_despawn_tick = 4;
 }
 
-// TODO(m2-loot): fields per mechanics/loot.md rule 5.6.
-message LootOffer {}
+// LootRefusal names why a loot verb resolved to nothing.
+//
+// Like AbilityRejection it is not an ErrorCode. Opening somebody else's corpse
+// or arriving at one with a full bag is ordinary play and must leave the
+// session running (mechanics/loot.md rules 5.6.3 and 5.8.2); an ErrorCode is a
+// protocol violation and closes the connection.
+enum LootRefusal {
+  LOOT_REFUSAL_UNSPECIFIED = 0;
+  // The verb resolved.
+  LOOT_REFUSAL_NONE = 1;
+  // The entity named is not a corpse container in this zone, or has already
+  // despawned (rule 5.1.2).
+  LOOT_REFUSAL_NO_CORPSE = 2;
+  // rule 5.8.2: the corpse is credited to another character.
+  LOOT_REFUSAL_NOT_YOUR_LOOT = 3;
+  // rule 5.6.4: the drop was taken and the corpse is standing but empty.
+  LOOT_REFUSAL_ALREADY_LOOTED = 4;
+  // rule 5.6.3. Nothing was inserted, no money was credited, and the corpse
+  // still holds the whole drop.
+  LOOT_REFUSAL_BAG_FULL = 5;
+  // A take on this corpse is already committing. A retransmit lands here.
+  LOOT_REFUSAL_IN_PROGRESS = 6;
+  // The award could not be committed. The corpse is intact.
+  LOOT_REFUSAL_INTERNAL = 7;
+}
 
-// TODO(m2-loot): fields per mechanics/loot.md rule 5.6.
-message LootResult {}
+// LootItem is one item id and the count rolled for it. It is the roll's output
+// (mechanics/loot.md section 4's ItemGrant), not a bag slot: duplicates are not
+// merged and stack limits have not been applied yet.
+message LootItem {
+  string item_id = 1;
+  int32 count = 2;
+}
 
-// TODO(m2-loot): fields per mechanics/loot.md rule 5.7.
-message InventoryUpdate {}
+// LootOffer is what is on a corpse, answering ClientMessage.interact.
+//
+// The drop is rolled at corpse creation and fixed before it is observable
+// (rule 5.1.1), so what an offer reports is what a take will produce.
+message LootOffer {
+  uint64 corpse_entity_id = 1;
+  // Purse credit. Money occupies no bag slot (rule 5.6.1).
+  int64 money = 2;
+  repeated LootItem items = 3;
+}
+
+// LootResult answers ClientMessage.loot_take.
+//
+// On LOOT_REFUSAL_NONE it is written after the award is committed to storage
+// (protocol/session.md rule 5.7.4), so a crash in that window replays as "you
+// already have it" rather than as a lost item. On any other refusal nothing was
+// written at all.
+message LootResult {
+  uint64 corpse_entity_id = 1;
+  LootRefusal refusal = 2;
+  // What was taken. Empty on a refusal.
+  int64 money = 3;
+  repeated LootItem items = 4;
+}
+
+// InventorySlot is one occupied bag slot after stack splitting (rule 5.7).
+message InventorySlot {
+  int32 slot = 1;
+  string item_id = 2;
+  // 1 <= count <= the item's stack_limit.
+  int32 count = 3;
+}
+
+// InventoryUpdate is the character's whole bag and purse.
+//
+// It is a full replacement rather than a delta. M2's only writer is the
+// all-or-nothing loot take of rule 5.6.3, a bag is sixteen slots, and a delta
+// protocol would be a second thing that can disagree with the database for no
+// bandwidth anyone will notice.
+message InventoryUpdate {
+  repeated InventorySlot slots = 1;
+  int64 currency = 2;
+}
 
 // QuestStateUpdate is the server's report of one quest instance changing state.
 // It is named for the message, not for the QuestState enum in
