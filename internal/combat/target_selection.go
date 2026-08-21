@@ -36,12 +36,22 @@ func (module *Module) SelectedTarget(actorID uint64) (uint64, error) {
 	var selected uint64
 	err := module.zone.GameCommand(func(tick gametypes.Tick) error {
 		actor := tick.Entity(actorID)
-		state := module.casters[actorID]
-		if actor == nil || state == nil {
+		if actor == nil {
 			return gametypes.ErrUnknownEntity
 		}
-		selected = module.selectedTarget(tick, state)
-		return nil
+		if state := module.casters[actorID]; state != nil {
+			selected = module.selectedTarget(tick, state)
+			return nil
+		}
+		if state := module.mobs[actorID]; state != nil {
+			if module.validateSelection(tick, state.aggroTarget) == RejectionNone {
+				selected = state.aggroTarget
+			} else {
+				state.aggroTarget = 0
+			}
+			return nil
+		}
+		return gametypes.ErrUnknownEntity
 	})
 	return selected, err
 }

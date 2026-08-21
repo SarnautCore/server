@@ -18,6 +18,9 @@ type DamageEffectRequest struct {
 	// the current compiled ability row carries no such field, so an adapter
 	// must leave group-filtered modifiers unmatched.
 	AbilityID string
+	// ActionGroupID is the extracted retail action group. Empty means the
+	// legacy direct-damage path has no group identity.
+	ActionGroupID string
 }
 
 // DamageEffectHost applies persistent effects owned outside combat. It runs

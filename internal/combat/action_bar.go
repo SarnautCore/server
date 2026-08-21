@@ -172,6 +172,16 @@ func (module *Module) actionSlotState(
 		return result
 	}
 	rejection := module.validate(tick, caster, ability, selected)
+	if rejection == RejectionNone {
+		profile, scripted, err := module.actionProfile(caster.ID, ability.ID)
+		if err != nil {
+			result.UnavailableReason = ActionUnavailableDisabled
+			return result
+		}
+		if scripted {
+			rejection = validateActionResourceCost(state, profile)
+		}
+	}
 	result.UnavailableReason = actionUnavailableReason(rejection)
 	result.Available = rejection == RejectionNone
 	return result
@@ -189,6 +199,8 @@ func actionUnavailableReason(rejection Rejection) ActionUnavailableReason {
 		return ActionUnavailableOutOfRange
 	case RejectionOnCooldown:
 		return ActionUnavailableOnCooldown
+	case RejectionNoResource:
+		return ActionUnavailableNoResource
 	default:
 		return ActionUnavailableDisabled
 	}

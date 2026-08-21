@@ -64,6 +64,10 @@ type Module struct {
 	// damageEffects is the optional session-owned adapter for persistent
 	// script modifiers. It is installed and read only under the zone lock.
 	damageEffects DamageEffectHost
+	// scriptActions is the session-owned adapter that executes extracted
+	// action trees. Combat still owns admission, targets, resource, cooldown,
+	// damage, death, and events.
+	scriptActions ScriptActionHost
 
 	events  chan Event
 	dropped atomic.Uint64
@@ -168,11 +172,21 @@ func (module *Module) Admit(entityID uint64) error {
 // authored for that character. Every binding is validated before the player
 // entity or caster state changes.
 func (module *Module) AdmitWithActions(entityID uint64, bindings []ActionBinding) error {
-	abilities, actionBar, err := module.validateActionBindings(bindings)
+	return module.AdmitWithLoadout(entityID, ActionLoadout{Bindings: bindings})
+}
+
+// AdmitWithLoadout admits authored slots and the character's authoritative
+// action resource as one validated change.
+func (module *Module) AdmitWithLoadout(entityID uint64, loadout ActionLoadout) error {
+	abilities, actionBar, err := module.validateActionBindings(loadout.Bindings)
 	if err != nil {
 		return err
 	}
-	return module.admitValidated(entityID, abilities, actionBar)
+	resource, err := validateActionResource(loadout.Resource)
+	if err != nil {
+		return err
+	}
+	return module.admitValidated(entityID, abilities, actionBar, resource)
 }
 
 func (module *Module) admit(entityID uint64, abilities []string, bindings []ActionBinding) error {
@@ -183,13 +197,14 @@ func (module *Module) admit(entityID uint64, abilities []string, bindings []Acti
 	// Legacy Admit deliberately preserves direct UseAbility access to every
 	// pack ability, including any beyond the 36 visible slots.
 	validatedAbilities = append(validatedAbilities[:0], abilities...)
-	return module.admitValidated(entityID, validatedAbilities, actionBar)
+	return module.admitValidated(entityID, validatedAbilities, actionBar, actionResource{})
 }
 
 func (module *Module) admitValidated(
 	entityID uint64,
 	abilities []string,
 	actionBar [ActionBarSlotCount]string,
+	resource actionResource,
 ) error {
 	return module.zone.GameCommand(func(tick gametypes.Tick) error {
 		entity := tick.Entity(entityID)
@@ -204,6 +219,7 @@ func (module *Module) admitValidated(
 		module.casters[entityID] = &casterState{
 			abilities: append([]string(nil), abilities...),
 			actionBar: actionBar,
+			resource:  resource,
 		}
 		return nil
 	})
@@ -310,6 +326,7 @@ type casterState struct {
 	readyTick    map[string]uint64
 	lastSeq      uint64
 	hasSeq       bool
+	resource     actionResource
 }
 
 func (state *casterState) knows(abilityID string) bool {

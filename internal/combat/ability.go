@@ -80,20 +80,44 @@ func (module *Module) useAbility(
 		return event, rejected.err()
 	}
 
-	damage := Damage(ability, caster.Level, tick.Entity(request.TargetID).Level)
-	if module.damageEffects != nil {
-		var err error
-		damage, err = module.damageEffects.ScaleDamage(tick, DamageEffectRequest{
-			Magnitude: damage,
-			CasterID:  caster.ID,
-			TargetID:  request.TargetID,
-			AbilityID: ability.ID,
-		})
-		if err != nil {
-			return Event{}, err
+	profile, scripted, err := module.actionProfile(casterID, ability.ID)
+	if err != nil {
+		return Event{}, err
+	}
+	if scripted {
+		rejected = validateActionResourceCost(state, profile)
+		if rejected != RejectionNone {
+			event := Event{
+				Kind: EventKindAbility, ServerTick: tick.Number(), ZoneID: tick.ZoneID(),
+				CasterID: casterID, TargetID: request.TargetID, AbilityID: abilityID,
+				ActionGroupID: profile.ActionGroupID, Rejection: rejected, PrivateTo: casterID,
+			}
+			module.publish(event)
+			return event, rejected.err()
 		}
 	}
+
+	var damage int32
+	if !scripted {
+		damage = Damage(ability, caster.Level, tick.Entity(request.TargetID).Level)
+		if module.damageEffects != nil {
+			damage, err = module.damageEffects.ScaleDamage(tick, DamageEffectRequest{
+				Magnitude: damage,
+				CasterID:  caster.ID,
+				TargetID:  request.TargetID,
+				AbilityID: ability.ID,
+			})
+			if err != nil {
+				return Event{}, err
+			}
+		}
+	}
+
+	previousHasSeq, previousLastSeq := state.hasSeq, state.lastSeq
 	state.hasSeq, state.lastSeq = true, request.Seq
+	previousGCD := state.gcdReadyTick
+	previousResource := state.resource.currentMilli
+	previousReady, hadPreviousReady := state.readyTick[ability.ID]
 
 	// Rule 5.4.3: the cooldown is consumed before damage resolves, so an
 	// ability that kills its target still costs the caster its turn.
@@ -104,9 +128,27 @@ func (module *Module) useAbility(
 		}
 		state.readyTick[ability.ID] = tick.Number() + ticksIn(ability.Cooldown, tick.Interval())
 	}
+	if scripted {
+		consumeActionResource(state, profile)
+		event, executeErr := module.scriptActions.ExecuteAction(tick, ScriptActionInvocation{
+			CasterID: casterID, TargetID: request.TargetID, AbilityID: ability.ID,
+			ActionGroupID: profile.ActionGroupID, Sequence: request.Seq,
+		})
+		if executeErr != nil && event.Kind == EventKindUnspecified {
+			state.hasSeq, state.lastSeq = previousHasSeq, previousLastSeq
+			state.gcdReadyTick = previousGCD
+			state.resource.currentMilli = previousResource
+			if hadPreviousReady {
+				state.readyTick[ability.ID] = previousReady
+			} else {
+				delete(state.readyTick, ability.ID)
+			}
+		}
+		return event, executeErr
+	}
 	// applyDamage publishes: the ability event has to reach the client before
 	// the death it caused, and only it knows the order.
-	return module.applyDamage(tick, caster, tick.Entity(request.TargetID), ability, damage), nil
+	return module.applyDamage(tick, caster, tick.Entity(request.TargetID), ability, damage, "", 1), nil
 }
 
 // validate runs rules 5.2 to 5.4 in the order the spec states them, because
@@ -176,6 +218,8 @@ func (module *Module) applyDamage(
 	target *gametypes.EntityData,
 	ability gametypes.Ability,
 	damage int32,
+	actionGroupID string,
+	threatMultiplier float64,
 ) Event {
 	// Rule 5.5 computes the damage and rule 5.6.1 clamps the health, in that
 	// order. The event reports what the ability did, not what was left to
@@ -183,7 +227,7 @@ func (module *Module) applyDamage(
 	target.Health = max(0, target.Health-damage)
 
 	if state, ok := module.mobs[target.ID]; ok {
-		state.addThreat(caster.ID, int64(damage))
+		state.addThreat(caster.ID, int64(roundHalfUp(float64(damage)*threatMultiplier)))
 		// Rule 5.6.3: being hit always pulls, whatever the distance.
 		if state.phase == phaseIdle {
 			state.phase = phaseAggro
@@ -198,6 +242,7 @@ func (module *Module) applyDamage(
 		CasterID:        caster.ID,
 		TargetID:        target.ID,
 		AbilityID:       ability.ID,
+		ActionGroupID:   actionGroupID,
 		Damage:          damage,
 		TargetHealth:    target.Health,
 		TargetMaxHealth: target.MaxHealth,

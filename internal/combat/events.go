@@ -30,6 +30,9 @@ type Event struct {
 	CasterID  uint64
 	TargetID  uint64
 	AbilityID string
+	// ActionGroupID is server-owned extracted content identity. The current
+	// legacy wire projection intentionally omits it.
+	ActionGroupID string
 
 	Damage          int32
 	TargetHealth    int32
