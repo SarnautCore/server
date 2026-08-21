@@ -49,10 +49,8 @@ func (module *Module) UseAbility(casterID uint64, request AbilityRequest) (Event
 		ability, ok := module.rules.Ability(abilityID)
 		if !ok || !state.knows(abilityID) {
 			rejected = RejectionUnknownAbility
-		} else if rejected = module.validate(tick, caster, ability, request.TargetID); rejected == RejectionNone {
-			// The sequence number advances only on a use the server accepted,
-			// so a refusal does not burn the client's next command.
-			state.hasSeq, state.lastSeq = true, request.Seq
+		} else {
+			rejected = module.validate(tick, caster, ability, request.TargetID)
 		}
 
 		if rejected != RejectionNone {
@@ -71,6 +69,20 @@ func (module *Module) UseAbility(casterID uint64, request AbilityRequest) (Event
 			return nil
 		}
 
+		damage := Damage(ability, caster.Level, tick.Entity(request.TargetID).Level)
+		if module.damageEffects != nil {
+			damage, outcome = module.damageEffects.ScaleDamage(tick, DamageEffectRequest{
+				Magnitude: damage,
+				CasterID:  caster.ID,
+				TargetID:  request.TargetID,
+				AbilityID: ability.ID,
+			})
+			if outcome != nil {
+				return nil
+			}
+		}
+		state.hasSeq, state.lastSeq = true, request.Seq
+
 		// Rule 5.4.3: the cooldown is consumed before damage resolves, so an
 		// ability that kills its target still costs the caster its turn.
 		state.gcdReadyTick = tick.Number() + module.gcdTicks(tick)
@@ -82,7 +94,7 @@ func (module *Module) UseAbility(casterID uint64, request AbilityRequest) (Event
 		}
 		// applyDamage publishes: the ability event has to reach the client
 		// before the death it caused, and only it knows the order.
-		event = module.applyDamage(tick, caster, tick.Entity(request.TargetID), ability)
+		event = module.applyDamage(tick, caster, tick.Entity(request.TargetID), ability, damage)
 		return nil
 	})
 	if err != nil {
@@ -157,11 +169,11 @@ func (module *Module) applyDamage(
 	caster *gametypes.EntityData,
 	target *gametypes.EntityData,
 	ability gametypes.Ability,
+	damage int32,
 ) Event {
 	// Rule 5.5 computes the damage and rule 5.6.1 clamps the health, in that
 	// order. The event reports what the ability did, not what was left to
 	// absorb it, so an overkill reads as an overkill.
-	damage := Damage(ability, caster.Level, target.Level)
 	target.Health = max(0, target.Health-damage)
 
 	if state, ok := module.mobs[target.ID]; ok {

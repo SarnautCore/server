@@ -163,6 +163,64 @@ func TestDamageModifierRegistryIsIdempotentAndGuardAggregationOwnsLastRemoval(t 
 	}
 }
 
+func TestPersistentEffectRegistryRollsBackARejectedHostChange(t *testing.T) {
+	t.Parallel()
+	registry := script.NewEffectRegistry()
+	owner := script.EffectOwner{Mob: true, CellPlaced: true}
+	rejected := errors.New("combat rejected update")
+	guard := script.Command{
+		Kind: script.CommandAttachGuard, EntityID: ratID, EffectID: "guard-atomic",
+		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 15}},
+	}
+	if _, err := registry.ApplyAtomic(guard, owner, func(script.EffectChange) error {
+		return rejected
+	}); !errors.Is(err, rejected) {
+		t.Fatalf("ApplyAtomic(attach) error = %v, want host rejection", err)
+	}
+	if state := registry.GuardState(ratID, script.Decimal{Mantissa: 30}); state.GuardActive {
+		t.Fatalf("rejected attach retained Guard state %#v", state)
+	}
+
+	if _, err := registry.ApplyAtomic(guard, owner, nil); err != nil {
+		t.Fatalf("attach before detach rollback: %v", err)
+	}
+	detach := script.Command{
+		Kind: script.CommandDetachGuard, EntityID: ratID, EffectID: guard.EffectID,
+	}
+	if _, err := registry.ApplyAtomic(detach, owner, func(script.EffectChange) error {
+		return rejected
+	}); !errors.Is(err, rejected) {
+		t.Fatalf("ApplyAtomic(detach) error = %v, want host rejection", err)
+	}
+	if state := registry.GuardState(ratID, script.Decimal{Mantissa: 30}); !state.GuardActive || state.ObserverRadius != (script.Decimal{Mantissa: 15}) {
+		t.Fatalf("rejected detach lost Guard state %#v", state)
+	}
+}
+
+func TestPersistentEffectReplayDoesNotCallTheHost(t *testing.T) {
+	t.Parallel()
+	registry := script.NewEffectRegistry()
+	owner := script.EffectOwner{Mob: true, CellPlaced: true}
+	guard := script.Command{
+		Kind: script.CommandAttachGuard, EntityID: ratID, EffectID: "guard-replay",
+		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 15}},
+	}
+	calls := 0
+	apply := func(script.EffectChange) error {
+		calls++
+		return nil
+	}
+	if _, err := registry.ApplyAtomic(guard, owner, apply); err != nil {
+		t.Fatalf("first ApplyAtomic() error = %v", err)
+	}
+	if _, err := registry.ApplyAtomic(guard, owner, apply); err != nil {
+		t.Fatalf("replayed ApplyAtomic() error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("host apply calls = %d, want one for attach and none for replay", calls)
+	}
+}
+
 func TestGuardRejectsOwnersWithoutBothRuntimeCapabilities(t *testing.T) {
 	t.Parallel()
 	for _, owner := range []script.EffectOwner{{}, {Mob: true}, {CellPlaced: true}} {

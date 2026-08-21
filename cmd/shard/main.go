@@ -251,6 +251,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 			session.NewPackQuestScriptSource(content),
 			script.Options{Enabled: true},
 		)
+		binding.Scripts.BindCombat(combatModule)
 		logger.Info("zone quest scripts wired", "quest_scripts", len(content.QuestScriptIDs()))
 	}
 	// One death, two consumers, and neither of them knows the other exists

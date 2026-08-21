@@ -35,6 +35,11 @@ type mobState struct {
 	phase       phase
 	aggroTarget uint64
 	threat      map[uint64]int64
+	// Guard is a transient effect rather than authored mob content. The mark
+	// mirrors retail's first-attach/last-detach lifetime and the observer owns
+	// its refresh cadence.
+	guardAggroMarks int
+	guard           *guardObserver
 
 	levelMin     uint32
 	levelMax     uint32
@@ -94,7 +99,12 @@ func (module *Module) Step(tick gametypes.Tick) {
 		}
 		switch state.phase {
 		case phaseIdle:
-			module.scanForAggro(tick, entity, state)
+			if state.guard == nil {
+				module.scanForAggro(tick, entity, state, state.aggroRadius)
+			} else if tick.Number() >= state.guard.nextRecheckTick {
+				module.scanForAggro(tick, entity, state, state.guard.radius)
+				state.guard.nextRecheckTick = tick.Number() + state.guard.recheckTicks
+			}
 		case phaseAggro:
 			module.chase(tick, entity, state)
 		case phaseReturning:
@@ -109,11 +119,16 @@ func (module *Module) Step(tick gametypes.Tick) {
 // scanForAggro is rule 5.7. The neighbour query is what makes it cost the
 // number of players near this mob rather than the number of entities in the
 // zone.
-func (module *Module) scanForAggro(tick gametypes.Tick, mob *gametypes.EntityData, state *mobState) {
-	if state.aggroRadius <= 0 {
+func (module *Module) scanForAggro(
+	tick gametypes.Tick,
+	mob *gametypes.EntityData,
+	state *mobState,
+	radius float32,
+) {
+	if radius <= 0 {
 		return
 	}
-	tick.Within(tick.Position(mob), state.aggroRadius, gametypes.EntityKindPlayer, func(candidate *gametypes.EntityData) bool {
+	tick.Within(tick.Position(mob), radius, gametypes.EntityKindPlayer, func(candidate *gametypes.EntityData) bool {
 		if !candidate.Alive || !candidate.Replicated {
 			return true
 		}

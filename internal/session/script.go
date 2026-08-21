@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strconv"
 	"time"
@@ -80,6 +81,7 @@ type ScriptDriver struct {
 	source    QuestScriptSource
 	evaluator *script.Evaluator
 	effects   *script.EffectRegistry
+	combat    *combat.Module
 
 	// tick is the tick the current evaluation runs in. It is set at every
 	// entry point before the evaluator is invoked and is what the host
@@ -125,6 +127,63 @@ func NewScriptDriver(
 	}
 	driver.evaluator = script.New(scriptHost{driver: driver}, options)
 	return driver
+}
+
+// BindCombat connects the driver's persistent-effect registry to the zone's
+// combat path. It is called once while composing a shard, before sessions can
+// activate scripts.
+func (driver *ScriptDriver) BindCombat(module *combat.Module) {
+	if driver == nil {
+		return
+	}
+	driver.combat = module
+	if module != nil {
+		module.SetDamageEffectHost(driver)
+	}
+}
+
+// ScaleDamage implements combat.DamageEffectHost. Outgoing effects fold
+// before incoming effects, and combat performs no mutation unless both folds
+// succeed.
+func (driver *ScriptDriver) ScaleDamage(
+	tick gametypes.Tick,
+	request combat.DamageEffectRequest,
+) (int32, error) {
+	if driver == nil || tick == nil {
+		return request.Magnitude, fmt.Errorf("session: damage effect host has no active tick")
+	}
+	previous := driver.tick
+	driver.tick = tick
+	defer func() { driver.tick = previous }()
+
+	magnitude := script.Decimal{Mantissa: int64(request.Magnitude)}
+	steps := []struct {
+		owner     uint64
+		offender  uint64
+		direction script.DamageDirection
+	}{
+		{owner: request.CasterID, offender: request.TargetID, direction: script.DamageOutgoing},
+		{owner: request.TargetID, offender: request.CasterID, direction: script.DamageIncoming},
+	}
+	for _, step := range steps {
+		owner := formatEntityID(step.owner)
+		resolved := tick.Entity(step.offender) != nil
+		var err error
+		magnitude, err = driver.evaluator.ScaleDamage(context.Background(), script.DamageEvent{
+			Magnitude:        magnitude,
+			OwnerID:          owner,
+			OffenderID:       formatEntityID(step.offender),
+			OffenderResolved: resolved,
+			HasActiveAction:  request.AbilityID != "",
+			// Compiled ability rows do not yet carry the retail action group.
+			// Empty deliberately leaves a grouped output modifier unmatched.
+			ActionGroup: script.Ref{},
+		}, driver.effects.Modifiers(owner, step.direction))
+		if err != nil {
+			return request.Magnitude, fmt.Errorf("session: scale damage for entity %d: %w", step.owner, err)
+		}
+	}
+	return roundedDamage(magnitude)
 }
 
 // QuestActivated evaluates one quest's startImpacts and triggerAgents for the
@@ -472,10 +531,44 @@ func (host scriptHost) Apply(_ context.Context, command script.Command) error {
 			return err
 		}
 		entity := driver.tick.Entity(entityID)
-		_, err = driver.effects.Apply(command, script.EffectOwner{
-			Mob: entity != nil && entity.Kind == gametypes.EntityKindNPC,
+		if driver.combat == nil {
+			return fmt.Errorf("session: persistent effect %s has no combat host", command.EffectID)
+		}
+		if entity == nil {
+			return fmt.Errorf("session: persistent effect owner %d is not in the zone", entityID)
+		}
+		var sightRadius script.Decimal
+		if command.Kind == script.CommandAttachGuard || command.Kind == script.CommandDetachGuard {
+			mob, ok := driver.combat.Rules().Mob(entity.ContentID)
+			if !ok {
+				return fmt.Errorf("session: guard owner %d has no combat mob record", entityID)
+			}
+			sightRadius = decimalFromFloat32(mob.AggroRadiusM)
+		}
+		_, err = driver.effects.ApplyAtomic(command, script.EffectOwner{
+			Mob: entity.Kind == gametypes.EntityKindNPC,
 			// An entity in this tick's spatial registry is cell-placed.
 			CellPlaced: entity != nil,
+		}, func(change script.EffectChange) error {
+			if command.Kind != script.CommandAttachGuard && command.Kind != script.CommandDetachGuard {
+				return nil
+			}
+			state := driver.effects.GuardState(command.EntityID, sightRadius)
+			if change.RemoveAggroState {
+				state = change
+			}
+			radius, err := decimalFloat32(state.ObserverRadius)
+			if err != nil {
+				return fmt.Errorf("session: guard owner %d radius: %w", entityID, err)
+			}
+			return driver.combat.ApplyGuardUpdate(driver.tick, entityID, combat.GuardUpdate{
+				Active:           state.GuardActive,
+				ObserverRadius:   radius,
+				NoticeTarget:     state.NoticeTarget,
+				RecheckEvery:     state.RecheckEvery,
+				AggroMarkDelta:   change.AggroMarkDelta,
+				RemoveAggroState: change.RemoveAggroState,
+			})
 		})
 		return err
 
@@ -524,4 +617,53 @@ func parseEntityID(value string) (uint64, error) {
 		return 0, fmt.Errorf("session: %q is not an entity id: %w", value, err)
 	}
 	return entityID, nil
+}
+
+func decimalFromFloat32(value float32) script.Decimal {
+	text := strconv.FormatFloat(float64(value), 'f', -1, 32)
+	point := -1
+	for index, character := range text {
+		if character == '.' {
+			point = index
+			break
+		}
+	}
+	scale := int32(0)
+	digits := text
+	if point >= 0 {
+		scale = int32(len(text) - point - 1)
+		digits = text[:point] + text[point+1:]
+	}
+	mantissa, _ := strconv.ParseInt(digits, 10, 64)
+	return script.Decimal{Mantissa: mantissa, Scale: scale}
+}
+
+func decimalFloat32(value script.Decimal) (float32, error) {
+	factor := math.Pow10(int(value.Scale))
+	result := float64(value.Mantissa) / factor
+	if math.IsNaN(result) || math.IsInf(result, 0) || result > math.MaxFloat32 || result < -math.MaxFloat32 {
+		return 0, fmt.Errorf("decimal %dE-%d is not representable", value.Mantissa, value.Scale)
+	}
+	return float32(result), nil
+}
+
+func roundedDamage(value script.Decimal) (int32, error) {
+	if value.Mantissa <= 0 {
+		return 0, nil
+	}
+	if value.Scale < 0 || value.Scale > 9 {
+		return 0, fmt.Errorf("session: scaled damage has unsupported decimal scale %d", value.Scale)
+	}
+	divisor := int64(1)
+	for range value.Scale {
+		divisor *= 10
+	}
+	rounded := value.Mantissa / divisor
+	if remainder := value.Mantissa % divisor; remainder*2 >= divisor {
+		rounded++
+	}
+	if rounded > math.MaxInt32 {
+		return 0, fmt.Errorf("session: scaled damage %d exceeds int32", rounded)
+	}
+	return int32(rounded), nil
 }

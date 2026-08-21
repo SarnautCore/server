@@ -61,6 +61,9 @@ type Module struct {
 	casters  map[uint64]*casterState
 	stream   *spawnStream
 	killSink KillSink
+	// damageEffects is the optional session-owned adapter for persistent
+	// script modifiers. It is installed and read only under the zone lock.
+	damageEffects DamageEffectHost
 
 	events  chan Event
 	dropped atomic.Uint64

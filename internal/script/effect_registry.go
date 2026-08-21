@@ -65,6 +65,60 @@ func NewEffectRegistry() *EffectRegistry {
 	}
 }
 
+// ApplyAtomic updates the registry and then applies the corresponding host
+// change. If the host rejects that change, the registry is restored exactly,
+// including attachment order. Replayed commands do not call apply because
+// they changed no state and must not perturb an observer's timer.
+func (registry *EffectRegistry) ApplyAtomic(
+	command Command,
+	owner EffectOwner,
+	apply func(EffectChange) error,
+) (EffectChange, error) {
+	if registry == nil {
+		return EffectChange{}, fmt.Errorf("script: nil effect registry")
+	}
+	beforeSequence := registry.sequence
+	beforeGuards := cloneGuardStates(registry.guards)
+	beforeModifiers := cloneModifierStates(registry.modifiers)
+	change, err := registry.Apply(command, owner)
+	if err != nil || !change.Changed || apply == nil {
+		return change, err
+	}
+	if err := apply(change); err != nil {
+		registry.sequence = beforeSequence
+		registry.guards = beforeGuards
+		registry.modifiers = beforeModifiers
+		return EffectChange{}, err
+	}
+	return change, nil
+}
+
+func cloneGuardStates(source map[string]*guardOwnerState) map[string]*guardOwnerState {
+	result := make(map[string]*guardOwnerState, len(source))
+	for entityID, state := range source {
+		copyState := &guardOwnerState{
+			entries: make(map[string]guardEntry, len(state.entries)), noticeTarget: state.noticeTarget,
+		}
+		for effectID, entry := range state.entries {
+			copyState.entries[effectID] = entry
+		}
+		result[entityID] = copyState
+	}
+	return result
+}
+
+func cloneModifierStates(source map[string]map[string]modifierEntry) map[string]map[string]modifierEntry {
+	result := make(map[string]map[string]modifierEntry, len(source))
+	for entityID, entries := range source {
+		copyEntries := make(map[string]modifierEntry, len(entries))
+		for effectID, entry := range entries {
+			copyEntries[effectID] = entry
+		}
+		result[entityID] = copyEntries
+	}
+	return result
+}
+
 // Apply registers or removes one typed persistent-effect command.
 func (registry *EffectRegistry) Apply(command Command, owner EffectOwner) (EffectChange, error) {
 	if registry == nil {
