@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/SarnautCore/server/internal/combat"
@@ -108,6 +109,9 @@ type ScriptDriver struct {
 	// kill credit and loot following the tag — is not wired in M3; what the
 	// mark does here is admit a mob into OnlyTagged spawn scopes.
 	tagged map[uint64]bool
+	// summons makes CommandSummon idempotent for the lifetime of this zone.
+	// The key is the evaluator's stable execution key.
+	summons map[string]uint64
 
 	evaluations uint64
 }
@@ -134,6 +138,7 @@ func NewScriptDriver(
 		pendingDetaches:      make(map[uint64][]script.AttachmentCleanup),
 		detachRetryScheduled: make(map[uint64]bool),
 		tagged:               make(map[uint64]bool),
+		summons:              make(map[string]uint64),
 		effects:              script.NewEffectRegistry(),
 	}
 	driver.evaluator = script.New(scriptHost{driver: driver}, options)
@@ -488,7 +493,18 @@ type destinationIndexSource interface {
 	HasDestinationIndex() bool
 }
 
+// summonSource resolves the mob row named by ImpactSummon. It stays optional
+// so script sources that never evaluate a summon do not fabricate mob data.
+type summonSource interface {
+	SummonMob(script.Ref) (gametypes.Mob, bool)
+}
+
 func (host scriptHost) Locate(_ context.Context, request script.DestinationRequest) (script.Destination, error) {
+	if strings.HasPrefix(request.Map.ID, "ext.") {
+		return script.Destination{}, fmt.Errorf(
+			"session: map locator uses non-product map id %q", request.Map.ID,
+		)
+	}
 	source, ok := host.driver.source.(destinationSource)
 	if !ok {
 		return script.Destination{}, fmt.Errorf(
@@ -533,7 +549,7 @@ func (host scriptHost) Resolve(_ context.Context, request script.ResolveRequest)
 	return found, nil
 }
 
-func (host scriptHost) Apply(_ context.Context, command script.Command) error {
+func (host scriptHost) Apply(ctx context.Context, command script.Command) error {
 	driver := host.driver
 	switch command.Kind {
 	case script.CommandAttachTrigger:
@@ -605,6 +621,70 @@ func (host scriptHost) Apply(_ context.Context, command script.Command) error {
 			Delta:             int32(command.Count),
 		})
 		return nil
+
+	case script.CommandSummon:
+		if command.Summon == nil {
+			return fmt.Errorf("session: summon command has no payload")
+		}
+		if driver.combat == nil {
+			return fmt.Errorf("session: summon %s has no combat host", command.Summon.Object.ID)
+		}
+		if existingID := driver.summons[command.ExecutionKey]; existingID != 0 {
+			if driver.tick.Entity(existingID) != nil {
+				return nil
+			}
+			delete(driver.summons, command.ExecutionKey)
+		}
+		source, ok := driver.source.(summonSource)
+		if !ok {
+			return fmt.Errorf("session: script source carries no summon-mob index for %s", command.Summon.Object.ID)
+		}
+		mob, ok := source.SummonMob(command.Summon.Object)
+		if !ok || mob.ID != command.Summon.Object.ID {
+			return fmt.Errorf("session: summon mob %s is absent", command.Summon.Object.ID)
+		}
+		heading, err := decimalFloat32(command.Summon.Destination.Yaw)
+		if err != nil {
+			return fmt.Errorf("session: summon %s yaw: %w", mob.ID, err)
+		}
+		position := gametypes.Vec3{
+			X: command.Summon.Destination.Position.X,
+			Y: command.Summon.Destination.Position.Y,
+			Z: command.Summon.Destination.Position.Z,
+		}
+		entity, err := driver.combat.Summon(
+			driver.tick, mob, "script-summon|"+command.ExecutionKey, position, heading,
+		)
+		if err != nil {
+			return fmt.Errorf("session: summon %s: %w", mob.ID, err)
+		}
+		childFrame := command.Summon.Frame
+		childFrame.Addressee = formatEntityID(entity.ID)
+		for _, child := range command.Summon.Impacts {
+			if err := driver.evaluator.Evaluate(ctx, child, childFrame); err != nil {
+				if rollbackErr := driver.combat.DismissSummon(driver.tick, entity.ID); rollbackErr != nil {
+					return fmt.Errorf("session: summon child %s failed: %w; rollback failed: %w",
+						child.Key, err, rollbackErr)
+				}
+				return fmt.Errorf("session: summon child %s failed: %w", child.Key, err)
+			}
+		}
+		driver.summons[command.ExecutionKey] = entity.ID
+		return nil
+
+	case script.CommandTurnMob:
+		if driver.combat == nil {
+			return fmt.Errorf("session: turn mob %s has no combat host", command.EntityID)
+		}
+		entityID, err := parseEntityID(command.EntityID)
+		if err != nil {
+			return err
+		}
+		return driver.combat.TurnMob(driver.tick, entityID, gametypes.Vec3{
+			X: command.Destination.Position.X,
+			Y: command.Destination.Position.Y,
+			Z: command.Destination.Position.Z,
+		})
 
 	case script.CommandDamage, script.CommandSetTarget:
 		// Neither is reached by the quest trees this adapter serves; both

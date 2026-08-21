@@ -764,6 +764,35 @@ func TestDestinationLocatorMissingPairFailsExplicitly(t *testing.T) {
 	}
 }
 
+func TestTurnMobMissingEntityFailsWithoutMutatingTheZone(t *testing.T) {
+	t.Parallel()
+	fixture := newEffectIntegrationFixture(t)
+	var before float32
+	_ = fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		before = tick.Entity(fixture.mobID).Heading
+		return nil
+	})
+
+	err := fixture.apply(t, script.Command{
+		Kind:     script.CommandTurnMob,
+		EntityID: "999999",
+		Destination: script.Destination{Position: script.Position{
+			X: 100, Y: 200, Z: 3,
+		}},
+		ExecutionKey: "missing-turn|firewall",
+	})
+	if err == nil || !strings.Contains(err.Error(), "is not a combat mob") {
+		t.Fatalf("turn missing entity error = %v", err)
+	}
+
+	_ = fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		if got := tick.Entity(fixture.mobID).Heading; got != before {
+			t.Fatalf("unrelated mob heading = %v, want unchanged %v", got, before)
+		}
+		return nil
+	})
+}
+
 func TestScaledDamageRoundsHalfUpWithExactDecimalArithmetic(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {

@@ -50,6 +50,7 @@ type mobState struct {
 	stopDistance float32
 	respawnMin   time.Duration
 	respawnMax   time.Duration
+	summoned     bool
 }
 
 func (module *Module) newMobState(mob gametypes.Mob, spawn gametypes.NPCSpawn) *mobState {
@@ -278,6 +279,11 @@ func (module *Module) despawnCorpse(tick gametypes.Tick, victimID uint64) {
 	entity := tick.Entity(victimID)
 	state, ok := module.mobs[victimID]
 	if entity == nil || !ok || state.phase != phaseDead {
+		return
+	}
+	if state.summoned {
+		tick.Despawn(victimID)
+		delete(module.mobs, victimID)
 		return
 	}
 	entity.Replicated = false

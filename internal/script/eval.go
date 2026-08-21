@@ -333,6 +333,10 @@ func m3Handlers() map[string]handler {
 		// Warrior kit.
 		"ScaledPhysicalWeaponDamage": evalScaledPhysicalWeaponDamage,
 		"ImpactSetTarget":            evalImpactSetTarget,
+
+		// Authored world state used by quest 4-30's Firewall sequence.
+		"ImpactTurnMob": evalImpactTurnMob,
+		"ImpactSummon":  evalImpactSummon,
 	}
 }
 

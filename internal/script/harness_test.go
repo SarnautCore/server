@@ -187,6 +187,22 @@ func (host *fakeHost) Apply(_ context.Context, command script.Command) error {
 			"apply set-target %s -> %s key=%s",
 			command.EntityID, command.TargetID, command.ExecutionKey,
 		))
+	case script.CommandTurnMob:
+		host.trace = append(host.trace, fmt.Sprintf(
+			"apply turn-mob %s toward %.3f,%.3f,%.3f key=%s",
+			command.EntityID,
+			command.Destination.Position.X, command.Destination.Position.Y, command.Destination.Position.Z,
+			command.ExecutionKey,
+		))
+	case script.CommandSummon:
+		host.trace = append(host.trace, fmt.Sprintf(
+			"apply summon %s at %.3f,%.3f,%.3f key=%s",
+			command.Summon.Object.ID,
+			command.Summon.Destination.Position.X,
+			command.Summon.Destination.Position.Y,
+			command.Summon.Destination.Position.Z,
+			command.ExecutionKey,
+		))
 	case script.CommandAttachGuard:
 		host.trace = append(host.trace, fmt.Sprintf(
 			"apply attach-guard %s radius=%s notice=%t key=%s",

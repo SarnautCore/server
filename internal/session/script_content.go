@@ -1,6 +1,7 @@
 package session
 
 import (
+	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/script"
 )
@@ -90,4 +91,13 @@ func (source *PackQuestScriptSource) LocateDestination(mapRef script.Ref, script
 	}
 	position, ok := source.content.MapLocator(mapRef.ID, scriptID)
 	return script.Position{X: position.X, Y: position.Y, Z: position.Z}, ok
+}
+
+// SummonMob resolves a mob row already validated by the compiled pack. Map
+// locator loading is deliberately separate from this content lookup.
+func (source *PackQuestScriptSource) SummonMob(ref script.Ref) (gametypes.Mob, bool) {
+	if source == nil || source.content == nil || ref.RowType != "mob" {
+		return gametypes.Mob{}, false
+	}
+	return source.content.Mob(ref.ID)
 }

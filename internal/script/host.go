@@ -115,6 +115,13 @@ const (
 	// CommandSetTarget answers ImpactSetTarget, which is where
 	// AddresseeFinderCaster appears in Mechanics/Spells/Warrior.
 	CommandSetTarget
+	// CommandTurnMob faces one stationary, non-combat mob toward an absolute
+	// destination. The session host owns the combat-state check and heading
+	// mutation; the evaluator only resolves the authored destination.
+	CommandTurnMob
+	// CommandSummon creates one content-described world object at an authored
+	// destination, then evaluates its child impacts against that new addressee.
+	CommandSummon
 	// Persistent trigger effects are registered by the host. The evaluator
 	// validates and types their content, while the host owns their lifetime.
 	CommandAttachGuard
@@ -142,6 +149,11 @@ type Command struct {
 	ThreatMultiplier Decimal
 	// TargetID is whom CommandSetTarget points the entity at.
 	TargetID string
+	// Destination is the resolved absolute point used by world-state commands.
+	Destination Destination
+	// Summon carries the complete atomic summon request. It is nil for every
+	// other command kind.
+	Summon *SummonCommand
 	// Attachment carries the trigger for CommandAttachTrigger and
 	// CommandDetachTrigger. It is nil for every other kind.
 	Attachment *Attachment
@@ -161,6 +173,16 @@ type Command struct {
 	// and the node key, so a crash between applying a command and deleting its
 	// queue row cannot double-apply.
 	ExecutionKey string
+}
+
+// SummonCommand is the validated ImpactSummon payload. The host resolves the
+// content row, creates the object, and re-enters the one evaluator for Impacts
+// in stored source order with the new object as Frame.Addressee.
+type SummonCommand struct {
+	Object      Ref
+	Destination Destination
+	Impacts     []*Node
+	Frame       Frame
 }
 
 // Attachment is a trigger bound to an entity. It carries everything needed to
