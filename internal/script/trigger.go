@@ -100,14 +100,12 @@ func (evaluator *Evaluator) ActivateAttachment(ctx context.Context, attachment A
 	effects := attachment.Trigger.Nodes("effects")
 	for index, effect := range effects {
 		if err := evaluator.activate(ctx, effect, frame); err != nil {
-			failure := &attachmentActivationError{causes: []error{err}}
-			for rollback := index - 1; rollback >= 0; rollback-- {
-				if rollbackErr := evaluator.deactivateForRollback(ctx, effects[rollback], frame); rollbackErr != nil {
-					failure.rollbackIncomplete = true
-					failure.causes = append(failure.causes, fmt.Errorf(
-						"rollback effect %s: %w", effects[rollback].Key, rollbackErr,
-					))
-				}
+			cleanup := newAttachmentCleanup(attachment, frame, effects[:index], true, false)
+			failure := &attachmentActivationError{causes: []error{err}, cleanup: &cleanup}
+			if rollbackErr := evaluator.ContinueAttachmentCleanup(ctx, failure.cleanup); rollbackErr != nil {
+				failure.causes = append(failure.causes, rollbackErr)
+			} else {
+				failure.cleanup = nil
 			}
 			return failure
 		}
@@ -116,8 +114,8 @@ func (evaluator *Evaluator) ActivateAttachment(ctx context.Context, attachment A
 }
 
 type attachmentActivationError struct {
-	causes             []error
-	rollbackIncomplete bool
+	causes  []error
+	cleanup *AttachmentCleanup
 }
 
 func (failure *attachmentActivationError) Error() string {
@@ -125,12 +123,158 @@ func (failure *attachmentActivationError) Error() string {
 }
 func (failure *attachmentActivationError) Unwrap() []error { return failure.causes }
 
-// AttachmentRollbackIncomplete reports whether activation failed and at least
-// one reverse cleanup also failed. The host retains the attachment document so
-// it can finish that cleanup later without publishing the trigger as live.
-func AttachmentRollbackIncomplete(err error) bool {
+// AttachmentRollbackCleanup returns the exact unfinished compensation from a
+// failed activation. It retains rollback intent, the activation attempt, and
+// only the effects that have not yet cleaned up.
+func AttachmentRollbackCleanup(err error) (AttachmentCleanup, bool) {
 	var failure *attachmentActivationError
-	return errors.As(err, &failure) && failure.rollbackIncomplete
+	if !errors.As(err, &failure) || failure.cleanup == nil {
+		return AttachmentCleanup{}, false
+	}
+	cleanup := *failure.cleanup
+	cleanup.remaining = append([]attachmentCleanupStep(nil), failure.cleanup.remaining...)
+	return cleanup, true
+}
+
+// AttachmentCleanup is resumable attachment cleanup owned by the host. It
+// records progress so a retry never repeats an impactsOff branch or changes a
+// replayed effect from an earlier activation attempt.
+type AttachmentCleanup struct {
+	attachment    Attachment
+	frame         Frame
+	remaining     []attachmentCleanupStep
+	rollback      bool
+	detachTrigger bool
+}
+
+type attachmentCleanupStepKind uint8
+
+const (
+	cleanupAdmitEffect attachmentCleanupStepKind = iota
+	cleanupImpact
+	cleanupPersistentEffect
+	cleanupUnsupportedEffect
+)
+
+type attachmentCleanupStep struct {
+	kind attachmentCleanupStepKind
+	node *Node
+	// skipAfterAdmit is the number of this effect's action steps. An inert
+	// effect skips them without losing the plan's position.
+	skipAfterAdmit int
+}
+
+// AttachmentID identifies the cleanup without exposing its mutable progress.
+func (cleanup AttachmentCleanup) AttachmentID() string { return cleanup.attachment.ID }
+
+func newAttachmentCleanup(
+	attachment Attachment, frame Frame, effects []*Node, rollback, detachTrigger bool,
+) AttachmentCleanup {
+	remaining := make([]attachmentCleanupStep, 0, len(effects)*2)
+	for index := len(effects) - 1; index >= 0; index-- {
+		effect := effects[index]
+		var actions []attachmentCleanupStep
+		switch effect.Opcode {
+		case "Switch", "EffectTrigger":
+			for _, impact := range effect.Nodes("impactsOff") {
+				actions = append(actions, attachmentCleanupStep{kind: cleanupImpact, node: impact})
+			}
+		case "HealthTrigger":
+			if !rollback {
+				for _, impact := range effect.Nodes("impactsOff") {
+					actions = append(actions, attachmentCleanupStep{kind: cleanupImpact, node: impact})
+				}
+			}
+		case "EquipTrigger":
+		case "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
+			actions = append(actions, attachmentCleanupStep{kind: cleanupPersistentEffect, node: effect})
+		default:
+			actions = append(actions, attachmentCleanupStep{kind: cleanupUnsupportedEffect, node: effect})
+		}
+		remaining = append(remaining, attachmentCleanupStep{
+			kind: cleanupAdmitEffect, node: effect, skipAfterAdmit: len(actions),
+		})
+		remaining = append(remaining, actions...)
+	}
+	return AttachmentCleanup{
+		attachment: attachment, frame: frame, remaining: remaining,
+		rollback: rollback, detachTrigger: detachTrigger,
+	}
+}
+
+// BeginAttachmentDetach validates a normal lifecycle detach and returns its
+// resumable cleanup. The host retains the value until Continue succeeds.
+func (evaluator *Evaluator) BeginAttachmentDetach(attachment Attachment) (AttachmentCleanup, error) {
+	if !evaluator.options.Enabled {
+		return AttachmentCleanup{}, ErrDisabled
+	}
+	frame := evaluator.attachedFrame(attachment)
+	frame.Event = "detach"
+	var effects []*Node
+	if attachment.Trigger != nil {
+		run, err := evaluator.admit(attachment.Trigger, frame, "trigger is outside the M3 implemented tier")
+		if err != nil {
+			return AttachmentCleanup{}, err
+		}
+		if run {
+			effects = attachment.Trigger.Nodes("effects")
+		}
+	}
+	return newAttachmentCleanup(attachment, frame, effects, false, true), nil
+}
+
+// ContinueAttachmentCleanup resumes at the first unfinished effect. Successful
+// effects leave the plan immediately, so later retries cannot run them twice.
+func (evaluator *Evaluator) ContinueAttachmentCleanup(
+	ctx context.Context, cleanup *AttachmentCleanup,
+) error {
+	if cleanup == nil {
+		return fmt.Errorf("script: nil attachment cleanup")
+	}
+	for len(cleanup.remaining) > 0 {
+		step := cleanup.remaining[0]
+		var err error
+		switch step.kind {
+		case cleanupAdmitEffect:
+			var run bool
+			run, err = evaluator.admit(step.node, cleanup.frame, "effect is outside the M3 implemented tier")
+			if err == nil && !run {
+				cleanup.remaining = cleanup.remaining[1+step.skipAfterAdmit:]
+				continue
+			}
+		case cleanupImpact:
+			err = evaluator.eval(ctx, step.node, cleanup.frame)
+		case cleanupPersistentEffect:
+			err = evaluator.deactivatePersistentEffect(
+				ctx, step.node, cleanup.frame, cleanup.rollback,
+			)
+		case cleanupUnsupportedEffect:
+			err = &RefusedError{
+				SourceID: cleanup.frame.SourceID, NodeKey: step.node.Key,
+				Family: step.node.Family, Opcode: step.node.Opcode,
+				Reason: "no trigger effect handler registered",
+			}
+		default:
+			err = fmt.Errorf("script: attachment cleanup has unknown step %d", step.kind)
+		}
+		if err != nil {
+			return fmt.Errorf("cleanup node %s: %w", step.node.Key, err)
+		}
+		cleanup.remaining = cleanup.remaining[1:]
+	}
+	if !cleanup.detachTrigger {
+		return nil
+	}
+	if err := evaluator.host.Apply(ctx, Command{
+		Kind:         CommandDetachTrigger,
+		EntityID:     cleanup.attachment.EntityID,
+		Attachment:   &cleanup.attachment,
+		ExecutionKey: cleanup.frame.EvaluationID + "|detach|" + cleanup.attachment.TriggerRef.ID,
+	}); err != nil {
+		return err
+	}
+	cleanup.detachTrigger = false
+	return nil
 }
 
 // Detach ends an attachment. ADR 0036 says a Switch's impactsOff "runs once when
@@ -142,33 +286,11 @@ func AttachmentRollbackIncomplete(err error) bool {
 // this package deliberately holds none; recursing would run the off-branch of a
 // Switch that never ran its on-branch.
 func (evaluator *Evaluator) Detach(ctx context.Context, attachment Attachment) error {
-	if !evaluator.options.Enabled {
-		return ErrDisabled
+	cleanup, err := evaluator.BeginAttachmentDetach(attachment)
+	if err != nil {
+		return err
 	}
-
-	frame := evaluator.attachedFrame(attachment)
-	frame.Event = "detach"
-	if attachment.Trigger != nil {
-		run, err := evaluator.admit(attachment.Trigger, frame, "trigger is outside the M3 implemented tier")
-		if err != nil {
-			return err
-		}
-		if run {
-			effects := attachment.Trigger.Nodes("effects")
-			for index := len(effects) - 1; index >= 0; index-- {
-				if err := evaluator.deactivate(ctx, effects[index], frame); err != nil {
-					return err
-				}
-			}
-		}
-	}
-
-	return evaluator.host.Apply(ctx, Command{
-		Kind:         CommandDetachTrigger,
-		EntityID:     attachment.EntityID,
-		Attachment:   &attachment,
-		ExecutionKey: frame.EvaluationID + "|detach|" + attachment.TriggerRef.ID,
-	})
+	return evaluator.ContinueAttachmentCleanup(ctx, &cleanup)
 }
 
 // attachedFrame restores the attaching invocation and points the addressee at
@@ -345,44 +467,6 @@ func (evaluator *Evaluator) activate(ctx context.Context, node *Node, frame Fram
 	case "EquipTrigger", "HealthTrigger":
 		// Arming a gate runs nothing. Its impacts wait for an event.
 		return nil
-	default:
-		return &RefusedError{
-			SourceID: frame.SourceID, NodeKey: node.Key,
-			Family: node.Family, Opcode: node.Opcode,
-			Reason: "no trigger effect handler registered",
-		}
-	}
-}
-
-// deactivate runs an effect's off-branch.
-func (evaluator *Evaluator) deactivate(ctx context.Context, node *Node, frame Frame) error {
-	return evaluator.deactivateWithIntent(ctx, node, frame, false)
-}
-
-// deactivateForRollback compensates an effect that activated earlier in the
-// same attachment attempt. Persistent hosts need to distinguish this from a
-// normal lifecycle detach because rollback restores pre-attempt ordering.
-func (evaluator *Evaluator) deactivateForRollback(ctx context.Context, node *Node, frame Frame) error {
-	return evaluator.deactivateWithIntent(ctx, node, frame, true)
-}
-
-func (evaluator *Evaluator) deactivateWithIntent(
-	ctx context.Context, node *Node, frame Frame, rollback bool,
-) error {
-	run, err := evaluator.admit(node, frame, "effect is outside the M3 implemented tier")
-	if err != nil || !run {
-		return err
-	}
-	switch node.Opcode {
-	case "Switch", "EffectTrigger", "HealthTrigger":
-		// HealthTrigger belongs here rather than in deliver: its impactsOff is
-		// detach-time cleanup, as the schema describes it, not a second firing
-		// edge.
-		return evaluator.evalAll(ctx, node, "impactsOff", frame)
-	case "EquipTrigger":
-		return nil
-	case "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
-		return evaluator.deactivatePersistentEffect(ctx, node, frame, rollback)
 	default:
 		return &RefusedError{
 			SourceID: frame.SourceID, NodeKey: node.Key,

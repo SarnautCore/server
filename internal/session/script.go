@@ -94,10 +94,10 @@ type ScriptDriver struct {
 
 	// attachments maps a bearer entity to the triggers materialized onto it.
 	attachments map[uint64][]script.Attachment
-	// pendingDetaches owns dead-bearer attachments whose cleanup failed. They
-	// are no longer live and therefore cannot fire again, but their metadata is
-	// retained until every persistent effect has detached.
-	pendingDetaches      map[uint64][]script.Attachment
+	// pendingDetaches owns resumable cleanup for dead attachments and failed
+	// activation compensation. The attachment is not live while cleanup is
+	// pending, and completed effects are never run again on a retry.
+	pendingDetaches      map[uint64][]script.AttachmentCleanup
 	detachRetryScheduled map[uint64]bool
 	// scopes holds the spawn-scoped attachments: mobWorld-wide prototypes that
 	// materialize onto matching live mobs now and, for a scope that outlives
@@ -131,7 +131,7 @@ func NewScriptDriver(
 		quests:               questModule,
 		source:               source,
 		attachments:          make(map[uint64][]script.Attachment),
-		pendingDetaches:      make(map[uint64][]script.Attachment),
+		pendingDetaches:      make(map[uint64][]script.AttachmentCleanup),
 		detachRetryScheduled: make(map[uint64]bool),
 		tagged:               make(map[uint64]bool),
 		effects:              script.NewEffectRegistry(),
@@ -291,20 +291,29 @@ func (driver *ScriptDriver) MobKilled(tick gametypes.Tick, kill combat.Kill) {
 	// second time.
 	delete(driver.attachments, kill.VictimEntityID)
 	for _, attachment := range held {
-		driver.retainPendingDetach(kill.VictimEntityID, attachment)
+		cleanup, err := driver.evaluator.BeginAttachmentDetach(attachment)
+		if err != nil {
+			driver.logger.Warn("script trigger cleanup could not start",
+				"entity_id", kill.VictimEntityID,
+				"trigger", attachment.TriggerRef.ID, "error", err)
+			continue
+		}
+		driver.retainPendingDetach(kill.VictimEntityID, cleanup)
 	}
 	driver.retryPendingDetaches(tick, kill.VictimEntityID)
 	// The tag is event-admission state rather than effect-lifetime state.
 	delete(driver.tagged, kill.VictimEntityID)
 }
 
-func (driver *ScriptDriver) retainPendingDetach(entityID uint64, attachment script.Attachment) {
+func (driver *ScriptDriver) retainPendingDetach(
+	entityID uint64, cleanup script.AttachmentCleanup,
+) {
 	for _, existing := range driver.pendingDetaches[entityID] {
-		if existing.ID == attachment.ID {
+		if existing.AttachmentID() == cleanup.AttachmentID() {
 			return
 		}
 	}
-	driver.pendingDetaches[entityID] = append(driver.pendingDetaches[entityID], attachment)
+	driver.pendingDetaches[entityID] = append(driver.pendingDetaches[entityID], cleanup)
 }
 
 // retryPendingDetaches removes unpublished attachments in exact reverse order.
@@ -318,31 +327,22 @@ func (driver *ScriptDriver) retryPendingDetaches(tick gametypes.Tick, entityID u
 		return
 	}
 
-	failed := make([]bool, len(pending))
-	failedCount := 0
-	for index := len(pending) - 1; index >= 0; index-- {
-		if err := driver.evaluator.Detach(context.Background(), pending[index]); err != nil {
-			failed[index] = true
-			failedCount++
+	for len(pending) > 0 {
+		index := len(pending) - 1
+		if err := driver.evaluator.ContinueAttachmentCleanup(
+			context.Background(), &pending[index],
+		); err != nil {
 			driver.logger.Warn("script trigger cleanup failed",
 				"entity_id", entityID,
-				"trigger", pending[index].TriggerRef.ID, "error", err)
+				"attachment", pending[index].AttachmentID(), "error", err)
+			driver.pendingDetaches[entityID] = pending
+			driver.schedulePendingDetachRetry(tick, entityID)
+			return
 		}
+		pending = pending[:index]
 	}
-	if failedCount == 0 {
-		delete(driver.pendingDetaches, entityID)
-		delete(driver.detachRetryScheduled, entityID)
-		return
-	}
-
-	kept := make([]script.Attachment, 0, failedCount)
-	for index, attachment := range pending {
-		if failed[index] {
-			kept = append(kept, attachment)
-		}
-	}
-	driver.pendingDetaches[entityID] = kept
-	driver.schedulePendingDetachRetry(tick, entityID)
+	delete(driver.pendingDetaches, entityID)
+	delete(driver.detachRetryScheduled, entityID)
 }
 
 func (driver *ScriptDriver) schedulePendingDetachRetry(tick gametypes.Tick, entityID uint64) {
@@ -404,11 +404,16 @@ func (driver *ScriptDriver) materialize(attachment script.Attachment, entityID u
 			return
 		}
 	}
+	for _, cleanup := range driver.pendingDetaches[entityID] {
+		if cleanup.AttachmentID() == attachment.ID {
+			return
+		}
+	}
 	if err := driver.evaluator.ActivateAttachment(context.Background(), attachment); err != nil {
 		driver.logger.Warn("attach trigger effects failed",
 			"trigger", attachment.TriggerRef.ID, "entity_id", entityID, "error", err)
-		if script.AttachmentRollbackIncomplete(err) {
-			driver.retainPendingDetach(entityID, attachment)
+		if cleanup, ok := script.AttachmentRollbackCleanup(err); ok {
+			driver.retainPendingDetach(entityID, cleanup)
 			driver.schedulePendingDetachRetry(driver.tick, entityID)
 		}
 		return

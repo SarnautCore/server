@@ -112,6 +112,84 @@ func TestPersistentEffectActivationJoinsRollbackFailures(t *testing.T) {
 	}
 }
 
+func TestDetachRetryResumesAfterCompletedOffBranches(t *testing.T) {
+	t.Parallel()
+
+	host := newFakeHost()
+	rejected := errors.New("second impactsOff rejected")
+	host.applyErrors = map[int]error{3: rejected}
+	evaluator := script.New(host, enabled())
+	attachment := script.Attachment{
+		ID: "resumable-detach", EntityID: ratID,
+		TriggerRef: script.Ref{ID: "trigger.resumable-detach"},
+		Trigger: persistentTrigger("resumable-detach",
+			effect("effects/guard", "Guard"),
+			effect("effects/off", "EffectTrigger",
+				field("impactsOff", nodeList(
+					increaseQuestCount("effects/off/impactsOff[0]", ratCountID),
+					increaseQuestCount("effects/off/impactsOff[1]", dressCountID),
+				)),
+			),
+		),
+		Frame: newFrame(),
+	}
+	if err := evaluator.ActivateAttachment(t.Context(), attachment); err != nil {
+		t.Fatalf("ActivateAttachment() error = %v", err)
+	}
+	cleanup, err := evaluator.BeginAttachmentDetach(attachment)
+	if err != nil {
+		t.Fatalf("BeginAttachmentDetach() error = %v", err)
+	}
+	if err := evaluator.ContinueAttachmentCleanup(t.Context(), &cleanup); !errors.Is(err, rejected) {
+		t.Fatalf("first cleanup error = %v, want second impactsOff rejection", err)
+	}
+	delete(host.applyErrors, 3)
+	if err := evaluator.ContinueAttachmentCleanup(t.Context(), &cleanup); err != nil {
+		t.Fatalf("cleanup retry error = %v", err)
+	}
+
+	increments := make(map[string]int)
+	for _, command := range host.commands {
+		if command.Kind == script.CommandIncreaseQuestCount {
+			increments[command.Ref.ID]++
+		}
+	}
+	if increments[ratCountID] != 1 || increments[dressCountID] != 1 {
+		t.Fatalf("impactsOff increments = %v, want each impact exactly once across retry", increments)
+	}
+}
+
+func TestActivationRollbackDoesNotRunUnfiredHealthTriggerOffBranch(t *testing.T) {
+	t.Parallel()
+
+	host := newFakeHost()
+	rejected := errors.New("Guard attach rejected")
+	host.applyErrors = map[int]error{1: rejected}
+	evaluator := script.New(host, enabled())
+	attachment := script.Attachment{
+		ID: "health-rollback", EntityID: ratID,
+		TriggerRef: script.Ref{ID: "trigger.health-rollback"},
+		Trigger: persistentTrigger("health-rollback",
+			effect("effects/health", "HealthTrigger",
+				field("impactsOff", nodeList(
+					increaseQuestCount("effects/health/impactsOff[0]", ratCountID),
+				)),
+			),
+			effect("effects/guard", "Guard"),
+		),
+		Frame: newFrame(),
+	}
+
+	if err := evaluator.ActivateAttachment(t.Context(), attachment); !errors.Is(err, rejected) {
+		t.Fatalf("ActivateAttachment() error = %v, want Guard rejection", err)
+	}
+	for _, command := range host.commands {
+		if command.Kind == script.CommandIncreaseQuestCount {
+			t.Fatal("activation rollback ran an unfired HealthTrigger impactsOff")
+		}
+	}
+}
+
 func TestPersistentModifierParsesCasterPredicateGroupAndStackFilters(t *testing.T) {
 	t.Parallel()
 	host := newFakeHost()

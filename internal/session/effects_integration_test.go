@@ -451,6 +451,22 @@ func TestFailedActivationRollbackRetainsMetadataUntilRetryCompletes(t *testing.T
 	); !state.GuardActive {
 		t.Fatal("failed compensation lost the live state its retry must remove")
 	}
+	if err := fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		fixture.driver.tick = tick
+		defer func() { fixture.driver.tick = nil }()
+		fixture.driver.materialize(attachment, fixture.mobID)
+		return nil
+	}); err != nil {
+		t.Fatalf("replayed materialize while cleanup pending: %v", err)
+	}
+	if applyCalls != 3 || len(fixture.driver.attachments[fixture.mobID]) != 0 ||
+		len(fixture.driver.pendingDetaches[fixture.mobID]) != 1 {
+		t.Fatalf(
+			"pending cleanup admitted a replay: calls=%d live=%d pending=%d",
+			applyCalls, len(fixture.driver.attachments[fixture.mobID]),
+			len(fixture.driver.pendingDetaches[fixture.mobID]),
+		)
+	}
 
 	fixture.zone.Step()
 	if len(fixture.driver.pendingDetaches[fixture.mobID]) != 0 {
@@ -460,6 +476,83 @@ func TestFailedActivationRollbackRetainsMetadataUntilRetryCompletes(t *testing.T
 		formatEntityID(fixture.mobID), script.Decimal{Mantissa: 100},
 	); state.GuardActive {
 		t.Fatalf("successful compensation retry retained Guard state %#v", state)
+	}
+}
+
+func TestFailedActivationRollbackRetryPreservesReplayedEarlierEffect(t *testing.T) {
+	t.Parallel()
+	fixture := newEffectIntegrationFixture(t)
+	attachment := script.Attachment{
+		ID: "rollback-replay", EntityID: formatEntityID(fixture.mobID),
+		TriggerRef: script.Ref{ID: "trigger.rollback-replay"},
+		Trigger: &script.Node{
+			Key: "trigger.rollback-replay", Family: script.FamilyTrigger,
+			Opcode: "TriggerResource", Tier: script.TierImplemented,
+			Fields: []script.Field{{Name: "effects", Value: script.Value{
+				Kind: script.ValueList,
+				List: []script.Value{
+					{Kind: script.ValueNode, Node: &script.Node{
+						Key: "effects/preexisting", Family: script.FamilyEffect,
+						Opcode: "Guard", Tier: script.TierImplemented,
+					}},
+					{Kind: script.ValueNode, Node: &script.Node{
+						Key: "effects/new", Family: script.FamilyEffect,
+						Opcode: "Guard", Tier: script.TierImplemented,
+					}},
+					{Kind: script.ValueNode, Node: &script.Node{
+						Key: "effects/rejected", Family: script.FamilyEffect,
+						Opcode: "Guard", Tier: script.TierImplemented,
+					}},
+				},
+			}}},
+		},
+		Frame: script.Frame{
+			EvaluationID: "rollback-replay-eval", SourceID: "quest.rollback-replay",
+			ZoneID: fixture.zone.ID(), CasterID: formatEntityID(fixture.playerID),
+		},
+	}
+	preexistingID := attachment.ID + "|effects/preexisting"
+	if err := fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		fixture.driver.tick = tick
+		defer func() { fixture.driver.tick = nil }()
+		return (scriptHost{driver: fixture.driver}).Apply(t.Context(), script.Command{
+			Kind: script.CommandAttachGuard, EntityID: attachment.EntityID,
+			EffectID: preexistingID, Guard: &script.Guard{
+				Radius: script.Decimal{Mantissa: 425, Scale: 1},
+			}, LifecycleAttempt: 99,
+		})
+	}); err != nil {
+		t.Fatalf("seed pre-existing Guard: %v", err)
+	}
+
+	originalApply := fixture.driver.applyGuardUpdate
+	applyCalls := 0
+	fixture.driver.applyGuardUpdate = func(
+		tick gametypes.Tick, entityID uint64, update combat.GuardUpdate,
+	) error {
+		applyCalls++
+		if applyCalls == 2 || applyCalls == 3 {
+			return errors.New("injected activation or rollback rejection")
+		}
+		return originalApply(tick, entityID, update)
+	}
+	if err := fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		fixture.driver.tick = tick
+		defer func() { fixture.driver.tick = nil }()
+		fixture.driver.materialize(attachment, fixture.mobID)
+		return nil
+	}); err != nil {
+		t.Fatalf("materialize attachment: %v", err)
+	}
+	if len(fixture.driver.pendingDetaches[fixture.mobID]) != 1 {
+		t.Fatal("failed compensation did not retain retry metadata")
+	}
+
+	fixture.zone.Step()
+	if state := fixture.driver.effects.GuardState(
+		formatEntityID(fixture.mobID), script.Decimal{Mantissa: 100},
+	); !state.GuardActive {
+		t.Fatal("compensation retry removed the Guard replayed from an earlier attempt")
 	}
 }
 
@@ -560,6 +653,83 @@ func TestFailedDeathDetachRetainsMetadataAndRetriesWithoutRefiring(t *testing.T)
 		formatEntityID(fixture.mobID), script.Decimal{Mantissa: 100},
 	); state.GuardActive {
 		t.Fatalf("successful retry retained Guard state %#v", state)
+	}
+}
+
+func TestDeathDetachFailurePreservesReverseAttachmentOrder(t *testing.T) {
+	t.Parallel()
+	fixture := newEffectIntegrationFixture(t)
+	attachment := func(id string, radius int64) script.Attachment {
+		return script.Attachment{
+			ID: id, EntityID: formatEntityID(fixture.mobID),
+			TriggerRef: script.Ref{ID: "trigger." + id},
+			Trigger: &script.Node{
+				Key: "trigger." + id, Family: script.FamilyTrigger,
+				Opcode: "TriggerResource", Tier: script.TierImplemented,
+				Fields: []script.Field{{Name: "effects", Value: script.Value{
+					Kind: script.ValueList,
+					List: []script.Value{{Kind: script.ValueNode, Node: &script.Node{
+						Key: "effects/guard-" + id, Family: script.FamilyEffect,
+						Opcode: "Guard", Tier: script.TierImplemented,
+						Fields: []script.Field{{Name: "scanRadius", Value: script.Value{
+							Kind: script.ValueInteger, Integer: radius,
+						}}},
+					}}},
+				}}},
+			},
+			Frame: script.Frame{
+				EvaluationID: id + "-eval", SourceID: "quest." + id,
+				ZoneID: fixture.zone.ID(), CasterID: formatEntityID(fixture.playerID),
+			},
+		}
+	}
+	first := attachment("first", 10)
+	second := attachment("second", 20)
+	if err := fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		fixture.driver.tick = tick
+		defer func() { fixture.driver.tick = nil }()
+		fixture.driver.materialize(first, fixture.mobID)
+		fixture.driver.materialize(second, fixture.mobID)
+		return nil
+	}); err != nil {
+		t.Fatalf("materialize attachments: %v", err)
+	}
+
+	originalApply := fixture.driver.applyGuardUpdate
+	detachCalls := 0
+	fixture.driver.applyGuardUpdate = func(
+		tick gametypes.Tick, entityID uint64, update combat.GuardUpdate,
+	) error {
+		detachCalls++
+		if detachCalls == 1 {
+			return errors.New("injected later-attachment detach rejection")
+		}
+		return originalApply(tick, entityID, update)
+	}
+	if err := fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		fixture.driver.MobKilled(tick, combat.Kill{
+			VictimEntityID: fixture.mobID, KillerEntityID: fixture.playerID,
+			VictimContentID: effectTargetMob, DeathTick: tick.Number(),
+		})
+		return nil
+	}); err != nil {
+		t.Fatalf("death cleanup: %v", err)
+	}
+	if len(fixture.driver.pendingDetaches[fixture.mobID]) != 2 {
+		t.Fatalf(
+			"pending detaches = %d, want both attachments until the later one cleans up",
+			len(fixture.driver.pendingDetaches[fixture.mobID]),
+		)
+	}
+	if state := fixture.driver.effects.GuardState(
+		formatEntityID(fixture.mobID), script.Decimal{Mantissa: 100},
+	); state.ObserverRadius != (script.Decimal{Mantissa: 20}) {
+		t.Fatalf("failed reverse cleanup changed Guard order/state: %#v", state)
+	}
+
+	fixture.zone.Step()
+	if len(fixture.driver.pendingDetaches[fixture.mobID]) != 0 {
+		t.Fatal("successful ordered retry retained cleanup metadata")
 	}
 }
 
