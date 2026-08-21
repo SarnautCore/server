@@ -325,6 +325,10 @@ type Server struct {
 	// membership through a client payload or stale teardown.
 	Party PartySessions
 
+	// Cohorts publishes authenticated online presence for guild and raid
+	// recipient authorities. Durable membership remains outside the session.
+	Cohorts CohortSessions
+
 	// LocalChat admits authenticated player entities to the world-owned Say
 	// topology. Its authority also serves Chat.Options.SayAudience.
 	LocalChat LocalChatSessions
@@ -350,6 +354,10 @@ type Server struct {
 type PartySessions interface {
 	Connect(party.Actor) party.Refusal
 	Disconnect(party.Actor) party.Refusal
+}
+
+type CohortSessions interface {
+	Connect(uuid.UUID) (func(), error)
 }
 
 // LocalChatSessions binds authenticated world entities to the Say audience.
@@ -561,6 +569,13 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 			return fmt.Errorf("connect authenticated party presence: %s", refusal)
 		}
 		defer server.Party.Disconnect(actor)
+	}
+	if server.Cohorts != nil {
+		releaseCohorts, err := server.Cohorts.Connect(admission.CharacterID)
+		if err != nil {
+			return fmt.Errorf("connect authenticated cohort presence: %w", err)
+		}
+		defer releaseCohorts()
 	}
 
 	position, heading := character.spawn()

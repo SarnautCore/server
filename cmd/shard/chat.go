@@ -8,6 +8,7 @@ import (
 	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/chat"
 	"github.com/SarnautCore/server/internal/chataudience"
+	"github.com/SarnautCore/server/internal/currency"
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/party"
 	"github.com/SarnautCore/server/internal/session"
@@ -17,6 +18,28 @@ import (
 
 type characterNames interface {
 	CharacterByNormalizedName(context.Context, string) (charstore.Character, error)
+}
+
+type paidChatCurrencies struct {
+	ledger *currency.Ledger
+}
+
+func (currencies paidChatCurrencies) Spend(
+	ctx context.Context,
+	characterID uuid.UUID,
+	resource chat.AlternativeCurrency,
+	amount uint64,
+) (bool, error) {
+	if currencies.ledger == nil {
+		return false, errors.New("paid chat currency ledger is unavailable")
+	}
+	return currencies.ledger.SpendProductIdentity(
+		ctx,
+		characterID,
+		resource.ResourceID,
+		resource.SysName,
+		amount,
+	)
 }
 
 // worldChatSessions publishes the current world implementation's visibility

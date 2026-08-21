@@ -15,8 +15,10 @@ import (
 	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/chat"
 	"github.com/SarnautCore/server/internal/chataudience"
+	"github.com/SarnautCore/server/internal/cohort"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/config"
+	"github.com/SarnautCore/server/internal/currency"
 	"github.com/SarnautCore/server/internal/health"
 	"github.com/SarnautCore/server/internal/infra"
 	"github.com/SarnautCore/server/internal/inventory"
@@ -212,12 +214,34 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		return fmt.Errorf("construct Say audience: %w", err)
 	}
 	localChatSessions := newWorldChatSessions(sayAudience, chatInfluence)
+	cohortRepository, err := cohort.NewPostgresRepository(pool)
+	if err != nil {
+		return fmt.Errorf("construct social cohort repository: %w", err)
+	}
+	cohortPresence := cohort.NewPresenceRegistry()
+	cohortAuthority, err := cohort.NewAuthority(cohortRepository, cohortPresence)
+	if err != nil {
+		return fmt.Errorf("construct social cohort authority: %w", err)
+	}
+	guildAudience, err := cohort.NewGuildChatAudience(cohortAuthority)
+	if err != nil {
+		return fmt.Errorf("construct guild chat audience: %w", err)
+	}
+	raidAudience, err := cohort.NewRaidChatAudience(cohortAuthority)
+	if err != nil {
+		return fmt.Errorf("construct raid chat audience: %w", err)
+	}
+	currencyLedger, err := currency.NewPostgres(pool)
+	if err != nil {
+		return fmt.Errorf("construct alternative currency ledger: %w", err)
+	}
 	chatModule := chat.New(chat.Options{
-		Directory:     characterDirectory{characters: repository},
-		GroupAudience: partyChatAudience{parties: partyAuthority},
-		SayAudience:   sayAudience,
-		// ZoneSpecial and World remain fail-closed until the exact alternative
-		// currency ledger is composed below.
+		Directory:       characterDirectory{characters: repository},
+		CurrencySpender: paidChatCurrencies{ledger: currencyLedger},
+		GroupAudience:   partyChatAudience{parties: partyAuthority},
+		RaidAudience:    raidAudience,
+		GuildAudience:   guildAudience,
+		SayAudience:     sayAudience,
 	})
 	// The bag is behind the repository, and the loot module is behind the bag:
 	// nothing in `internal/loot` can reach a database, and nothing in
@@ -297,6 +321,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		Characters:          characters,
 		Chat:                chatModule,
 		Party:               partyAuthority,
+		Cohorts:             cohortPresence,
 		LocalChat:           localChatSessions,
 		SaveInterval:        settings.Persistence.SaveInterval,
 		Logger:              logger,
