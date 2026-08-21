@@ -417,7 +417,7 @@ func TestRollbackDetachRestoresGuardBookkeeping(t *testing.T) {
 	}
 	second := script.Command{
 		Kind: script.CommandAttachGuard, EntityID: ratID, EffectID: "second",
-		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 20}, NoticeTarget: true},
+		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 20}},
 	}
 	if _, err := registry.Apply(first, owner); err != nil {
 		t.Fatalf("attach first Guard: %v", err)

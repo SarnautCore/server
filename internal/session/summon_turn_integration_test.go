@@ -3,6 +3,7 @@ package session_test
 import (
 	"log/slog"
 	"math"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -70,7 +71,7 @@ func (source quest430LocatorSource) SummonMob(ref script.Ref) (gametypes.Mob, bo
 func (source quest430LocatorSource) LocateDestination(
 	mapRef script.Ref, scriptID string,
 ) (script.Position, bool) {
-	if mapRef.ID != leagueMapSlug || mapRef.RowType != "map-resource" {
+	if mapRef.ID != leagueMapSlug || mapRef.RowType != "map" {
 		return script.Position{}, false
 	}
 	if scriptID == source.missingLocator {
@@ -91,7 +92,7 @@ func (source quest430LocatorSource) LocateDestination(
 func quest430Destination(key, mapID, scriptID string) *script.Node {
 	locator := scriptNode(script.FamilyBasic, key+"/locator", "Struct",
 		script.Field{Name: "map", Value: script.Value{Kind: script.ValueRef,
-			Ref: script.Ref{ID: mapID, RowType: "map-resource"}}},
+			Ref: script.Ref{ID: mapID, RowType: "map"}}},
 		script.Field{Name: "scriptID", Value: script.Value{Kind: script.ValueText, Text: scriptID}},
 	)
 	return scriptNode(script.FamilyImpact, key, "DestinationLocator",
@@ -170,6 +171,97 @@ func TestQuest430RefusesMissingSummonMobBeforeWorldMutation(t *testing.T) {
 	if got := countEntitiesWithContentID(t, zone, demonScoutID); got != 0 {
 		t.Fatalf("live demons without a mob row = %d, want none", got)
 	}
+}
+
+func TestRealCompiledPackQuest430CarriesSummonAndTurnMobContracts(t *testing.T) {
+	packPath := os.Getenv("SARNAUT_M3_INTEGRATION_PACK")
+	if packPath == "" {
+		t.Skip("set SARNAUT_M3_INTEGRATION_PACK to the private compiled M3 pack")
+	}
+	content, err := pack.Load(packPath, pack.Options{})
+	if err != nil {
+		t.Fatalf("pack.Load(real M3 pack) error = %v", err)
+	}
+	if content.ID() == "" {
+		t.Fatal("real M3 pack has no content identity")
+	}
+	source := session.NewPackQuestScriptSource(content)
+	if !source.HasDestinationIndex() {
+		t.Fatal("real M3 pack has no strict destination index")
+	}
+	activation, ok := source.QuestActivation(quest430ID)
+	if !ok {
+		t.Fatalf("real M3 pack has no %s activation", quest430ID)
+	}
+	summons := scriptNodesByOpcode(activation.StartImpacts, "ImpactSummon")
+	turns := scriptNodesByOpcode(activation.StartImpacts, "ImpactTurnMob")
+	if len(summons) != 1 || len(turns) != 1 {
+		t.Fatalf("Quest 4-30 world-state nodes: summon=%d turn=%d, want 1/1", len(summons), len(turns))
+	}
+
+	host := newPackTraceHost(source)
+	evaluator := script.New(host, script.Options{Enabled: true})
+	frame := script.Frame{
+		EvaluationID: "real-pack-world-state", PackID: content.ID(),
+		SourceID: quest430ID, ZoneID: leagueMapSlug,
+		CasterID: "character.player", TargetID: "mob.target", Addressee: "mob.target",
+	}
+	if err := evaluator.Evaluate(t.Context(), summons[0], frame); err != nil {
+		t.Fatalf("evaluate real ImpactSummon: %v", err)
+	}
+	if err := evaluator.Evaluate(t.Context(), turns[0], frame); err != nil {
+		t.Fatalf("evaluate real ImpactTurnMob: %v", err)
+	}
+	if len(host.commands) != 2 {
+		t.Fatalf("real world-state commands = %d, want two", len(host.commands))
+	}
+	summon := host.commands[0]
+	if summon.Kind != script.CommandSummon || summon.Summon == nil ||
+		summon.Summon.Object.ID != demonScoutID ||
+		summon.Summon.Destination.Map != (script.Ref{ID: leagueMapSlug, RowType: "map"}) {
+		t.Fatalf("real summon command = %#v", summon)
+	}
+	if got := summon.Summon.Impacts; len(got) != 2 ||
+		got[0].Opcode != "GoThroughPath" || got[1].Opcode != "ImpactsDeferred" {
+		t.Fatalf("real summon child order = %#v", got)
+	}
+	turn := host.commands[1]
+	if turn.Kind != script.CommandTurnMob || turn.EntityID != frame.Addressee ||
+		turn.Destination.Map != (script.Ref{ID: leagueMapSlug, RowType: "map"}) {
+		t.Fatalf("real turn command = %#v", turn)
+	}
+	if got, want := host.trace, []string{"locate:DemonSpawn4", "locate:Firewall"}; !equalStrings(got, want) {
+		t.Fatalf("real locator trace = %v, want %v", got, want)
+	}
+}
+
+func scriptNodesByOpcode(roots []*script.Node, opcode string) []*script.Node {
+	var found []*script.Node
+	var visit func(*script.Node)
+	visit = func(node *script.Node) {
+		if node == nil {
+			return
+		}
+		if node.Opcode == opcode {
+			found = append(found, node)
+		}
+		for _, field := range node.Fields {
+			switch field.Value.Kind {
+			case script.ValueNode:
+				visit(field.Value.Node)
+			case script.ValueList:
+				for _, entry := range field.Value.List {
+					if entry.Kind == script.ValueNode {
+						visit(entry.Node)
+					}
+				}
+			}
+		}
+	}
+	for _, root := range roots {
+		visit(root)
+	}
+	return found
 }
 
 func newQuest430Integration(

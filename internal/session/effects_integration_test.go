@@ -25,6 +25,11 @@ type emptyScriptSource struct{}
 
 type indexedEmptyScriptSource struct{ emptyScriptSource }
 
+type summonScriptSource struct {
+	emptyScriptSource
+	mob gametypes.Mob
+}
+
 type effectDiscardSnapshots struct{}
 
 func (effectDiscardSnapshots) OfferSnapshot(world.Snapshot) {}
@@ -45,6 +50,10 @@ func (indexedEmptyScriptSource) HasDestinationIndex() bool { return true }
 
 func (indexedEmptyScriptSource) LocateDestination(script.Ref, string) (script.Position, bool) {
 	return script.Position{}, false
+}
+
+func (source summonScriptSource) SummonMob(ref script.Ref) (gametypes.Mob, bool) {
+	return source.mob, ref.RowType == "mob" && ref.ID == source.mob.ID
 }
 
 type effectIntegrationFixture struct {
@@ -305,7 +314,7 @@ func TestGuardAttachAndLastDetachDriveMobAggroObserver(t *testing.T) {
 	}
 	guard := script.Command{
 		Kind: script.CommandAttachGuard, EntityID: formatEntityID(fixture.mobID), EffectID: "guard-near",
-		Guard: &script.Guard{Radius: guardRadius, NoticeTarget: true},
+		Guard: &script.Guard{Radius: guardRadius},
 	}
 	if err := fixture.apply(t, guard); err != nil {
 		t.Fatalf("attach Guard: %v", err)
@@ -791,6 +800,54 @@ func TestTurnMobMissingEntityFailsWithoutMutatingTheZone(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func TestSummonCommandReplayDoesNotSpawnTwice(t *testing.T) {
+	t.Parallel()
+	fixture := newEffectIntegrationFixture(t)
+	content, err := pack.Load(filepath.Join("..", "..", "testdata", "packs", "demo"), pack.Options{})
+	if err != nil {
+		t.Fatalf("pack.Load() error = %v", err)
+	}
+	mob, ok := content.Mob(effectTargetMob)
+	if !ok {
+		t.Fatalf("fixture pack has no %s", effectTargetMob)
+	}
+	mob.ID = "mob.fixture.replay-summon"
+	fixture.driver.source = summonScriptSource{mob: mob}
+	command := script.Command{
+		Kind: script.CommandSummon,
+		Summon: &script.SummonCommand{
+			Object: script.Ref{ID: mob.ID, RowType: "mob"},
+			Destination: script.Destination{
+				Map:      script.Ref{ID: "fixture-map", RowType: "map"},
+				Position: script.Position{X: 4, Y: 5, Z: 6},
+			},
+		},
+		ExecutionKey: "summon-replay|same-evaluation",
+	}
+	if err := fixture.apply(t, command); err != nil {
+		t.Fatalf("first summon: %v", err)
+	}
+	if err := fixture.apply(t, command); err != nil {
+		t.Fatalf("replayed summon: %v", err)
+	}
+
+	count := 0
+	if err := fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		tick.Each(func(entity *gametypes.EntityData) bool {
+			if entity.ContentID == mob.ID {
+				count++
+			}
+			return true
+		})
+		return nil
+	}); err != nil {
+		t.Fatalf("count summons: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("summons after replay = %d, want one", count)
+	}
 }
 
 func TestScaledDamageRoundsHalfUpWithExactDecimalArithmetic(t *testing.T) {

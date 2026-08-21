@@ -12,7 +12,7 @@ const instLeagueStartMap = "inst-league-start"
 func destinationLocator(key, scriptID string) *script.Node {
 	locator := basic(key+"/locator", "Struct",
 		field("map", script.Value{Kind: script.ValueRef, Ref: script.Ref{
-			ID: instLeagueStartMap, RowType: "map-resource",
+			ID: instLeagueStartMap, RowType: "map",
 		}}),
 		field("scriptID", text(scriptID)),
 	)
