@@ -20,11 +20,11 @@ import (
 
 	contentv1 "github.com/SarnautCore/server/gen/sarnaut/content/v1"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/script"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -264,7 +264,7 @@ func (fixture *scriptZoneFixture) admit(t *testing.T, characterID uuid.UUID) {
 	t.Helper()
 	err := fixture.quests.Admit(fixture.playerID, characterID, quests.Character{
 		Level: 1,
-		Quests: []store.QuestState{
+		Quests: []quests.QuestState{
 			{QuestID: scriptQuestID, State: "accepted"},
 			{QuestID: scriptEquipQuest, State: "accepted"},
 		},
@@ -278,7 +278,7 @@ func (fixture *scriptZoneFixture) admit(t *testing.T, characterID uuid.UUID) {
 // exactly as combat does.
 func (fixture *scriptZoneFixture) kill(t *testing.T, victimID uint64) {
 	t.Helper()
-	err := fixture.zone.Command(func(tick *world.Tick) error {
+	err := fixture.zone.GameCommand(func(tick gametypes.Tick) error {
 		fixture.sink.MobKilled(tick, combat.Kill{
 			VictimEntityID:  victimID,
 			KillerEntityID:  fixture.playerID,
@@ -288,7 +288,7 @@ func (fixture *scriptZoneFixture) kill(t *testing.T, victimID uint64) {
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("Command(kill) error = %v", err)
+		t.Fatalf("GameCommand(kill) error = %v", err)
 	}
 }
 

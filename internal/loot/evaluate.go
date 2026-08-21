@@ -8,7 +8,7 @@
 // loot table or a second item is a content change and nothing else.
 //
 // The module holds no lock. Every mutation runs inside the zone's, through
-// world.Zone.Command, except the storage write of rule 5.6, which deliberately
+// Zone.GameCommand, except the storage write of rule 5.6, which deliberately
 // happens outside it: a database round trip must never run under the tick lock.
 package loot
 

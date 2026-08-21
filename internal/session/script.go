@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/script"
-	"github.com/SarnautCore/server/internal/world"
 )
 
 // This file is the impact interpreter's session adapter: the one place
@@ -69,13 +69,13 @@ func (driver *ScriptDriver) Census() *script.Census {
 //
 // All of its mutable state — the attachment registry, the tag set, the current
 // tick — is read and written only with the zone lock held: QuestActivated and
-// EquipChanged take the lock through zone.Command, and MobKilled arrives from
+// EquipChanged take the lock through Zone.GameCommand, and MobKilled arrives from
 // the kill fan-out that already holds it. That is the same discipline the
 // quest module's logs live under, and it is what lets the driver hold no
 // mutex of its own.
 type ScriptDriver struct {
 	logger    *slog.Logger
-	zone      *world.Zone
+	zone      gametypes.Zone
 	quests    *quests.Module
 	source    QuestScriptSource
 	evaluator *script.Evaluator
@@ -84,7 +84,7 @@ type ScriptDriver struct {
 	// tick is the tick the current evaluation runs in. It is set at every
 	// entry point before the evaluator is invoked and is what the host
 	// callbacks read; it is never read outside the zone lock.
-	tick *world.Tick
+	tick gametypes.Tick
 
 	// attachments maps a bearer entity to the triggers materialized onto it.
 	attachments map[uint64][]script.Attachment
@@ -106,7 +106,7 @@ type ScriptDriver struct {
 // nothing, exactly as the evaluator itself refuses.
 func NewScriptDriver(
 	logger *slog.Logger,
-	zone *world.Zone,
+	zone gametypes.Zone,
 	questModule *quests.Module,
 	source QuestScriptSource,
 	options script.Options,
@@ -144,7 +144,7 @@ func (driver *ScriptDriver) QuestActivated(entityID uint64, questID string) {
 	if !ok {
 		return
 	}
-	_ = driver.zone.Command(func(tick *world.Tick) error {
+	_ = driver.zone.GameCommand(func(tick gametypes.Tick) error {
 		driver.tick = tick
 		defer func() { driver.tick = nil }()
 
@@ -185,7 +185,7 @@ func (driver *ScriptDriver) QuestActivated(entityID uint64, questID string) {
 // crosses it on the way to zero. Second, spawn scopes materialize onto the
 // mobs alive at attach time (and onto later tags); a mob that respawns after
 // the scope was created is not re-attached until a world spawn hook exists.
-func (driver *ScriptDriver) MobKilled(tick *world.Tick, kill combat.Kill) {
+func (driver *ScriptDriver) MobKilled(tick gametypes.Tick, kill combat.Kill) {
 	if driver == nil {
 		return
 	}
@@ -236,7 +236,7 @@ func (driver *ScriptDriver) EquipChanged(entityID uint64, slot string, equipped 
 	if driver == nil {
 		return
 	}
-	_ = driver.zone.Command(func(tick *world.Tick) error {
+	_ = driver.zone.GameCommand(func(tick gametypes.Tick) error {
 		driver.tick = tick
 		defer func() { driver.tick = nil }()
 
@@ -284,8 +284,8 @@ func (driver *ScriptDriver) materialize(attachment script.Attachment, entityID u
 
 // materializeScope applies one spawn scope to every live mob it covers.
 func (driver *ScriptDriver) materializeScope(scope script.Attachment) {
-	driver.tick.Each(func(entity *world.Entity) bool {
-		if entity.Kind == world.EntityKindNPC && entity.Alive && entity.ContentID == scope.MobWorld.ID {
+	driver.tick.Each(func(entity *gametypes.EntityData) bool {
+		if entity.Kind == gametypes.EntityKindNPC && entity.Alive && entity.ContentID == scope.MobWorld.ID {
 			if !scope.OnlyTagged || driver.tagged[entity.ID] {
 				driver.materialize(scope, entity.ID)
 			}
@@ -329,7 +329,7 @@ func (host scriptHost) Query(_ context.Context, query script.Query) (script.Valu
 		}
 		entity := host.driver.tick.Entity(entityID)
 		return script.Value{
-			Kind: script.ValueBool, Bool: entity != nil && entity.Kind == world.EntityKindPlayer,
+			Kind: script.ValueBool, Bool: entity != nil && entity.Kind == gametypes.EntityKindPlayer,
 		}, nil
 	default:
 		// Class, race, quest-status and item queries wait for the quest-tree
@@ -374,8 +374,8 @@ func (host scriptHost) Resolve(_ context.Context, request script.ResolveRequest)
 		members[mobID] = true
 	}
 	var found []string
-	host.driver.tick.Each(func(entity *world.Entity) bool {
-		if entity.Kind == world.EntityKindNPC && entity.Alive && members[entity.ContentID] {
+	host.driver.tick.Each(func(entity *gametypes.EntityData) bool {
+		if entity.Kind == gametypes.EntityKindNPC && entity.Alive && members[entity.ContentID] {
 			found = append(found, formatEntityID(entity.ID))
 		}
 		return true
@@ -473,7 +473,7 @@ func (host scriptHost) Apply(_ context.Context, command script.Command) error {
 		}
 		entity := driver.tick.Entity(entityID)
 		_, err = driver.effects.Apply(command, script.EffectOwner{
-			Mob: entity != nil && entity.Kind == world.EntityKindNPC,
+			Mob: entity != nil && entity.Kind == gametypes.EntityKindNPC,
 			// An entity in this tick's spatial registry is cell-placed.
 			CellPlaced: entity != nil,
 		})
@@ -501,7 +501,7 @@ func (host scriptHost) Enqueue(_ context.Context, deferred script.Deferred) erro
 	if due := int64(deferred.DueAtMS); due > nowMS {
 		delayTicks = uint64((due - nowMS + intervalMS - 1) / intervalMS)
 	}
-	tick.After(delayTicks, func(later *world.Tick) {
+	tick.After(delayTicks, func(later gametypes.Tick) {
 		driver.tick = later
 		defer func() { driver.tick = nil }()
 		if err := driver.evaluator.Evaluate(context.Background(), deferred.Node, deferred.Frame); err != nil {
@@ -511,6 +511,8 @@ func (host scriptHost) Enqueue(_ context.Context, deferred script.Deferred) erro
 	})
 	return nil
 }
+
+var _ combat.KillSink = (*ScriptDriver)(nil)
 
 func formatEntityID(entityID uint64) string {
 	return strconv.FormatUint(entityID, 10)

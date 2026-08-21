@@ -16,7 +16,7 @@
 // `boundary_test.go` fails the build if either import appears.
 //
 // The module holds no lock of its own. Every quest log is read and written
-// under the zone's, either from inside a tick or through world.Zone.Command,
+// under the zone's, either from inside a tick or through Zone.GameCommand,
 // which is what makes "a kill and a turn-in cannot interleave" a property of
 // the composition rather than of a mutex nobody can see.
 package quests
@@ -275,7 +275,7 @@ func (module *Module) publish(characterID uuid.UUID, update Update) {
 // CreditKill is rule 5.4: one mob death turned into objective progress.
 //
 // It is called from inside the tick that caused the death, with the zone lock
-// held, so it does exactly what a world.System may do — mutate through state
+// held, so it does exactly what a gametypes.System may do: mutate through state
 // this lock already covers, and nothing that blocks.
 //
 // Credit goes to the killer and to nobody else (rule 5.4.2). One kill
@@ -346,13 +346,13 @@ type SpecialCredit struct {
 // published to the owner.
 //
 // It is called with the zone lock held, from inside the tick whose event fired
-// the script trigger, so it does exactly what a world.System may do. The
+// the script trigger, so it does exactly what a gametypes.System may do. The
 // counter clamps at the objective's limit rather than refusing: the data has
 // objectives with two independent increment paths against a limit of 1
 // (Quest_1_20/CountId_1 is reachable through DressTrigger and through
 // BrokenDoorExploit), and the second route arriving late is ordinary play, not
 // an error.
-func (module *Module) CreditSpecial(_ *world.Tick, credit SpecialCredit) {
+func (module *Module) CreditSpecial(_ gametypes.Tick, credit SpecialCredit) {
 	if credit.Delta <= 0 {
 		return
 	}

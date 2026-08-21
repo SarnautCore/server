@@ -109,9 +109,9 @@ func (sinks KillSinks) MobKilled(tick gametypes.Tick, kill Kill) {
 // KillSink is told about a mob death from inside the tick that caused it.
 //
 // It is called with the zone lock held, so an implementation must do exactly
-// what a world.System may do: mutate through the *Tick it is handed, and
-// nothing that blocks. `internal/loot` is the implementation; combat does not
-// import it, which is what keeps the dependency pointing one way.
+// what a gametypes.System may do: mutate through the Tick it is handed, and
+// nothing that blocks. `internal/loot` is one implementation; combat does not
+// import any consumer, which keeps the dependency pointing one way.
 type KillSink interface {
 	MobKilled(gametypes.Tick, Kill)
 }

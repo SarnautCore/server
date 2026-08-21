@@ -10,7 +10,7 @@
 // to source.
 //
 // The module holds no lock. Every mutation runs inside the zone's, either as a
-// registered world.System or through world.Zone.Command.
+// registered gametypes.System or through Zone.GameCommand.
 package combat
 
 import (
