@@ -348,7 +348,7 @@ type SpecialCredit struct {
 // It is called with the zone lock held, from inside the tick whose event fired
 // the script trigger, so it does exactly what a world.System may do. The
 // counter clamps at the objective's limit rather than refusing: the data has
-// objectives with two independent incrementers against a limit of 1
+// objectives with two independent increment paths against a limit of 1
 // (Quest_1_20/CountId_1 is reachable through DressTrigger and through
 // BrokenDoorExploit), and the second route arriving late is ordinary play, not
 // an error.

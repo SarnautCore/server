@@ -18,18 +18,15 @@ import (
 // `internal/script`'s host commands meet a zone's modules. It lives here for
 // the same reason KillSink does — this is the package that already knows every
 // module a zone is made of, and `internal/script` may import none of them
-// (its boundary test enforces stdlib-only), while `internal/quests` stays
+// (its boundary test enforces that module boundary), while `internal/quests` stays
 // impact-ignorant and only ever sees a [quests.SpecialCredit].
 //
 // Everything in the driver is feature-flagged twice over: the evaluator
 // refuses to run unless script.Options.Enabled is set, and a ZoneBinding with
 // a nil Scripts field wires nothing at all, which is the default composition.
 
-// QuestScriptSource provides the script trees and the two mappings the content
-// pack does not yet carry. M3-09 adds script rows and M3-14 carries them
-// through the pack build; when they land, `*pack.Pack` implements this and the
-// fixture implementations in tests keep working unchanged. Until then this
-// interface is the honest spelling of where the trees come from.
+// QuestScriptSource provides the compiled script trees and their lookup maps.
+// Production uses PackQuestScriptSource; tests may provide a smaller source.
 type QuestScriptSource interface {
 	// QuestActivation returns what accepting a quest evaluates: the
 	// startImpacts in authored order, then the triggerAgents.
@@ -53,8 +50,19 @@ type QuestActivation struct {
 
 // CounterBinding names the objective one QuestCountId advances.
 type CounterBinding struct {
-	QuestID        string
+	QuestID     string
+	ObjectiveID string
+	// ObjectiveIndex is the transitional runtime key until the M3-08 stable
+	// objective id reaches internal/quests. The pack row retains both fields.
 	ObjectiveIndex int
+}
+
+// Census returns the per-opcode counts reached by this zone's evaluator.
+func (driver *ScriptDriver) Census() *script.Census {
+	if driver == nil {
+		return nil
+	}
+	return driver.evaluator.Census()
 }
 
 // ScriptDriver runs the impact interpreter for one zone.

@@ -137,6 +137,7 @@ func TestLoadReadsTheContentPackFromTheEnvironment(t *testing.T) {
 	t.Setenv("SARNAUT_CONTENT_PACK", filepath.Join("packs", "classic", "demo"))
 	t.Setenv("SARNAUT_CONTENT_ALLOW_EXTRA", "true")
 	t.Setenv("SARNAUT_CONTENT_SKIP_UNSUPPORTED_QUESTS", "true")
+	t.Setenv("SARNAUT_CONTENT_ENABLE_IMPACT_INTERPRETER", "true")
 
 	got, err := config.Load("shard")
 	if err != nil {
@@ -150,6 +151,9 @@ func TestLoadReadsTheContentPackFromTheEnvironment(t *testing.T) {
 	}
 	if !got.Content.SkipUnsupportedQuests {
 		t.Error("Content.SkipUnsupportedQuests = false, want true")
+	}
+	if !got.Content.EnableImpactInterpreter {
+		t.Error("Content.EnableImpactInterpreter = false, want true")
 	}
 }
 
@@ -181,6 +185,9 @@ func TestDefaultsCarryNoPrivatePath(t *testing.T) {
 	}
 	if got.Content.SkipUnsupportedQuests {
 		t.Error("Content.SkipUnsupportedQuests defaults to true, want false")
+	}
+	if got.Content.EnableImpactInterpreter {
+		t.Error("Content.EnableImpactInterpreter defaults to true, want false")
 	}
 }
 

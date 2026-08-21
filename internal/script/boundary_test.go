@@ -28,6 +28,9 @@ const modulePath = "github.com/SarnautCore/server"
 var allowed = map[string]bool{
 	modulePath + "/internal/gametypes": true,
 	modulePath + "/internal/pack":      true,
+	// pack's compiled-row reader is generated-protobuf's only route into the
+	// evaluator. Generated messages are data bindings, not another module.
+	modulePath + "/gen/sarnaut/content/v1": true,
 }
 
 // TestScriptReachesOnlyItsTwoLeafDependencies walks the transitive import graph
@@ -73,7 +76,7 @@ func TestScriptReachesOnlyItsTwoLeafDependencies(t *testing.T) {
 			continue
 		}
 		t.Errorf(
-			"internal/script reaches %s (through %s); ADR 0036 allows only internal/gametypes and internal/pack",
+			"internal/script reaches %s (through %s); ADR 0036 allows only internal/gametypes, internal/pack and pack's generated content binding",
 			target, from[target],
 		)
 	}

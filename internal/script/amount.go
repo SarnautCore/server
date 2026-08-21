@@ -82,20 +82,6 @@ func align(left, right amount) (amount, amount, bool) {
 	return alignedLeft, alignedRight, leftOK && rightOK
 }
 
-func (value amount) add(other amount) (amount, bool) {
-	left, right, ok := align(value, other)
-	if !ok {
-		return amount{}, false
-	}
-	sum := left.mantissa + right.mantissa
-	// Overflow shows as a sign that neither operand could produce.
-	if (left.mantissa > 0 && right.mantissa > 0 && sum < 0) ||
-		(left.mantissa < 0 && right.mantissa < 0 && sum > 0) {
-		return amount{}, false
-	}
-	return amount{mantissa: sum, scale: left.scale}, true
-}
-
 // mul multiplies two exact decimals. The product's scale is the sum of the
 // operands' scales, then trailing zeroes are dropped so that a chain of scalers
 // does not run the scale up to the cap on its own.
@@ -146,16 +132,6 @@ func (value amount) compare(other amount) (int, bool) {
 }
 
 func (value amount) isZero() bool { return value.mantissa == 0 }
-
-// truncate converts to a whole number toward zero. Damage magnitudes reach the
-// host as integers; truncation rather than rounding is chosen so that a scaler
-// can never turn a sub-unit result into a unit of authoritative damage.
-func (value amount) truncate() int64 {
-	if value.scale == 0 {
-		return value.mantissa
-	}
-	return value.mantissa / powersOfTen[value.scale]
-}
 
 func (value amount) String() string {
 	if value.scale == 0 {

@@ -65,12 +65,9 @@ func (tier Tier) String() string {
 	}
 }
 
-// Node mirrors sarnaut.content.v1.ScriptNode. It is declared here rather than
-// aliased from internal/pack because the content rows do not exist yet: M3-09
-// adds them, M3-14 carries them through the pack build, and at that point this
-// type becomes a type alias to the decoded message and the fields below stop
-// being hand-rolled. Keeping the shape identical now is what makes that a
-// deletion rather than a rewrite.
+// Node is the evaluator-owned form of a validated pack.ScriptNode. The pack
+// reader owns protobuf and table validation; FromPackNode copies the recursive
+// values across this package boundary.
 type Node struct {
 	// Key is the owning content-row id followed by the field names and list
 	// ordinals on the path to this node. Stable across builds of the same
