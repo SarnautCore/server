@@ -23,6 +23,8 @@ const (
 
 type emptyScriptSource struct{}
 
+type indexedEmptyScriptSource struct{ emptyScriptSource }
+
 type effectDiscardSnapshots struct{}
 
 func (effectDiscardSnapshots) OfferSnapshot(world.Snapshot) {}
@@ -38,6 +40,12 @@ func (emptyScriptSource) Counter(script.Ref) (CounterBinding, bool) {
 }
 
 func (emptyScriptSource) SpawnTableMobs(script.Ref) []string { return nil }
+
+func (indexedEmptyScriptSource) HasDestinationIndex() bool { return true }
+
+func (indexedEmptyScriptSource) LocateDestination(script.Ref, string) (script.Position, bool) {
+	return script.Position{}, false
+}
 
 type effectIntegrationFixture struct {
 	zone        *world.Zone
@@ -741,6 +749,18 @@ func TestDestinationLocatorWithoutPackIndexFailsExplicitly(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "carries no absolute map-locator index") {
 		t.Fatalf("Locate() error = %v, want missing-index failure", err)
+	}
+}
+
+func TestDestinationLocatorMissingPairFailsExplicitly(t *testing.T) {
+	t.Parallel()
+	fixture := newEffectIntegrationFixture(t)
+	fixture.driver.source = indexedEmptyScriptSource{}
+	_, err := (scriptHost{driver: fixture.driver}).Locate(t.Context(), script.DestinationRequest{
+		Map: script.Ref{ID: "inst-league-start", RowType: "map"}, ScriptID: "MissingLocator",
+	})
+	if err == nil || !strings.Contains(err.Error(), "map locator inst-league-start/MissingLocator is absent") {
+		t.Fatalf("Locate() error = %v, want missing-pair failure", err)
 	}
 }
 

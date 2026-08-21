@@ -180,3 +180,24 @@ func (t *table) candidates(canonicalID string) [][]byte {
 	}
 	return matches
 }
+
+// rowKeyMatches verifies that one decoded row's canonical key hashes to the
+// key-index entry pointing at that row. The table format stores hashes rather
+// than key text, so the decoded fields remain the collision-resolution source.
+func (t *table) rowKeyMatches(ordinal uint32, canonicalID string) bool {
+	wanted := keyHash(canonicalID)
+	first := sort.Search(int(t.rowCount), func(index int) bool {
+		hash, _ := t.keyEntry(uint32(index))
+		return hash >= wanted
+	})
+	for index := uint32(first); index < t.rowCount; index++ {
+		hash, rowOrdinal := t.keyEntry(index)
+		if hash != wanted {
+			return false
+		}
+		if rowOrdinal == ordinal {
+			return true
+		}
+	}
+	return false
+}

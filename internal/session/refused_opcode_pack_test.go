@@ -14,7 +14,7 @@ import (
 
 const (
 	refusedOpcodeQuestID = "quest.inst-league1.quest-4-30"
-	refusedOpcodeMapID   = "ext.maps.inst-league-start.map-resource"
+	refusedOpcodeMapID   = "inst-league-start"
 	triggerTargetID      = "trigger.inst-league1.quest-3-20.trigger-target"
 	gibberDeathID        = "trigger.inst-league1.quest-4-30.gibber-death"
 	finalQuestID         = "trigger.inst-league1.quest-4-30.final-quest"
@@ -24,10 +24,11 @@ type packTraceHost struct {
 	commands []script.Command
 	trace    []string
 	effects  *script.EffectRegistry
+	locators *session.PackQuestScriptSource
 }
 
-func newPackTraceHost() *packTraceHost {
-	return &packTraceHost{effects: script.NewEffectRegistry()}
+func newPackTraceHost(locators *session.PackQuestScriptSource) *packTraceHost {
+	return &packTraceHost{effects: script.NewEffectRegistry(), locators: locators}
 }
 
 func (*packTraceHost) Now() time.Time { return time.Unix(0, 0) }
@@ -45,9 +46,9 @@ func (*packTraceHost) Resolve(context.Context, script.ResolveRequest) ([]string,
 }
 
 func (host *packTraceHost) Locate(_ context.Context, request script.DestinationRequest) (script.Destination, error) {
-	position := script.Position{X: 10, Y: 20, Z: 3}
-	if request.ScriptID == "Firewall" {
-		position = script.Position{X: -4, Y: 8, Z: 1}
+	position, ok := host.locators.LocateDestination(request.Map, request.ScriptID)
+	if !ok {
+		return script.Destination{}, fmt.Errorf("map locator %s/%s is absent", request.Map.ID, request.ScriptID)
 	}
 	host.trace = append(host.trace, "locate:"+request.ScriptID)
 	return script.Destination{Map: request.Map, Position: position}, nil
@@ -83,6 +84,17 @@ func TestCompiledPackDrivesAllSevenReachableFormerRefusals(t *testing.T) {
 		[]compiledPackRow{{id: questRow.GetId(), message: questRow}})
 	replaceSessionPackTable(t, directory, "script-triggers", contentv1.RowType_ROW_TYPE_SCRIPT_TRIGGER,
 		triggerRows)
+	replaceSessionPackTable(t, directory, "map-locators", contentv1.RowType_ROW_TYPE_MAP_LOCATOR,
+		[]compiledPackRow{
+			{id: refusedOpcodeMapID + "/DemonSpawn4", message: &contentv1.MapLocator{
+				MapId: refusedOpcodeMapID, ScriptId: "DemonSpawn4",
+				Position: &contentv1.Vec3{X: 318.3686, Y: 5871.289, Z: 32.2894},
+			}},
+			{id: refusedOpcodeMapID + "/Firewall", message: &contentv1.MapLocator{
+				MapId: refusedOpcodeMapID, ScriptId: "Firewall",
+				Position: &contentv1.Vec3{X: 306.745, Y: 5830.664, Z: 32.2787},
+			}},
+		})
 	resealSessionPack(t, directory)
 
 	loaded, err := pack.Load(directory, pack.Options{})
@@ -90,12 +102,21 @@ func TestCompiledPackDrivesAllSevenReachableFormerRefusals(t *testing.T) {
 		t.Fatalf("pack.Load(refused-opcode fixture) error = %v", err)
 	}
 	source := session.NewPackQuestScriptSource(loaded)
+	if !source.HasDestinationIndex() {
+		t.Fatal("compiled pack has no destination index")
+	}
+	if _, ok := source.LocateDestination(script.Ref{ID: refusedOpcodeMapID, RowType: "map"}, "Missing"); ok {
+		t.Fatal("missing locator pair resolved")
+	}
+	if _, ok := source.LocateDestination(script.Ref{ID: "ext.maps.inst-league-start.map-resource", RowType: "map"}, "Firewall"); ok {
+		t.Fatal("source-format alias resolved")
+	}
 	activation, ok := source.QuestActivation(refusedOpcodeQuestID)
 	if !ok || len(activation.StartImpacts) != 2 {
 		t.Fatalf("compiled destination activation = %d nodes, %t", len(activation.StartImpacts), ok)
 	}
 
-	host := newPackTraceHost()
+	host := newPackTraceHost(source)
 	evaluator := script.New(host, script.Options{Enabled: true})
 	frame := script.Frame{
 		EvaluationID: "pack-eval", PackID: loaded.ID(), ZoneID: "zone.inst-league1",
@@ -103,11 +124,11 @@ func TestCompiledPackDrivesAllSevenReachableFormerRefusals(t *testing.T) {
 		TargetID: "mob.target", Addressee: "mob.target",
 	}
 	first, err := evaluator.ResolveDestination(t.Context(), activation.StartImpacts[0], frame)
-	if err != nil || first.Position != (script.Position{X: 10, Y: 20, Z: 3}) || first.Yaw != (script.Decimal{}) {
+	if err != nil || first.Position != (script.Position{X: 318.3686, Y: 5871.289, Z: 32.2894}) || first.Yaw != (script.Decimal{}) {
 		t.Fatalf("DemonSpawn4 destination = %#v, %v", first, err)
 	}
 	second, err := evaluator.ResolveDestination(t.Context(), activation.StartImpacts[1], frame)
-	if err != nil || second.Position != (script.Position{X: -4, Y: 8, Z: 1}) || second.Yaw != (script.Decimal{}) {
+	if err != nil || second.Position != (script.Position{X: 306.745, Y: 5830.664, Z: 32.2787}) || second.Yaw != (script.Decimal{}) {
 		t.Fatalf("Firewall destination = %#v, %v", second, err)
 	}
 
@@ -203,7 +224,7 @@ func assertPackCommandSequence(t *testing.T, commands []script.Command) {
 }
 
 func refusedOpcodeRows() ([]*script.Node, []compiledPackRow) {
-	mapRef := script.Value{Kind: script.ValueRef, Ref: script.Ref{ID: refusedOpcodeMapID, RowType: "map-resource"}}
+	mapRef := script.Value{Kind: script.ValueRef, Ref: script.Ref{ID: refusedOpcodeMapID, RowType: "map"}}
 	destination := func(key, scriptID string, authoredYaw bool) *script.Node {
 		locator := packScriptNode(key+"/locator", script.FamilyBasic, "Struct", script.TierInert,
 			packField("map", mapRef), packField("scriptID", script.Value{Kind: script.ValueText, Text: scriptID}))

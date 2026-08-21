@@ -2,13 +2,14 @@ package script_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/SarnautCore/server/internal/script"
 )
 
-const mapResourceID = "ext.maps.inst-league-start.map-resource"
+const mapResourceID = "inst-league-start"
 
 func linear(key string, mantissa int64, scale int32) *script.Node {
 	return scaler(key, "LinearEffectScaler", field("coeff", decimal(mantissa, scale)))
@@ -252,6 +253,27 @@ func TestGuardUsesRetailDefaultsWhenFieldsAreOmitted(t *testing.T) {
 	}
 }
 
+func TestGuardRejectsNoticeTargetBeforeAnyHostCommand(t *testing.T) {
+	t.Parallel()
+	host := newFakeHost()
+	evaluator := script.New(host, enabled())
+	attachment := script.Attachment{
+		ID: "notice-guard", EntityID: ratID,
+		TriggerRef: script.Ref{ID: "trigger.notice-guard"},
+		Trigger: persistentTrigger("trigger.notice-guard", effect("guard/notice", "Guard",
+			field("noticeTarget", script.Value{Kind: script.ValueBool, Bool: true}))),
+		Frame: newFrame(),
+	}
+	err := evaluator.ActivateAttachment(t.Context(), attachment)
+	var refusal *script.RefusedError
+	if !errors.As(err, &refusal) || !strings.Contains(err.Error(), "noticeTarget=true") {
+		t.Fatalf("ActivateAttachment() error = %v, want noticeTarget refusal", err)
+	}
+	if len(host.commands) != 0 {
+		t.Fatalf("rejected Guard emitted %d host commands", len(host.commands))
+	}
+}
+
 func TestDamageModifierRegistryIsIdempotentAndGuardAggregationOwnsLastRemoval(t *testing.T) {
 	t.Parallel()
 
@@ -263,7 +285,7 @@ func TestDamageModifierRegistryIsIdempotentAndGuardAggregationOwnsLastRemoval(t 
 	}
 	guard50 := script.Command{
 		Kind: script.CommandAttachGuard, EntityID: ratID, EffectID: "guard-50",
-		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 50}, NoticeTarget: true},
+		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 50}},
 	}
 	first, err := registry.Apply(guard15, owner)
 	if err != nil || first.AggroMarkDelta != 1 {
@@ -278,8 +300,8 @@ func TestDamageModifierRegistryIsIdempotentAndGuardAggregationOwnsLastRemoval(t 
 	}
 	state := registry.GuardState(ratID, script.Decimal{Mantissa: 30})
 	if !state.GuardActive || state.ObserverRadius != (script.Decimal{Mantissa: 30}) ||
-		!state.NoticeTarget || state.RecheckEvery != 2*time.Second {
-		t.Fatalf("aggregated guard = %#v, want active radius 30 and notice", state)
+		state.NoticeTarget || state.RecheckEvery != 2*time.Second {
+		t.Fatalf("aggregated guard = %#v, want active radius 30 without notice", state)
 	}
 	if _, err := registry.Apply(script.Command{
 		Kind: script.CommandDetachGuard, EntityID: ratID, EffectID: "guard-50",
@@ -287,8 +309,8 @@ func TestDamageModifierRegistryIsIdempotentAndGuardAggregationOwnsLastRemoval(t 
 		t.Fatalf("detach guard 50: %v", err)
 	}
 	state = registry.GuardState(ratID, script.Decimal{Mantissa: 30})
-	if state.ObserverRadius != (script.Decimal{Mantissa: 15}) || !state.NoticeTarget {
-		t.Fatalf("guard after max removal = %#v, want radius 15 and retained notice", state)
+	if state.ObserverRadius != (script.Decimal{Mantissa: 15}) || state.NoticeTarget {
+		t.Fatalf("guard after max removal = %#v, want radius 15 without notice", state)
 	}
 	last, err := registry.Apply(script.Command{
 		Kind: script.CommandDetachGuard, EntityID: ratID, EffectID: "guard-15",
@@ -301,6 +323,28 @@ func TestDamageModifierRegistryIsIdempotentAndGuardAggregationOwnsLastRemoval(t 
 	}, owner)
 	if err != nil || replayedDetach.Changed {
 		t.Fatalf("replayed detach = %#v, %v, want no-op", replayedDetach, err)
+	}
+}
+
+func TestEffectRegistryRejectsNoticeTargetBeforeRegistryOrHostMutation(t *testing.T) {
+	t.Parallel()
+	registry := script.NewEffectRegistry()
+	hostCalls := 0
+	_, err := registry.ApplyAtomic(script.Command{
+		Kind: script.CommandAttachGuard, EntityID: ratID, EffectID: "guard-notice",
+		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 15}, NoticeTarget: true},
+	}, script.EffectOwner{Mob: true, CellPlaced: true}, func(script.EffectChange) error {
+		hostCalls++
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "noticeTarget=true") {
+		t.Fatalf("ApplyAtomic() error = %v, want noticeTarget rejection", err)
+	}
+	if hostCalls != 0 {
+		t.Fatalf("rejected Guard called host %d times", hostCalls)
+	}
+	if state := registry.GuardState(ratID, script.Decimal{Mantissa: 30}); state.GuardActive {
+		t.Fatalf("rejected Guard retained registry state %#v", state)
 	}
 }
 
@@ -562,7 +606,7 @@ func TestDestinationLocatorResolvesAbsolutePositionAndDefaultsYaw(t *testing.T) 
 	host.located[mapResourceID+"|Firewall"] = script.Position{X: 1.25, Y: -2.5, Z: 7}
 	evaluator := script.New(host, enabled())
 	locator := basic("destination/locator", "Struct",
-		field("map", script.Value{Kind: script.ValueRef, Ref: script.Ref{ID: mapResourceID, RowType: "map-resource"}}),
+		field("map", script.Value{Kind: script.ValueRef, Ref: script.Ref{ID: mapResourceID, RowType: "map"}}),
 		field("scriptID", text("Firewall")),
 	)
 	destination := impact("destination", "DestinationLocator", field("locator", node(locator)))
@@ -586,7 +630,7 @@ func TestDestinationLocatorRejectsMalformedPointersBeforeHostLookup(t *testing.T
 			field("scriptID", text("Firewall")),
 		),
 		basic("bad", "Struct",
-			field("map", script.Value{Kind: script.ValueRef, Ref: script.Ref{ID: mapResourceID, RowType: "map-resource"}}),
+			field("map", script.Value{Kind: script.ValueRef, Ref: script.Ref{ID: mapResourceID, RowType: "map"}}),
 			field("scriptID", text("")),
 		),
 	} {

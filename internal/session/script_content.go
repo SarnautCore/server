@@ -75,3 +75,19 @@ func (source *PackQuestScriptSource) SpawnTableMobs(ref script.Ref) []string {
 	}
 	return source.content.SpawnTableMobs(ref.ID)
 }
+
+// HasDestinationIndex distinguishes an older pack from a present index that
+// simply lacks one requested pair.
+func (source *PackQuestScriptSource) HasDestinationIndex() bool {
+	return source != nil && source.content != nil && source.content.HasMapLocatorIndex()
+}
+
+// LocateDestination resolves the exact product map slug and script id carried
+// by compiled content. Source-format aliases are not accepted here.
+func (source *PackQuestScriptSource) LocateDestination(mapRef script.Ref, scriptID string) (script.Position, bool) {
+	if source == nil || source.content == nil || mapRef.RowType != "map" {
+		return script.Position{}, false
+	}
+	position, ok := source.content.MapLocator(mapRef.ID, scriptID)
+	return script.Position{X: position.X, Y: position.Y, Z: position.Z}, ok
+}

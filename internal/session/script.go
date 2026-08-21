@@ -484,9 +484,19 @@ type destinationSource interface {
 	LocateDestination(script.Ref, string) (script.Position, bool)
 }
 
+type destinationIndexSource interface {
+	HasDestinationIndex() bool
+}
+
 func (host scriptHost) Locate(_ context.Context, request script.DestinationRequest) (script.Destination, error) {
 	source, ok := host.driver.source.(destinationSource)
 	if !ok {
+		return script.Destination{}, fmt.Errorf(
+			"session: script source carries no absolute map-locator index for %s/%s",
+			request.Map.ID, request.ScriptID,
+		)
+	}
+	if indexed, ok := host.driver.source.(destinationIndexSource); ok && !indexed.HasDestinationIndex() {
 		return script.Destination{}, fmt.Errorf(
 			"session: script source carries no absolute map-locator index for %s/%s",
 			request.Map.ID, request.ScriptID,

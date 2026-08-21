@@ -135,6 +135,7 @@ type Pack struct {
 	questScripts   map[string]QuestScript
 	scriptTriggers map[string]ScriptTrigger
 	spawnTableMobs map[string][]string
+	mapLocators    map[mapLocatorKey]Vec3
 	// items is the table handle, not its contents. See Pack.Item: the item
 	// tree is the one table this reader never materializes.
 	items *table
@@ -261,6 +262,10 @@ func Load(directory string, options Options) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	mapLocators, err := readMapLocators(tables)
+	if err != nil {
+		return nil, err
+	}
 	items, err := readItems(tables)
 	if err != nil {
 		return nil, err
@@ -281,6 +286,7 @@ func Load(directory string, options Options) (*Pack, error) {
 		questScripts:   questScripts,
 		scriptTriggers: scriptTriggers,
 		spawnTableMobs: spawnTableMobs,
+		mapLocators:    mapLocators,
 		items:          items,
 	}, nil
 }

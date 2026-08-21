@@ -22,7 +22,7 @@ type Item struct {
 	NameKey       string
 	Category      string
 	Level         uint32
-	RequiredLevel uint32
+	RequiredLevel int32
 	// StackLimit is the maximum number of units in one stack
 	// (mechanics/loot.md rule 5.7.1). It is per-item content, never a
 	// constant. See [Item.Stack] for what an absent value means.

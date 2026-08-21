@@ -33,9 +33,9 @@ func (evaluator *Evaluator) ResolveDestination(
 	}
 	locator := locators[0]
 	mapValue, ok := locator.Field("map")
-	if !ok || mapValue.Kind != ValueRef || mapValue.Ref.ID == "" || mapValue.Ref.RowType != "map-resource" {
+	if !ok || mapValue.Kind != ValueRef || mapValue.Ref.ID == "" || mapValue.Ref.RowType != "map" {
 		return Destination{}, destinationRefusal(
-			node, frame, "locator.map is missing or is not a map-resource reference",
+			node, frame, "locator.map is missing or is not a product map reference",
 		)
 	}
 	scriptID, ok := locator.Field("scriptID")

@@ -94,6 +94,9 @@ func parseGuard(node *Node, frame Frame) (Guard, error) {
 		if value.Kind != ValueBool {
 			return Guard{}, effectRefusal(node, frame, "field \"noticeTarget\" is not boolean")
 		}
+		if value.Bool {
+			return Guard{}, effectRefusal(node, frame, "noticeTarget=true is not implemented")
+		}
 		guard.NoticeTarget = value.Bool
 	}
 	return guard, nil

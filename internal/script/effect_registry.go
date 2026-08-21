@@ -164,6 +164,9 @@ func (registry *EffectRegistry) Apply(command Command, owner EffectOwner) (Effec
 		if command.Guard == nil {
 			return EffectChange{}, fmt.Errorf("script: attach guard %s carries no guard", command.EffectID)
 		}
+		if command.Guard.NoticeTarget {
+			return EffectChange{}, fmt.Errorf("script: guard %s noticeTarget=true is not implemented", command.EffectID)
+		}
 		if !owner.Mob || !owner.CellPlaced {
 			return EffectChange{}, fmt.Errorf(
 				"script: guard %s requires a cell-placed mob owner", command.EffectID,

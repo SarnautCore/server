@@ -55,6 +55,7 @@ const (
 	RowType_ROW_TYPE_LEVEL_CURVE    RowType = 14
 	RowType_ROW_TYPE_QUEST_SCRIPT   RowType = 15
 	RowType_ROW_TYPE_SCRIPT_TRIGGER RowType = 16
+	RowType_ROW_TYPE_MAP_LOCATOR    RowType = 17
 )
 
 // Enum value maps for RowType.
@@ -77,6 +78,7 @@ var (
 		14: "ROW_TYPE_LEVEL_CURVE",
 		15: "ROW_TYPE_QUEST_SCRIPT",
 		16: "ROW_TYPE_SCRIPT_TRIGGER",
+		17: "ROW_TYPE_MAP_LOCATOR",
 	}
 	RowType_value = map[string]int32{
 		"ROW_TYPE_UNSPECIFIED":    0,
@@ -96,6 +98,7 @@ var (
 		"ROW_TYPE_LEVEL_CURVE":    14,
 		"ROW_TYPE_QUEST_SCRIPT":   15,
 		"ROW_TYPE_SCRIPT_TRIGGER": 16,
+		"ROW_TYPE_MAP_LOCATOR":    17,
 	}
 )
 
@@ -1824,9 +1827,11 @@ type Item struct {
 	// Localization key for the display name (ADR 0007).
 	NameKey string `protobuf:"bytes,2,opt,name=name_key,json=nameKey,proto3" json:"name_key,omitempty"`
 	// Authored category slug, for example `consumable`.
-	Category      string `protobuf:"bytes,3,opt,name=category,proto3" json:"category,omitempty"`
-	Level         uint32 `protobuf:"varint,4,opt,name=level,proto3" json:"level,omitempty"`
-	RequiredLevel uint32 `protobuf:"varint,5,opt,name=required_level,json=requiredLevel,proto3" json:"required_level,omitempty"`
+	Category string `protobuf:"bytes,3,opt,name=category,proto3" json:"category,omitempty"`
+	Level    uint32 `protobuf:"varint,4,opt,name=level,proto3" json:"level,omitempty"`
+	// Authored signed gate. Classic 1.1 uses negative values for items without a
+	// player-level restriction, and its ItemResource field is a signed int.
+	RequiredLevel int32 `protobuf:"varint,5,opt,name=required_level,json=requiredLevel,proto3" json:"required_level,omitempty"`
 	// Maximum units in one stack. Zero means the authored record carried none,
 	// which the shard reads as unstackable (loot.md rule 5.7.6).
 	StackLimit int32 `protobuf:"varint,6,opt,name=stack_limit,json=stackLimit,proto3" json:"stack_limit,omitempty"`
@@ -1898,7 +1903,7 @@ func (x *Item) GetLevel() uint32 {
 	return 0
 }
 
-func (x *Item) GetRequiredLevel() uint32 {
+func (x *Item) GetRequiredLevel() int32 {
 	if x != nil {
 		return x.RequiredLevel
 	}
@@ -2764,8 +2769,8 @@ func (x *Locale) GetExtra() map[string]string {
 	return nil
 }
 
-// QuestObjective is one countable goal. Position in `Quest.objectives` is the
-// counter index (quests.md rule 7.5).
+// QuestObjective is one countable goal. objective_id is durable across source
+// counter reordering; position remains presentation order only.
 type QuestObjective struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Kind  QuestObjectiveKind     `protobuf:"varint,1,opt,name=kind,proto3,enum=sarnaut.content.v1.QuestObjectiveKind" json:"kind,omitempty"`
@@ -2781,8 +2786,12 @@ type QuestObjective struct {
 	CounterKey string `protobuf:"bytes,6,opt,name=counter_key,json=counterKey,proto3" json:"counter_key,omitempty"`
 	// Destroy the tracked items when the quest is abandoned (rule 5.5.5).
 	RemoveOnAbandon bool `protobuf:"varint,7,opt,name=remove_on_abandon,json=removeOnAbandon,proto3" json:"remove_on_abandon,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Quest-scoped stable identity: `<quest-id>.objective.<BLAKE3 hex>`. The
+	// extractor hashes the source QuestCountId when one exists, otherwise the
+	// counter kind, custom-name reference and target set.
+	ObjectiveId   string `protobuf:"bytes,8,opt,name=objective_id,json=objectiveId,proto3" json:"objective_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QuestObjective) Reset() {
@@ -2862,6 +2871,13 @@ func (x *QuestObjective) GetRemoveOnAbandon() bool {
 		return x.RemoveOnAbandon
 	}
 	return false
+}
+
+func (x *QuestObjective) GetObjectiveId() string {
+	if x != nil {
+		return x.ObjectiveId
+	}
+	return ""
 }
 
 // QuestPrerequisite is one gate on offering a quest (quests.md rule 5.3.3).
@@ -3298,12 +3314,15 @@ func (x *Decimal) GetScale() int32 {
 	return 0
 }
 
-// ContentRef is a resolved content reference: a canonical id and a row-type
-// slug, never a source href. The extractor resolves hrefs; nothing downstream
-// sees an xpointer (ADR 0036).
+// ContentRef is a resolved content reference: a product id and a row-type
+// slug, never a source href. Most ids are dotted canonical content ids. A
+// row_type of `map` carries the bare canonical map slug so DestinationLocator
+// and MapLocator use the same key. The extractor resolves hrefs; nothing
+// downstream sees an xpointer (ADR 0036).
 type ContentRef struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Canonical id, for example `trigger.inst-league1.il-quest-spells.rat-killer`.
+	// Product id, for example `trigger.inst-league1.il-quest-spells.rat-killer`
+	// or `inst-league-start` when row_type is `map`.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Row-type slug the id is expected to resolve against, for example
 	// `trigger`, `spawn-table`, `mob`, `quest-count-id`. Empty when the target
@@ -3928,6 +3947,73 @@ func (x *ScriptTrigger) GetRoot() *ScriptNode {
 	return nil
 }
 
+// MapLocator is one named global-frame point. Script impacts resolve the
+// composite (map_id, script_id); script_id alone is not globally unique. The
+// .sptbl row key is exactly `<map_id>/<script_id>`. Both components are
+// non-empty and exclude slash, backslash and control characters.
+type MapLocator struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical product map identity, for example `inst-league-start`.
+	MapId string `protobuf:"bytes,1,opt,name=map_id,json=mapId,proto3" json:"map_id,omitempty"`
+	// Authored script hook name, verbatim.
+	ScriptId string `protobuf:"bytes,2,opt,name=script_id,json=scriptId,proto3" json:"script_id,omitempty"`
+	// Global world position after the M3-08 coordinate-frame correction.
+	Position      *Vec3 `protobuf:"bytes,3,opt,name=position,proto3" json:"position,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MapLocator) Reset() {
+	*x = MapLocator{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MapLocator) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MapLocator) ProtoMessage() {}
+
+func (x *MapLocator) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MapLocator.ProtoReflect.Descriptor instead.
+func (*MapLocator) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *MapLocator) GetMapId() string {
+	if x != nil {
+		return x.MapId
+	}
+	return ""
+}
+
+func (x *MapLocator) GetScriptId() string {
+	if x != nil {
+		return x.ScriptId
+	}
+	return ""
+}
+
+func (x *MapLocator) GetPosition() *Vec3 {
+	if x != nil {
+		return x.Position
+	}
+	return nil
+}
+
 var File_sarnaut_content_v1_content_proto protoreflect.FileDescriptor
 
 const file_sarnaut_content_v1_content_proto_rawDesc = "" +
@@ -4108,7 +4194,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\bname_key\x18\x02 \x01(\tR\anameKey\x12\x1a\n" +
 	"\bcategory\x18\x03 \x01(\tR\bcategory\x12\x14\n" +
 	"\x05level\x18\x04 \x01(\rR\x05level\x12%\n" +
-	"\x0erequired_level\x18\x05 \x01(\rR\rrequiredLevel\x12\x1f\n" +
+	"\x0erequired_level\x18\x05 \x01(\x05R\rrequiredLevel\x12\x1f\n" +
 	"\vstack_limit\x18\x06 \x01(\x05R\n" +
 	"stackLimit\x12\x1f\n" +
 	"\vvendor_sell\x18\a \x01(\x03R\n" +
@@ -4207,7 +4293,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xac\x02\n" +
 	"\x0eQuestObjective\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.sarnaut.content.v1.QuestObjectiveKindR\x04kind\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x1d\n" +
@@ -4218,7 +4304,8 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"show_count\x18\x05 \x01(\bR\tshowCount\x12\x1f\n" +
 	"\vcounter_key\x18\x06 \x01(\tR\n" +
 	"counterKey\x12*\n" +
-	"\x11remove_on_abandon\x18\a \x01(\bR\x0fremoveOnAbandon\"W\n" +
+	"\x11remove_on_abandon\x18\a \x01(\bR\x0fremoveOnAbandon\x12!\n" +
+	"\fobjective_id\x18\b \x01(\tR\vobjectiveId\"W\n" +
 	"\x11QuestPrerequisite\x12\x19\n" +
 	"\bquest_id\x18\x01 \x01(\tR\aquestId\x12'\n" +
 	"\x0frequired_status\x18\x02 \x01(\tR\x0erequiredStatus\"X\n" +
@@ -4306,7 +4393,12 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x0etrigger_agents\x18\x05 \x03(\v2\x1e.sarnaut.content.v1.ScriptNodeR\rtriggerAgents\"S\n" +
 	"\rScriptTrigger\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x122\n" +
-	"\x04root\x18\x02 \x01(\v2\x1e.sarnaut.content.v1.ScriptNodeR\x04root*\x95\x03\n" +
+	"\x04root\x18\x02 \x01(\v2\x1e.sarnaut.content.v1.ScriptNodeR\x04root\"v\n" +
+	"\n" +
+	"MapLocator\x12\x15\n" +
+	"\x06map_id\x18\x01 \x01(\tR\x05mapId\x12\x1b\n" +
+	"\tscript_id\x18\x02 \x01(\tR\bscriptId\x124\n" +
+	"\bposition\x18\x03 \x01(\v2\x18.sarnaut.content.v1.Vec3R\bposition*\xaf\x03\n" +
 	"\aRowType\x12\x18\n" +
 	"\x14ROW_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rROW_TYPE_ZONE\x10\x01\x12\x16\n" +
@@ -4325,7 +4417,8 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x11ROW_TYPE_MOB_KIND\x10\r\x12\x18\n" +
 	"\x14ROW_TYPE_LEVEL_CURVE\x10\x0e\x12\x19\n" +
 	"\x15ROW_TYPE_QUEST_SCRIPT\x10\x0f\x12\x1b\n" +
-	"\x17ROW_TYPE_SCRIPT_TRIGGER\x10\x10*\x97\x01\n" +
+	"\x17ROW_TYPE_SCRIPT_TRIGGER\x10\x10\x12\x18\n" +
+	"\x14ROW_TYPE_MAP_LOCATOR\x10\x11*\x97\x01\n" +
 	"\fLootNodeKind\x12\x1e\n" +
 	"\x1aLOOT_NODE_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12LOOT_NODE_KIND_AND\x10\x01\x12\x15\n" +
@@ -4361,7 +4454,7 @@ func file_sarnaut_content_v1_content_proto_rawDescGZIP() []byte {
 }
 
 var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
+var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_sarnaut_content_v1_content_proto_goTypes = []any{
 	(RowType)(0),                // 0: sarnaut.content.v1.RowType
 	(LootNodeKind)(0),           // 1: sarnaut.content.v1.LootNodeKind
@@ -4406,61 +4499,62 @@ var file_sarnaut_content_v1_content_proto_goTypes = []any{
 	(*QuestCounterBinding)(nil), // 40: sarnaut.content.v1.QuestCounterBinding
 	(*QuestScript)(nil),         // 41: sarnaut.content.v1.QuestScript
 	(*ScriptTrigger)(nil),       // 42: sarnaut.content.v1.ScriptTrigger
-	nil,                         // 43: sarnaut.content.v1.Zone.ExtraEntry
-	nil,                         // 44: sarnaut.content.v1.Placement.ExtraEntry
-	nil,                         // 45: sarnaut.content.v1.SpawnTable.ExtraEntry
-	nil,                         // 46: sarnaut.content.v1.Ability.ExtraEntry
-	nil,                         // 47: sarnaut.content.v1.Faction.ExtraEntry
-	nil,                         // 48: sarnaut.content.v1.Mob.ExtraEntry
-	nil,                         // 49: sarnaut.content.v1.ChargenOption.ExtraEntry
-	nil,                         // 50: sarnaut.content.v1.Item.ExtraEntry
-	nil,                         // 51: sarnaut.content.v1.LootTable.ExtraEntry
-	nil,                         // 52: sarnaut.content.v1.MobKind.ExtraEntry
-	nil,                         // 53: sarnaut.content.v1.LevelCurve.ExtraEntry
-	nil,                         // 54: sarnaut.content.v1.Route.ExtraEntry
-	nil,                         // 55: sarnaut.content.v1.Locale.ExtraEntry
-	nil,                         // 56: sarnaut.content.v1.Quest.ExtraEntry
+	(*MapLocator)(nil),          // 43: sarnaut.content.v1.MapLocator
+	nil,                         // 44: sarnaut.content.v1.Zone.ExtraEntry
+	nil,                         // 45: sarnaut.content.v1.Placement.ExtraEntry
+	nil,                         // 46: sarnaut.content.v1.SpawnTable.ExtraEntry
+	nil,                         // 47: sarnaut.content.v1.Ability.ExtraEntry
+	nil,                         // 48: sarnaut.content.v1.Faction.ExtraEntry
+	nil,                         // 49: sarnaut.content.v1.Mob.ExtraEntry
+	nil,                         // 50: sarnaut.content.v1.ChargenOption.ExtraEntry
+	nil,                         // 51: sarnaut.content.v1.Item.ExtraEntry
+	nil,                         // 52: sarnaut.content.v1.LootTable.ExtraEntry
+	nil,                         // 53: sarnaut.content.v1.MobKind.ExtraEntry
+	nil,                         // 54: sarnaut.content.v1.LevelCurve.ExtraEntry
+	nil,                         // 55: sarnaut.content.v1.Route.ExtraEntry
+	nil,                         // 56: sarnaut.content.v1.Locale.ExtraEntry
+	nil,                         // 57: sarnaut.content.v1.Quest.ExtraEntry
 }
 var file_sarnaut_content_v1_content_proto_depIdxs = []int32{
 	5,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
 	5,  // 1: sarnaut.content.v1.Zone.bounds_min:type_name -> sarnaut.content.v1.Vec3
 	5,  // 2: sarnaut.content.v1.Zone.bounds_max:type_name -> sarnaut.content.v1.Vec3
-	43, // 3: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
+	44, // 3: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
 	5,  // 4: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
-	44, // 5: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
+	45, // 5: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
 	8,  // 6: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
-	45, // 7: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
+	46, // 7: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
 	10, // 8: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
-	46, // 9: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
+	47, // 9: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
 	12, // 10: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
-	47, // 11: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
-	48, // 12: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
+	48, // 11: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
+	49, // 12: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
 	5,  // 13: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
 	15, // 14: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
-	49, // 15: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
+	50, // 15: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
 	16, // 16: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
-	50, // 17: sarnaut.content.v1.Item.extra:type_name -> sarnaut.content.v1.Item.ExtraEntry
+	51, // 17: sarnaut.content.v1.Item.extra:type_name -> sarnaut.content.v1.Item.ExtraEntry
 	1,  // 18: sarnaut.content.v1.LootNode.kind:type_name -> sarnaut.content.v1.LootNodeKind
 	19, // 19: sarnaut.content.v1.LootNode.entries:type_name -> sarnaut.content.v1.LootNode
 	19, // 20: sarnaut.content.v1.LootTable.root:type_name -> sarnaut.content.v1.LootNode
-	51, // 21: sarnaut.content.v1.LootTable.extra:type_name -> sarnaut.content.v1.LootTable.ExtraEntry
+	52, // 21: sarnaut.content.v1.LootTable.extra:type_name -> sarnaut.content.v1.LootTable.ExtraEntry
 	2,  // 22: sarnaut.content.v1.MobKind.taxonomy:type_name -> sarnaut.content.v1.MobTaxonomyKind
-	52, // 23: sarnaut.content.v1.MobKind.extra:type_name -> sarnaut.content.v1.MobKind.ExtraEntry
+	53, // 23: sarnaut.content.v1.MobKind.extra:type_name -> sarnaut.content.v1.MobKind.ExtraEntry
 	22, // 24: sarnaut.content.v1.LevelCurve.points:type_name -> sarnaut.content.v1.LevelCurvePoint
-	53, // 25: sarnaut.content.v1.LevelCurve.extra:type_name -> sarnaut.content.v1.LevelCurve.ExtraEntry
+	54, // 25: sarnaut.content.v1.LevelCurve.extra:type_name -> sarnaut.content.v1.LevelCurve.ExtraEntry
 	5,  // 26: sarnaut.content.v1.RoutePoint.position:type_name -> sarnaut.content.v1.Vec3
 	24, // 27: sarnaut.content.v1.Route.points:type_name -> sarnaut.content.v1.RoutePoint
 	25, // 28: sarnaut.content.v1.Route.links:type_name -> sarnaut.content.v1.RouteLink
-	54, // 29: sarnaut.content.v1.Route.extra:type_name -> sarnaut.content.v1.Route.ExtraEntry
+	55, // 29: sarnaut.content.v1.Route.extra:type_name -> sarnaut.content.v1.Route.ExtraEntry
 	27, // 30: sarnaut.content.v1.Locale.entries:type_name -> sarnaut.content.v1.LocaleEntry
-	55, // 31: sarnaut.content.v1.Locale.extra:type_name -> sarnaut.content.v1.Locale.ExtraEntry
+	56, // 31: sarnaut.content.v1.Locale.extra:type_name -> sarnaut.content.v1.Locale.ExtraEntry
 	3,  // 32: sarnaut.content.v1.QuestObjective.kind:type_name -> sarnaut.content.v1.QuestObjectiveKind
 	31, // 33: sarnaut.content.v1.QuestRewards.mandatory_items:type_name -> sarnaut.content.v1.QuestRewardItem
 	31, // 34: sarnaut.content.v1.QuestRewards.alternative_items:type_name -> sarnaut.content.v1.QuestRewardItem
 	30, // 35: sarnaut.content.v1.Quest.prerequisites:type_name -> sarnaut.content.v1.QuestPrerequisite
 	29, // 36: sarnaut.content.v1.Quest.objectives:type_name -> sarnaut.content.v1.QuestObjective
 	32, // 37: sarnaut.content.v1.Quest.rewards:type_name -> sarnaut.content.v1.QuestRewards
-	56, // 38: sarnaut.content.v1.Quest.extra:type_name -> sarnaut.content.v1.Quest.ExtraEntry
+	57, // 38: sarnaut.content.v1.Quest.extra:type_name -> sarnaut.content.v1.Quest.ExtraEntry
 	4,  // 39: sarnaut.content.v1.ScriptNode.tier:type_name -> sarnaut.content.v1.CoverageTier
 	37, // 40: sarnaut.content.v1.ScriptNode.fields:type_name -> sarnaut.content.v1.ScriptField
 	38, // 41: sarnaut.content.v1.ScriptField.value:type_name -> sarnaut.content.v1.ScriptValue
@@ -4473,11 +4567,12 @@ var file_sarnaut_content_v1_content_proto_depIdxs = []int32{
 	36, // 48: sarnaut.content.v1.QuestScript.start_impacts:type_name -> sarnaut.content.v1.ScriptNode
 	36, // 49: sarnaut.content.v1.QuestScript.trigger_agents:type_name -> sarnaut.content.v1.ScriptNode
 	36, // 50: sarnaut.content.v1.ScriptTrigger.root:type_name -> sarnaut.content.v1.ScriptNode
-	51, // [51:51] is the sub-list for method output_type
-	51, // [51:51] is the sub-list for method input_type
-	51, // [51:51] is the sub-list for extension type_name
-	51, // [51:51] is the sub-list for extension extendee
-	0,  // [0:51] is the sub-list for field type_name
+	5,  // 51: sarnaut.content.v1.MapLocator.position:type_name -> sarnaut.content.v1.Vec3
+	52, // [52:52] is the sub-list for method output_type
+	52, // [52:52] is the sub-list for method input_type
+	52, // [52:52] is the sub-list for extension type_name
+	52, // [52:52] is the sub-list for extension extendee
+	0,  // [0:52] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_content_v1_content_proto_init() }
@@ -4501,7 +4596,7 @@ func file_sarnaut_content_v1_content_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_content_v1_content_proto_rawDesc), len(file_sarnaut_content_v1_content_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   52,
+			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
