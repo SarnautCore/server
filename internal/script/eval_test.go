@@ -262,11 +262,17 @@ func TestTheThreeTiersBehaveDifferently(t *testing.T) {
 // problem from a build problem. A node tiered implemented that this build has no
 // handler for is the tier table and the code disagreeing, and saying nothing
 // would make a coverage regression invisible.
+//
+// TriggerAgentOnTagged is a real instance of that gap rather than an invented
+// one: ADR 0036's amendment puts all four TriggerAgent binders in the
+// implemented tier, and this build registers Self and Interlocutor because those
+// are the two the tutorial's count-special path reaches. Simple and OnTagged
+// wait for the round that has data to write them against.
 func TestAnImplementedOpcodeWithNoHandlerIsRefusedAsABuildError(t *testing.T) {
 	t.Parallel()
 
 	host := newFakeHost()
-	node := impact("q1-30/attach", "ImpactAttachTrigger")
+	node := impact("q1-30/attach", "TriggerAgentOnTagged")
 
 	_, err := run(host, node, newFrame())
 	if err == nil {
@@ -293,6 +299,29 @@ func TestStrictInertDemotesInertNodesToRefused(t *testing.T) {
 	if !errors.As(err, &refusal) {
 		t.Fatalf("Evaluate() error = %v, want a *script.RefusedError under StrictInert", err)
 	}
+}
+
+// TestAnIncreaseQuestCountReadsItsDeltaFromValue pins the field name against the
+// reflection schema. ImpactIncreaseQuestCount has exactly two fields, id and
+// value, and value defaults to 1. Reading a field named "count" instead was
+// silent, because 1486 of the uses omit the delta and every one of them would
+// still have incremented by the default.
+func TestAnIncreaseQuestCountReadsItsDeltaFromValue(t *testing.T) {
+	t.Parallel()
+
+	host := newFakeHost()
+	node := impact("exploit/impacts[0]", "ImpactIncreaseQuestCount",
+		field("id", ref(dressCountID)),
+		field("value", integer(3)),
+	)
+
+	if _, err := run(host, node, newFrame()); err != nil {
+		t.Fatalf("Evaluate() error = %v, want nil", err)
+	}
+	assertTrace(t, host.trace, []string{
+		"apply increase-quest-count " + dressCountID + " +3 on " + playerID +
+			" key=eval-1|exploit/impacts[0]",
+	})
 }
 
 func assertTrace(t *testing.T, got, want []string) {
