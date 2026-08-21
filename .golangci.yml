@@ -35,6 +35,7 @@ linters:
             - "github.com/SarnautCore/server/internal/transport$"
             - "github.com/SarnautCore/server/internal/pack$"
             - "github.com/SarnautCore/server/internal/gametypes$"
+            - "github.com/SarnautCore/server/internal/gateway$"
           deny:
             - pkg: github.com/SarnautCore/server/internal
               desc: >-
@@ -239,9 +240,8 @@ linters:
                 ADR 0031 restricts Valkey clients to persistence,
                 infrastructure, auth, and process composition.
 
-        # ADR 0033 section 2: session's NATS import is the dated M2 ticket-
-        # redemption exemption. Delete the session exclusion when ADR 0039
-        # moves redemption to the gateway; all other packages remain covered.
+        # ADR 0039: NATS admission terminates at the gateway. The shard session
+        # package has no NATS client or generated auth dependency.
         nats-client-imports:
           list-mode: lax
           files:
@@ -253,6 +253,8 @@ linters:
             - "!**/internal/charstore/**/*.go"
             - "!**/internal/infra/*.go"
             - "!**/internal/infra/**/*.go"
+            - "!**/internal/gateway/*.go"
+            - "!**/internal/gateway/**/*.go"
             - "!**/internal/session/*.go"
             - "!**/internal/session/**/*.go"
             - "!**/cmd/**/*.go"

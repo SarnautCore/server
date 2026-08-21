@@ -92,6 +92,23 @@ func ReadFrame(reader io.Reader) ([]byte, error) {
 	return payload, nil
 }
 
+// WriteFrame writes one already-marshaled protobuf payload. Relays use it to
+// preserve the complete public envelope without learning its gameplay case.
+func WriteFrame(writer io.Writer, payload []byte) error {
+	if len(payload) > int(MaxFrameSize) {
+		return fmt.Errorf("%w: %d bytes", ErrFrameTooLarge, len(payload))
+	}
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], uint32(len(payload)))
+	if err := writeFull(writer, header[:]); err != nil {
+		return fmt.Errorf("write frame length: %w", err)
+	}
+	if err := writeFull(writer, payload); err != nil {
+		return fmt.Errorf("write frame payload: %w", err)
+	}
+	return nil
+}
+
 // MarshalUnreliable serializes a protobuf message for an unreliable packet.
 func MarshalUnreliable(message proto.Message) ([]byte, error) {
 	payload, err := proto.Marshal(message)

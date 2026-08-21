@@ -1,0 +1,95 @@
+// Private gateway-to-shard control protocol from ADR 0039.
+//
+// This schema is server-only. It is deliberately outside sarnaut/v1, so the
+// public client never compiles identity assertions or private trust messages.
+syntax = "proto3";
+
+package sarnaut.private.v1;
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/private/v1;privatev1";
+
+message Challenge {
+  bytes magic = 1;
+  uint32 protocol_version = 2;
+  string shard_id = 3;
+  string key_id = 4;
+  bytes shard_nonce = 5;
+}
+
+message GatewayProof {
+  string gateway_instance_id = 1;
+  bytes gateway_nonce = 2;
+  bytes proof = 3;
+}
+
+message ShardProof {
+  bytes proof = 1;
+}
+
+message AssertedIdentity {
+  string account_id = 1;
+  string character_id = 2;
+  string character_name = 3;
+  string chargen_option_id = 4;
+}
+
+message AttachRequest {
+  string session_id = 1;
+  uint64 attachment_epoch = 2;
+  string zone_id = 3;
+  AssertedIdentity identity = 4;
+  int64 minimum_save_seq = 5;
+}
+
+message Attached {
+  string session_id = 1;
+  uint64 attachment_epoch = 2;
+  string zone_id = 3;
+}
+
+enum RefusalCode {
+  REFUSAL_CODE_UNSPECIFIED = 0;
+  REFUSAL_CODE_UNAUTHENTICATED = 1;
+  REFUSAL_CODE_INVALID_REQUEST = 2;
+  REFUSAL_CODE_DUPLICATE_CHARACTER = 3;
+  REFUSAL_CODE_STALE_EPOCH = 4;
+  REFUSAL_CODE_ZONE_UNAVAILABLE = 5;
+  REFUSAL_CODE_INTERNAL = 6;
+}
+
+message AttachRefused {
+  string session_id = 1;
+  uint64 attachment_epoch = 2;
+  RefusalCode code = 3;
+  string detail = 4;
+}
+
+message TransferRequested {
+  string session_id = 1;
+  uint64 current_epoch = 2;
+  string destination_zone_id = 3;
+}
+
+message TransferRefused {
+  string session_id = 1;
+  uint64 current_epoch = 2;
+  RefusalCode code = 3;
+}
+
+// RelayFrame carries one complete public protobuf payload without its public
+// length prefix. The gateway never decodes this field as a gameplay message.
+message RelayFrame {
+  bytes payload = 1;
+}
+
+message Control {
+  oneof payload {
+    AttachRequest attach_request = 1;
+    Attached attached = 2;
+    AttachRefused attach_refused = 3;
+    TransferRequested transfer_requested = 4;
+    TransferRefused transfer_refused = 5;
+    RelayFrame client_reliable = 6;
+    RelayFrame server_reliable = 7;
+  }
+}

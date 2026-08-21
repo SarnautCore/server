@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"os"
 	"time"
 )
 
@@ -68,4 +69,43 @@ func NewDevClientTLSConfig() *tls.Config {
 		MinVersion:         tls.VersionTLS13,
 		NextProtos:         []string{applicationProtocol},
 	}
+}
+
+// LoadPrivateServerTLSConfig loads the shard certificate for the private
+// listener. TLS 1.3 is mandatory. The HMAC exchange authenticates the gateway;
+// M4 replaces it with client-certificate policy.
+func LoadPrivateServerTLSConfig(certificatePath, privateKeyPath string) (*tls.Config, error) {
+	if certificatePath == "" || privateKeyPath == "" {
+		return nil, fmt.Errorf("private TLS certificate and key paths are required")
+	}
+	certificate, err := tls.LoadX509KeyPair(certificatePath, privateKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("load private TLS certificate: %w", err)
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{certificate},
+		MinVersion:   tls.VersionTLS13,
+		NextProtos:   []string{applicationProtocol},
+	}, nil
+}
+
+// LoadPrivateClientTLSConfig pins the internal CA used by shard certificates.
+// It never falls back to InsecureSkipVerify.
+func LoadPrivateClientTLSConfig(caPath, serverName string) (*tls.Config, error) {
+	if caPath == "" || serverName == "" {
+		return nil, fmt.Errorf("private CA path and server name are required")
+	}
+	pem, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("read private CA certificate: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("private CA file contains no certificates")
+	}
+	return &tls.Config{
+		RootCAs: roots, ServerName: serverName,
+		MinVersion: tls.VersionTLS13,
+		NextProtos: []string{applicationProtocol},
+	}, nil
 }

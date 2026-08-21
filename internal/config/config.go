@@ -2,6 +2,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ type Config struct {
 	LogLevel      string
 	HealthAddress string
 	QUIC          QUICConfig
+	Private       PrivateConfig
 	World         WorldConfig
 	Content       ContentConfig
 	NATS          NATSConfig
@@ -54,8 +56,24 @@ type AuthConfig struct {
 }
 
 type QUICConfig struct {
-	ListenAddress string
-	ShardAddress  string
+	ListenAddress        string
+	ShardAddress         string
+	PrivateListenAddress string
+}
+
+// PrivateConfig configures the authenticated gateway-to-shard channel. The
+// secret has no YAML field and is accepted only from the process environment.
+type PrivateConfig struct {
+	GatewayInstanceID string
+	ShardID           string
+	KeyID             string
+	Secret            []byte
+	CACertificatePath string
+	CertificatePath   string
+	PrivateKeyPath    string
+	ServerName        string
+	AttachTimeout     time.Duration
+	AllowDirectShard  bool
 }
 
 type WorldConfig struct {
@@ -82,6 +100,9 @@ type WorldConfig struct {
 // default and no search path: a misconfigured shard fails loudly instead of
 // quietly loading something else (ADR 0029).
 type ContentConfig struct {
+	// PackID is the configured public digest used by the gateway before it has
+	// any zone attachment. Every enabled route must name this same digest.
+	PackID string
 	// PackPath is the directory holding `manifest.json` and `tables/`.
 	PackPath string
 	// AllowExtra permits a pack built with `--keep-extra`, whose rows carry
@@ -139,8 +160,9 @@ type fileConfig struct {
 	LogLevel      *string `yaml:"log_level"`
 	HealthAddress *string `yaml:"health_address"`
 	QUIC          struct {
-		ListenAddress *string `yaml:"listen_address"`
-		ShardAddress  *string `yaml:"shard_address"`
+		ListenAddress        *string `yaml:"listen_address"`
+		ShardAddress         *string `yaml:"shard_address"`
+		PrivateListenAddress *string `yaml:"private_listen_address"`
 	} `yaml:"quic"`
 	World struct {
 		ZoneID           *string  `yaml:"zone_id"`
@@ -151,6 +173,7 @@ type fileConfig struct {
 		WorldSeed        *string  `yaml:"world_seed"`
 	} `yaml:"world"`
 	Content struct {
+		PackID                  *string `yaml:"pack_id"`
 		PackPath                *string `yaml:"pack_path"`
 		AllowExtra              *bool   `yaml:"allow_extra"`
 		AllowUnverifiedPack     *bool   `yaml:"allow_unverified_pack"`
@@ -259,8 +282,16 @@ func defaults(serviceName string) Config {
 		LogLevel:      "info",
 		HealthAddress: healthAddress,
 		QUIC: QUICConfig{
-			ListenAddress: "127.0.0.1:4242",
-			ShardAddress:  "127.0.0.1:4242",
+			ListenAddress:        "127.0.0.1:4242",
+			ShardAddress:         "127.0.0.1:4243",
+			PrivateListenAddress: "127.0.0.1:4243",
+		},
+		Private: PrivateConfig{
+			GatewayInstanceID: "gateway-1",
+			ShardID:           "shard-1",
+			KeyID:             "m3-a",
+			ServerName:        "localhost",
+			AttachTimeout:     5 * time.Second,
 		},
 		World: WorldConfig{
 			ZoneID:           "InstLeague1",
@@ -307,9 +338,11 @@ func applyFileValues(configuration *Config, values fileConfig) error {
 	setString(&configuration.HealthAddress, values.HealthAddress)
 	setString(&configuration.QUIC.ListenAddress, values.QUIC.ListenAddress)
 	setString(&configuration.QUIC.ShardAddress, values.QUIC.ShardAddress)
+	setString(&configuration.QUIC.PrivateListenAddress, values.QUIC.PrivateListenAddress)
 	setString(&configuration.World.ZoneID, values.World.ZoneID)
 	setString(&configuration.World.WorldSeed, values.World.WorldSeed)
 	setString(&configuration.Content.PackPath, values.Content.PackPath)
+	setString(&configuration.Content.PackID, values.Content.PackID)
 	setString(&configuration.NATS.URL, values.NATS.URL)
 	setString(&configuration.Postgres.DSN, values.Postgres.DSN)
 	setString(&configuration.Auth.ListenAddress, values.Auth.ListenAddress)
@@ -391,9 +424,18 @@ func applyEnvironment(configuration *Config) error {
 	setFromEnvironment(&configuration.HealthAddress, "SARNAUT_HEALTH_ADDRESS")
 	setFromEnvironment(&configuration.QUIC.ListenAddress, "SARNAUT_QUIC_LISTEN_ADDRESS")
 	setFromEnvironment(&configuration.QUIC.ShardAddress, "SARNAUT_SHARD_ADDRESS")
+	setFromEnvironment(&configuration.QUIC.PrivateListenAddress, "SARNAUT_PRIVATE_LISTEN_ADDRESS")
+	setFromEnvironment(&configuration.Private.GatewayInstanceID, "SARNAUT_GATEWAY_INSTANCE_ID")
+	setFromEnvironment(&configuration.Private.ShardID, "SARNAUT_SHARD_ID")
+	setFromEnvironment(&configuration.Private.KeyID, "SARNAUT_PRIVATE_KEY_ID")
+	setFromEnvironment(&configuration.Private.CACertificatePath, "SARNAUT_PRIVATE_CA_CERT")
+	setFromEnvironment(&configuration.Private.CertificatePath, "SARNAUT_PRIVATE_CERT")
+	setFromEnvironment(&configuration.Private.PrivateKeyPath, "SARNAUT_PRIVATE_KEY")
+	setFromEnvironment(&configuration.Private.ServerName, "SARNAUT_PRIVATE_SERVER_NAME")
 	setFromEnvironment(&configuration.World.ZoneID, "SARNAUT_WORLD_ZONE_ID")
 	setFromEnvironment(&configuration.World.WorldSeed, "SARNAUT_WORLD_SEED")
 	setFromEnvironment(&configuration.Content.PackPath, "SARNAUT_CONTENT_PACK")
+	setFromEnvironment(&configuration.Content.PackID, "SARNAUT_CONTENT_PACK_ID")
 	setFromEnvironment(&configuration.NATS.URL, "SARNAUT_NATS_URL")
 	setFromEnvironment(&configuration.Postgres.DSN, "SARNAUT_POSTGRES_DSN")
 	setFromEnvironment(&configuration.Auth.ListenAddress, "SARNAUT_AUTH_LISTEN_ADDRESS")
@@ -401,6 +443,30 @@ func applyEnvironment(configuration *Config) error {
 	setFromEnvironment(&configuration.Valkey.Address, "SARNAUT_VALKEY_ADDRESS")
 	setFromEnvironment(&configuration.Valkey.Password, "SARNAUT_VALKEY_PASSWORD")
 	setFromEnvironment(&configuration.OTel.Endpoint, "SARNAUT_OTEL_ENDPOINT")
+	if value := os.Getenv("SARNAUT_PRIVATE_SHARED_SECRET_HEX"); value != "" {
+		secret, err := hex.DecodeString(value)
+		if err != nil || len(secret) != 32 {
+			return fmt.Errorf("SARNAUT_PRIVATE_SHARED_SECRET_HEX must encode exactly 32 bytes")
+		}
+		configuration.Private.Secret = secret
+	}
+	if value := os.Getenv("SARNAUT_PRIVATE_ATTACH_TIMEOUT"); value != "" {
+		duration, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_PRIVATE_ATTACH_TIMEOUT: %w", err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("SARNAUT_PRIVATE_ATTACH_TIMEOUT must be positive")
+		}
+		configuration.Private.AttachTimeout = duration
+	}
+	if value := os.Getenv("SARNAUT_ALLOW_DIRECT_SHARD"); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse SARNAUT_ALLOW_DIRECT_SHARD: %w", err)
+		}
+		configuration.Private.AllowDirectShard = enabled
+	}
 
 	if value := os.Getenv("SARNAUT_WORLD_TICK_INTERVAL"); value != "" {
 		duration, err := time.ParseDuration(value)

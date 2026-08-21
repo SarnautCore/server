@@ -2,8 +2,11 @@ build_id: dev
 log_level: info
 
 quic:
+  # Public client listener, owned by cmd/gateway.
   listen_address: 127.0.0.1:4242
-  shard_address: 127.0.0.1:4242
+  # Private gateway dial target and shard listener.
+  shard_address: 127.0.0.1:4243
+  private_listen_address: 127.0.0.1:4243
 
 world:
   zone_id: InstLeague1
@@ -21,6 +24,9 @@ world:
 # fallback; SARNAUT_CONTENT_PACK overrides this value. Packs built from the
 # private data repository are private artifacts and are never committed here.
 content:
+  # The gateway requires this digest before it accepts a public hello. Every
+  # enabled route must agree with it.
+  pack_id: ""
   pack_path: ""
   # Refuse packs built with --keep-extra unless this is true. Those carry
   # verbatim MY.GAMES attribute names, so keep it off outside mapping work.
@@ -39,10 +45,9 @@ content:
   # This remains off until the pack's reached-node census passes the M3 gate.
   enable_impact_interpreter: false
 
-# `auth` and `shard` require all three of these and refuse to start without
+# `auth`, `gateway`, and `shard` require their applicable clients and refuse to start without
 # them: accounts and character state have nowhere else to live (ADR 0031), and
-# sessions, tickets and play locks have no fallback (ADR 0030). The gateway
-# still runs with them empty.
+# gateway tickets and play locks have no fallback (ADR 0030 and ADR 0039).
 nats:
   url: ""
 
@@ -68,6 +73,13 @@ auth:
   # One shard-to-auth request, with no retry: a retried ticket redemption cannot
   # succeed after the service has burned it.
   request_timeout: 2s
+
+# Private-channel credentials are environment-only and never belong in this
+# file. Set SARNAUT_PRIVATE_SHARED_SECRET_HEX to 64 hex digits on gateway and
+# shard. Set SARNAUT_PRIVATE_CA_CERT and SARNAUT_PRIVATE_SERVER_NAME on gateway,
+# and SARNAUT_PRIVATE_CERT plus SARNAUT_PRIVATE_KEY on shard. The optional
+# SARNAUT_ALLOW_DIRECT_SHARD=true retains the delivery-guard route only until
+# the M3 tutorial driver proves both paths.
 
 otel:
   endpoint: ""
