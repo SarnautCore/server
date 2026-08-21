@@ -63,30 +63,32 @@ func (repository *PostgresFriendRepository) ReplaceFriends(
 
 	// Resolve every friend through the canonical character table before the
 	// relationship changes. Deleted or unknown characters fail the replacement
-	// atomically; display names are never accepted from a caller.
+	// atomically; the canonical names are stored in the same transaction so the
+	// replacement revision describes both identity and display text.
+	canonicalNames := make(map[uuid.UUID]string, len(friendIDs))
 	if len(friendIDs) != 0 {
 		rows, err := tx.Query(ctx, `
-			SELECT character_id
+			SELECT character_id, name
 			FROM auth.characters
 			WHERE character_id = ANY($1::uuid[]) AND deleted_at IS NULL`, friendIDs)
 		if err != nil {
 			return FriendsReplacement{}, fmt.Errorf("resolve friend characters: %w", err)
 		}
-		found := make(map[uuid.UUID]struct{}, len(friendIDs))
 		for rows.Next() {
 			var characterID uuid.UUID
-			if err := rows.Scan(&characterID); err != nil {
+			var displayName string
+			if err := rows.Scan(&characterID, &displayName); err != nil {
 				rows.Close()
 				return FriendsReplacement{}, fmt.Errorf("scan friend character: %w", err)
 			}
-			found[characterID] = struct{}{}
+			canonicalNames[characterID] = displayName
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
 			return FriendsReplacement{}, fmt.Errorf("read friend characters: %w", err)
 		}
 		rows.Close()
-		if len(found) != len(friendIDs) {
+		if len(canonicalNames) != len(friendIDs) {
 			return FriendsReplacement{}, ErrInvalidFriend
 		}
 	}
@@ -112,12 +114,12 @@ func (repository *PostgresFriendRepository) ReplaceFriends(
 	if len(friendIDs) != 0 {
 		rows := make([][]any, 0, len(friendIDs))
 		for position, friendID := range friendIDs {
-			rows = append(rows, []any{owner, friendID, position})
+			rows = append(rows, []any{owner, friendID, canonicalNames[friendID], position})
 		}
 		if _, err := tx.CopyFrom(
 			ctx,
 			pgx.Identifier{"shard", "social_friends"},
-			[]string{"owner_character_id", "friend_character_id", "roster_position"},
+			[]string{"owner_character_id", "friend_character_id", "display_name", "roster_position"},
 			pgx.CopyFromRows(rows),
 		); err != nil {
 			return FriendsReplacement{}, fmt.Errorf("insert friend relationships: %w", err)
@@ -158,11 +160,8 @@ func readPostgresFriends(
 		return FriendsReplacement{}, fmt.Errorf("read friend revision: %w", err)
 	}
 	rows, err := querier.Query(ctx, `
-		SELECT relationships.friend_character_id, characters.name
+		SELECT relationships.friend_character_id, relationships.display_name
 		FROM shard.social_friends AS relationships
-		JOIN auth.characters AS characters
-			ON characters.character_id = relationships.friend_character_id
-			AND characters.deleted_at IS NULL
 		WHERE relationships.owner_character_id = $1
 		ORDER BY relationships.roster_position`, owner)
 	if err != nil {
