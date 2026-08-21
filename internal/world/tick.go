@@ -49,7 +49,11 @@ func (tick *Tick) MoveTo(entity *Entity, to Vec3) {
 	if entity == nil || !to.Finite() {
 		return
 	}
-	tick.zone.registry.moveTo(entity, to)
+	grounded, err := tick.zone.groundMove(entity.position, to, false)
+	if err != nil {
+		return
+	}
+	tick.zone.registry.moveTo(entity, grounded)
 }
 
 // SpawnNPC adds one non-player entity from inside a locked callback, so a

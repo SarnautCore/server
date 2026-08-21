@@ -26,6 +26,16 @@ type ZoneConfig struct {
 	SnapshotInterval time.Duration
 	MaxMoveSpeed     float32
 	PlayerSpawn      Vec3
+	// Ground is immutable terrain materialized by the offline pack pipeline.
+	// Nil preserves authored Z for packs that have not migrated yet.
+	Ground Ground
+	// GroundSampleStep bounds the gap between walkability samples along a
+	// movement segment. Zero uses 0.5 world metres.
+	GroundSampleStep float32
+	// GroundPlacements are the compiled tutorial placements whose global-frame
+	// heights must agree with terrain before the zone starts.
+	GroundPlacements   []GroundPlacement
+	PlacementTolerance float32
 }
 
 // System is per-tick simulation work registered with a zone.
@@ -68,6 +78,25 @@ func NewZone(config ZoneConfig) (*Zone, error) {
 	}
 	if config.MaxMoveSpeed <= 0 || !finite(config.MaxMoveSpeed) {
 		return nil, fmt.Errorf("zone maximum move speed must be positive and finite")
+	}
+	if !finite(config.GroundSampleStep) || config.GroundSampleStep < 0 {
+		return nil, fmt.Errorf("zone ground sample step must be finite and non-negative")
+	}
+	if len(config.GroundPlacements) > 0 {
+		report, err := SweepGroundPlacements(config.Ground, config.GroundPlacements, config.PlacementTolerance)
+		if err != nil {
+			return nil, fmt.Errorf("zone ground placements: %w", err)
+		}
+		if len(report.Mismatches) > 0 {
+			return nil, fmt.Errorf("zone ground placements: %d/%d exceed tolerance", len(report.Mismatches), report.Checked)
+		}
+	}
+	if config.Ground != nil {
+		groundedSpawn, err := (&Zone{config: config}).groundPoint(config.PlayerSpawn, true)
+		if err != nil {
+			return nil, fmt.Errorf("zone player spawn: %w", err)
+		}
+		config.PlayerSpawn = groundedSpawn
 	}
 	manager, err := interest.New(interest.ReplicationRadiusMetres)
 	if err != nil {
@@ -115,6 +144,9 @@ func (zone *Zone) SpawnNPC(spec NPCSpec) uint64 {
 }
 
 func (zone *Zone) spawnNPCLocked(spec NPCSpec) *Entity {
+	if grounded, err := zone.groundPoint(spec.Position, false); err == nil {
+		spec.Position = grounded
+	}
 	return zone.registry.add(&Entity{
 		EntityData: gametypes.EntityData{
 			Kind:          EntityKindNPC,
@@ -161,6 +193,11 @@ func (zone *Zone) JoinAt(position Vec3, heading float32) (uint64, Vec3) {
 		// the simulation can reason about, so the zone falls back rather than
 		// admitting it.
 		position, heading = zone.config.PlayerSpawn, 0
+	}
+	if grounded, err := zone.groundPoint(position, true); err == nil {
+		position = grounded
+	} else {
+		position = zone.config.PlayerSpawn
 	}
 	zone.mu.Lock()
 	defer zone.mu.Unlock()

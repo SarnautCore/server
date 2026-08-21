@@ -130,7 +130,7 @@ func (module *Module) Populate(spawns []gametypes.NPCSpawn) error {
 		if err := module.zone.GameCommand(func(tick gametypes.Tick) error {
 			level := module.stream.level(mob.LevelMin, mob.LevelMax)
 			maxHealth := MaxHealth(level, mob.HPMod)
-			entityID = tick.SpawnNPC(gametypes.NPCSpec{
+			entity := tick.SpawnNPC(gametypes.NPCSpec{
 				ContentID:   mob.ID,
 				NameKey:     mob.NameKey,
 				PlacementID: spawn.PlacementID,
@@ -139,7 +139,11 @@ func (module *Module) Populate(spawns []gametypes.NPCSpawn) error {
 				MaxHealth:   maxHealth,
 				Position:    gametypes.Vec3{X: spawn.Position.X, Y: spawn.Position.Y, Z: spawn.Position.Z},
 				Heading:     spawn.Heading,
-			}).ID
+			})
+			entityID = entity.ID
+			// The world grounds the spawn. Keep the combat anchor on that same
+			// authoritative point so leash distance and return-home agree.
+			spawn.Position = tick.Position(entity)
 			module.mobs[entityID] = module.newMobState(mob, spawn)
 			return nil
 		}); err != nil {

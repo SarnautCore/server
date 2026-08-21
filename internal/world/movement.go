@@ -40,12 +40,7 @@ func (zone *Zone) ApplyMoveIntent(entityID uint64, intent MoveIntent) error {
 	if current.hasIntent && intent.Seq <= current.lastIntentSeq {
 		return nil
 	}
-	current.hasIntent = true
-	current.lastIntentSeq = intent.Seq
-	current.Heading = intent.Heading
-
 	x, y := normalized(intent.Input.X, intent.Input.Y)
-	current.Velocity = Vec3{X: x * zone.config.MaxMoveSpeed, Y: y * zone.config.MaxMoveSpeed}
 	duration := intent.Duration
 	if duration <= 0 {
 		duration = zone.config.TickInterval
@@ -53,6 +48,19 @@ func (zone *Zone) ApplyMoveIntent(entityID uint64, intent MoveIntent) error {
 	if duration > maxIntentDuration {
 		duration = maxIntentDuration
 	}
+	velocity := Vec3{X: x * zone.config.MaxMoveSpeed, Y: y * zone.config.MaxMoveSpeed}
+	candidate := Vec3{
+		X: current.position.X + velocity.X*float32(duration.Seconds()),
+		Y: current.position.Y + velocity.Y*float32(duration.Seconds()),
+		Z: current.position.Z,
+	}
+	if _, err := zone.groundMove(current.position, candidate, true); err != nil {
+		return err
+	}
+	current.hasIntent = true
+	current.lastIntentSeq = intent.Seq
+	current.Heading = intent.Heading
+	current.Velocity = velocity
 	current.intentRemaining = duration
 	if x == 0 && y == 0 {
 		current.Animation = AnimationStateIdle
@@ -83,12 +91,18 @@ func (zone *Zone) integratePlayerLocked(current *Entity) {
 	}
 	delta := min(zone.config.TickInterval, current.intentRemaining)
 	step := float32(delta.Seconds())
-	zone.registry.moveTo(current, Vec3{
+	to, err := zone.groundMove(current.position, Vec3{
 		X: current.position.X + current.Velocity.X*step,
 		Y: current.position.Y + current.Velocity.Y*step,
-		// Terrain height and collision resolution will replace this preserved Z.
 		Z: current.position.Z,
-	})
+	}, true)
+	if err != nil {
+		current.intentRemaining = 0
+		current.Velocity = Vec3{}
+		current.Animation = AnimationStateIdle
+		return
+	}
+	zone.registry.moveTo(current, to)
 	current.intentRemaining -= delta
 	if current.intentRemaining <= 0 {
 		current.Velocity = Vec3{}

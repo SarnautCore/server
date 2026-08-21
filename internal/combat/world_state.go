@@ -45,6 +45,7 @@ func (module *Module) Summon(
 		Position:    position,
 		Heading:     heading,
 	})
+	spawn.Position = tick.Position(entity)
 	state := module.newMobState(mob, spawn)
 	state.summoned = true
 	module.mobs[entity.ID] = state
