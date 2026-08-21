@@ -88,7 +88,7 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 	if err := combatModule.Populate(content.NPCSpawns()); err != nil {
 		t.Fatalf("Populate() error = %v", err)
 	}
-	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), 0)
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content))
 	if err != nil {
 		t.Fatalf("inventory.NewService() error = %v", err)
 	}
@@ -107,6 +107,7 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 
 	// Checkpoint L1, as the session would have written it.
 	characterID := uuid.New()
+	hud := sessionTestHUD(1)
 	err = charstore.SaveCharacter(ctx, repository, charstore.Snapshot{
 		State: charstore.CharacterState{
 			CharacterID: characterID,
@@ -115,6 +116,7 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 			Health:      100,
 			SaveSeq:     1,
 		},
+		HUD: &hud,
 	})
 	if err != nil {
 		t.Fatalf("seed character state: %v", err)

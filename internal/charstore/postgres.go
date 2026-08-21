@@ -583,7 +583,7 @@ func (store *postgresStore) insertItems(ctx context.Context, characterID uuid.UU
 	return nil
 }
 
-func (store *postgresStore) replaceInventoryAndHUD(
+func (store *postgresStore) ReplaceInventoryAndHUD(
 	ctx context.Context,
 	characterID uuid.UUID,
 	items []InventoryItem,

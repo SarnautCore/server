@@ -222,7 +222,7 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 	if err != nil {
 		t.Fatalf("CatalogFromPack() error = %v", err)
 	}
-	bags, err := charstore.NewInventoryService(charstore.NewMemory(), inventory.LimitsFromPack(content), 0)
+	bags, err := charstore.NewInventoryService(charstore.NewMemory(), inventory.LimitsFromPack(content))
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

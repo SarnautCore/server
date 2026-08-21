@@ -27,7 +27,7 @@ func questRow(state string) charstore.QuestState {
 func TestQuestGrantCommitsItemsCurrenciesAndTheRowTogether(t *testing.T) {
 	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
-	service := newService(t, repository, 8)
+	service := newService(t, repository)
 
 	// Two tonics in the bag to be consumed, and two unstackable rewards out.
 	if _, err := service.Award(context.Background(), characterID, inventory.Award{
@@ -91,11 +91,11 @@ func TestQuestGrantCommitsItemsCurrenciesAndTheRowTogether(t *testing.T) {
 func TestAQuestGrantThatDoesNotFitWritesNothing(t *testing.T) {
 	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
-	// Two slots, and both of them full of something unstackable.
-	service := newService(t, repository, 2)
+	// All twelve authored slots are full of something unstackable.
+	service := newService(t, repository)
 	if _, err := service.Award(context.Background(), characterID, inventory.Award{
 		Money:  5,
-		Grants: []inventory.Grant{{ItemID: scale, Count: 2}},
+		Grants: []inventory.Grant{{ItemID: scale, Count: 12}},
 	}); err != nil {
 		t.Fatalf("Award() error = %v", err)
 	}
@@ -128,8 +128,8 @@ func TestAQuestGrantThatDoesNotFitWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadInventory() error = %v", err)
 	}
-	if len(items) != 2 {
-		t.Errorf("the bag holds %d slots, want the two it had", len(items))
+	if len(items) != 12 {
+		t.Errorf("the bag holds %d slots, want the twelve it had", len(items))
 	}
 	rows, err := repository.LoadQuestStates(context.Background(), characterID)
 	if err != nil {
@@ -149,9 +149,9 @@ func TestAQuestGrantThatDoesNotFitWritesNothing(t *testing.T) {
 func TestAQuestGrantIsNetNotGross(t *testing.T) {
 	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
-	service := newService(t, repository, 2)
+	service := newService(t, repository)
 	if _, err := service.Award(context.Background(), characterID, inventory.Award{
-		Grants: []inventory.Grant{{ItemID: scale, Count: 1}, {ItemID: tonic, Count: 1}},
+		Grants: []inventory.Grant{{ItemID: scale, Count: 11}, {ItemID: tonic, Count: 1}},
 	}); err != nil {
 		t.Fatalf("Award() error = %v", err)
 	}
@@ -168,8 +168,8 @@ func TestAQuestGrantIsNetNotGross(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadInventory() error = %v", err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("the bag holds %d slots, want 2", len(items))
+	if len(items) != 12 {
+		t.Fatalf("the bag holds %d slots, want 12", len(items))
 	}
 }
 
@@ -178,7 +178,7 @@ func TestAQuestGrantIsNetNotGross(t *testing.T) {
 func TestAQuestGrantConsumingWhatIsNotThereWritesNothing(t *testing.T) {
 	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
-	service := newService(t, repository, 8)
+	service := newService(t, repository)
 
 	_, err := service.GrantQuestReward(context.Background(), charstore.QuestGrant{
 		CharacterID: characterID,
@@ -233,7 +233,7 @@ func TestRemoveDrainsInAscendingSlotOrderAndDeletesEmptyStacks(t *testing.T) {
 func TestAQuestGrantAdvancesTheSaveSequence(t *testing.T) {
 	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
-	service := newService(t, repository, 8)
+	service := newService(t, repository)
 
 	before, err := repository.LoadCharacterState(context.Background(), characterID)
 	if err != nil {
@@ -256,7 +256,7 @@ func TestAQuestGrantAdvancesTheSaveSequence(t *testing.T) {
 // character out of nothing.
 func TestAQuestGrantForAnUnknownCharacterFails(t *testing.T) {
 	repository := charstore.NewMemory()
-	service := newService(t, repository, 8)
+	service := newService(t, repository)
 
 	_, err := service.GrantQuestReward(context.Background(), charstore.QuestGrant{
 		CharacterID: uuid.New(),

@@ -16,6 +16,7 @@ import (
 func newCharacter(t *testing.T, repository charstore.Repository) uuid.UUID {
 	t.Helper()
 	characterID := uuid.New()
+	hud := testHUDState(1)
 	err := charstore.SaveCharacter(context.Background(), repository, charstore.Snapshot{
 		State: charstore.CharacterState{
 			CharacterID: characterID,
@@ -24,6 +25,7 @@ func newCharacter(t *testing.T, repository charstore.Repository) uuid.UUID {
 			Health:      120,
 			SaveSeq:     1,
 		},
+		HUD: &hud,
 	})
 	if err != nil {
 		t.Fatalf("seed character: %v", err)
@@ -31,9 +33,9 @@ func newCharacter(t *testing.T, repository charstore.Repository) uuid.UUID {
 	return characterID
 }
 
-func newService(t *testing.T, repository charstore.Repository, slots int32) *charstore.InventoryService {
+func newService(t *testing.T, repository charstore.Repository) *charstore.InventoryService {
 	t.Helper()
-	service, err := charstore.NewInventoryService(repository, fixtureLimits(), slots)
+	service, err := charstore.NewInventoryService(repository, fixtureLimits())
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -45,7 +47,7 @@ func newService(t *testing.T, repository charstore.Repository, slots int32) *cha
 func TestAwardCommitsSlotsAndPurseTogether(t *testing.T) {
 	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
-	service := newService(t, repository, 8)
+	service := newService(t, repository)
 
 	result, err := service.Award(context.Background(), characterID, inventory.Award{
 		Money:  17,
@@ -85,11 +87,11 @@ func TestAwardCommitsSlotsAndPurseTogether(t *testing.T) {
 func TestAwardWithAFullBagWritesNothing(t *testing.T) {
 	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
-	service := newService(t, repository, 2)
+	service := newService(t, repository)
 
 	_, err := service.Award(context.Background(), characterID, inventory.Award{
 		Money:  99,
-		Grants: []inventory.Grant{{ItemID: tonic, Count: 45}},
+		Grants: []inventory.Grant{{ItemID: tonic, Count: 245}},
 	})
 	if !errors.Is(err, inventory.ErrBagFull) {
 		t.Fatalf("Award() error = %v, want ErrBagFull", err)
@@ -146,7 +148,7 @@ func (repository *abortingRepository) RunInTx(
 func TestAnAbortedAwardRollsTheInventoryBack(t *testing.T) {
 	repository := &abortingRepository{Repository: charstore.NewMemory(), failStateSave: true}
 	characterID := newCharacter(t, &abortingRepository{Repository: repository.Repository})
-	service := newService(t, repository, 8)
+	service := newService(t, repository)
 
 	_, err := service.Award(context.Background(), characterID, inventory.Award{
 		Money:  5,
@@ -178,7 +180,7 @@ func TestAnAbortedAwardRollsTheInventoryBack(t *testing.T) {
 func TestTwoAwardsStackIntoTheSameSlots(t *testing.T) {
 	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
-	service := newService(t, repository, 8)
+	service := newService(t, repository)
 
 	for range 2 {
 		if _, err := service.Award(context.Background(), characterID, inventory.Award{
@@ -210,7 +212,7 @@ func TestTwoAwardsStackIntoTheSameSlots(t *testing.T) {
 func TestAwardAdvancesTheSaveSequence(t *testing.T) {
 	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
-	service := newService(t, repository, 8)
+	service := newService(t, repository)
 
 	first, err := service.Award(context.Background(), characterID, inventory.Award{Money: 1})
 	if err != nil {
@@ -222,5 +224,96 @@ func TestAwardAdvancesTheSaveSequence(t *testing.T) {
 	}
 	if second.SaveSeq <= first.SaveSeq {
 		t.Errorf("save sequence went %d then %d, want it to advance", first.SaveSeq, second.SaveSeq)
+	}
+}
+
+func TestAwardUsesEachCharactersPersistedAuthoredLayout(t *testing.T) {
+	repository := charstore.NewMemory()
+	service := newService(t, repository)
+
+	smallCharacter := newCharacter(t, repository)
+	if _, err := service.Award(context.Background(), smallCharacter, inventory.Award{
+		Grants: []inventory.Grant{{ItemID: scale, Count: 13}},
+	}); !errors.Is(err, inventory.ErrBagFull) {
+		t.Fatalf("12-slot character Award() error = %v, want ErrBagFull", err)
+	}
+
+	largeCharacter := newCharacter(t, repository)
+	hud, err := repository.LoadCharacterHUD(context.Background(), largeCharacter)
+	if err != nil {
+		t.Fatalf("LoadCharacterHUD() error = %v", err)
+	}
+	hud.BagLayout = charstore.ProductBagLayout{
+		LayoutID:   "bag.layout.18",
+		Partitions: []charstore.BagPartition{{Ordinal: 0, Capacity: 12}, {Ordinal: 1, Capacity: 6}},
+	}
+	if err := repository.SaveCharacterHUD(context.Background(), largeCharacter, hud); err != nil {
+		t.Fatalf("SaveCharacterHUD() error = %v", err)
+	}
+	result, err := service.Award(context.Background(), largeCharacter, inventory.Award{
+		Grants: []inventory.Grant{{ItemID: scale, Count: 13}},
+	})
+	if err != nil {
+		t.Fatalf("18-slot character Award() error = %v", err)
+	}
+	if len(result.Slots) != 13 || result.Slots[12].Slot != 12 {
+		t.Fatalf("18-slot award result = %+v, want thirteen occupied slots", result.Slots)
+	}
+	for _, stack := range result.Slots {
+		if stack.InstanceID <= hud.Bag.InstanceID {
+			t.Fatalf("award allocated instance %d over equipped bag instance %d", stack.InstanceID, hud.Bag.InstanceID)
+		}
+	}
+}
+
+func TestInventoryServiceIsTheAtomicMoveRepository(t *testing.T) {
+	repository := charstore.NewMemory()
+	characterID := newCharacter(t, repository)
+	service := newService(t, repository)
+	awarded, err := service.Award(context.Background(), characterID, inventory.Award{
+		Grants: []inventory.Grant{{ItemID: tonic, Count: 3}},
+	})
+	if err != nil {
+		t.Fatalf("Award() error = %v", err)
+	}
+	moves, err := inventory.NewMoveService(service, fixtureLimits())
+	if err != nil {
+		t.Fatalf("NewMoveService() error = %v", err)
+	}
+	moved, err := moves.Move(context.Background(), characterID, awarded.SaveSeq, 0, 11)
+	if err != nil {
+		t.Fatalf("Move() error = %v", err)
+	}
+	if len(moved.Slots) != 1 || moved.Slots[0].Slot != 11 ||
+		moved.Slots[0].InstanceID != awarded.Slots[0].InstanceID || moved.SaveSeq != awarded.SaveSeq+1 {
+		t.Fatalf("Move() = %+v, want preserved instance in slot 11 at next sequence", moved)
+	}
+}
+
+func TestAwardRefusesACharacterWithoutPersistedBagAuthority(t *testing.T) {
+	repository := charstore.NewMemory()
+	characterID := uuid.New()
+	if err := charstore.SaveCharacter(context.Background(), repository, charstore.Snapshot{State: charstore.CharacterState{
+		CharacterID: characterID, ZoneID: "PaperHarbor", Level: 1, Health: 100, SaveSeq: 1,
+	}}); err != nil {
+		t.Fatalf("seed legacy character: %v", err)
+	}
+	_, err := newService(t, repository).Award(context.Background(), characterID, inventory.Award{
+		Grants: []inventory.Grant{{ItemID: tonic, Count: 1}},
+	})
+	if !errors.Is(err, charstore.ErrNotFound) {
+		t.Fatalf("Award() error = %v, want missing persisted HUD authority", err)
+	}
+}
+
+func testHUDState(bagInstanceID uint64) charstore.CharacterHUDState {
+	return charstore.CharacterHUDState{
+		Bag: &charstore.ItemInstance{InstanceID: bagInstanceID, ItemID: "item.bag.fixture", Quantity: 1},
+		BagLayout: charstore.ProductBagLayout{
+			LayoutID:   "bag.layout.12",
+			Partitions: []charstore.BagPartition{{Ordinal: 0, Capacity: 12}},
+		},
+		Stats:   charstore.EmptyOrderedStats(),
+		Actions: charstore.EmptyOrderedActionSlots(),
 	}
 }
