@@ -92,6 +92,30 @@ const (
 	CommandGiveItem
 	// CommandClientData answers ImpactClientData (83 uses) — presentation only.
 	CommandClientData
+	CommandClientDataCoords
+	CommandAttachBuff
+	CommandDetachBuff
+	CommandAttachAbility
+	CommandActivateAggro
+	CommandClearTarget
+	CommandAddExperience
+	CommandMobChat
+	CommandStopTalk
+	CommandSetScriptZoneDisabled
+	CommandAddScriptZoneVariable
+	CommandGoThroughPath
+	CommandGoTo
+	CommandTeleport
+	CommandKill
+	CommandDisintegrate
+	CommandDeviceDisintegrate
+	CommandDeviceVisualState
+	CommandDeviceDie
+	CommandDoorSwitch
+	CommandSpawnSingleMob
+	CommandSpawnSingleDevice
+	CommandSpawnTableObjects
+	CommandResetSpawnTable
 	// CommandAttachTrigger registers a trigger against an entity. It is how both
 	// count-special shapes bind: shape A binds DressTrigger to the player through
 	// TriggerAgentSelf, shape B binds RatKiller to every mob of a spawn table
@@ -134,7 +158,28 @@ type Command struct {
 	Kind     CommandKind
 	EntityID string
 	Ref      Ref
+	// OtherRef carries the second authored content reference for commands such
+	// as a script-zone variable update. Both references remain typed; source
+	// hrefs and evaluator opcodes never cross this boundary.
+	OtherRef Ref
 	Count    int64
+	// OtherCount carries a second authored integer where collapsing it into
+	// text would lose type information, such as ImpactAddExperience's mob
+	// level alongside its mob count.
+	OtherCount int64
+	Bool       bool
+	// IsCursed is the mutable instance property for CommandGiveItem. The host
+	// must pass it explicitly into authoritative inventory creation; it is not
+	// inferred from a static item row.
+	IsCursed bool
+	Text     string
+	// Destinations is used by presentation cues that author one or more map
+	// pointers. It is copied before Apply returns, like every other command
+	// member.
+	Destinations []Destination
+	// Locator carries one authored map object for spawn commands. It is a
+	// product map id plus script id, never a source path.
+	Locator *MapLocator
 	// Magnitude is the scaler-computed amount for CommandDamage. It stays an
 	// exact decimal rather than a rounded integer because rounding is a combat
 	// decision and the combat hook is where ADR 0036 puts combat decisions —
@@ -327,6 +372,9 @@ const (
 	// EventEquipChanged fires EquipTrigger. Shape A's whole objective is this
 	// event naming MAINHAND or TWOHANDED.
 	EventEquipChanged
+	// EventCombatStateChanged fires CombatStateTrigger when the bearer enters
+	// or leaves combat.
+	EventCombatStateChanged
 )
 
 // Event is what the host delivers to an attachment. The evaluator never polls
@@ -341,6 +389,10 @@ type Event struct {
 	// is the killer, and it becomes the frame's caster so that ReturningImpact
 	// lands the quest count on a player rather than on the dying rat.
 	CauseID string
+	// SourceID is the entity that emitted an authored AI event. EventClass is
+	// its fully-qualified retail class name. EffectTrigger matches both.
+	SourceID   string
+	EventClass string
 	// Health and PreviousHealth bracket the change. Both are needed because a
 	// health trigger fires on the crossing, not on the level: a corpse stays at
 	// zero, and a level test would re-fire on every later event.
@@ -350,6 +402,8 @@ type Event struct {
 	// content spells it: MAINHAND, TWOHANDED.
 	Slot     string
 	Equipped bool
+	// InCombat is the new state for EventCombatStateChanged.
+	InCombat bool
 }
 
 // ResolveRequest asks the host for entity ids. Resolve returns them in bytewise
@@ -360,6 +414,21 @@ type ResolveRequest struct {
 	Finder string
 	Frame  Frame
 	Ref    Ref
+	// Locator identifies one authored map object. It is present for the three
+	// ImpactFindSingle* forms and absent for content-reference finders.
+	Locator *MapLocator
+	Radius  Decimal
+	// AffectGroup, AffectHolder and OnBehalfOfHolder preserve the authored
+	// ImpactCreaturesAround selection and attribution rules for the world host.
+	AffectGroup      string
+	AffectHolder     bool
+	OnBehalfOfHolder bool
+}
+
+// MapLocator is the product form of a map pointer. It names no source path.
+type MapLocator struct {
+	Map      Ref
+	ScriptID string
 }
 
 // Deferred is one scheduled child of an ImpactsDeferred node, at 144 uses the
