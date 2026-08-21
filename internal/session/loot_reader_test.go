@@ -25,8 +25,8 @@ func TestLootTakeInAZoneWithNoLootModuleIsRefused(t *testing.T) {
 		},
 	})
 
-	failure := harness.readReliable(t).GetError()
-	if failure == nil || failure.GetCode() != sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE {
+	failure := harness.readError(t)
+	if failure.GetCode() != sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE {
 		t.Fatalf("server error = %v, want UNSUPPORTED_MESSAGE", failure)
 	}
 	if err := harness.wait(t); err == nil {
@@ -56,8 +56,8 @@ func TestLootTakeOnTheUnreliableChannelIsRefused(t *testing.T) {
 		t.Fatalf("SendUnreliable() error = %v", err)
 	}
 
-	failure := harness.readReliable(t).GetError()
-	if failure == nil || failure.GetCode() != sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE {
+	failure := harness.readError(t)
+	if failure.GetCode() != sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE {
 		t.Fatalf("server error = %v, want UNSUPPORTED_MESSAGE", failure)
 	}
 	if detail := failure.GetDetail(); detail == "" {

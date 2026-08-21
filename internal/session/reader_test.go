@@ -81,11 +81,7 @@ func TestClientMessageWithoutAPayloadCaseIsRefused(t *testing.T) {
 
 	harness.writeReliable(t, &sarnautv1.ClientMessage{ClientSeq: 7})
 
-	message := harness.readReliable(t)
-	failure := message.GetError()
-	if failure == nil {
-		t.Fatalf("server message = %v, want an error case", message)
-	}
+	failure := harness.readError(t)
 	if failure.GetCode() != sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE {
 		t.Errorf("error code = %v, want UNSUPPORTED_MESSAGE", failure.GetCode())
 	}
@@ -100,6 +96,35 @@ func TestClientMessageWithoutAPayloadCaseIsRefused(t *testing.T) {
 	}
 }
 
+// A reliable interest transition may already be in flight when a reader
+// refuses the next client command. The refusal remains ordered behind that
+// transition; clients and tests must not treat the first unrelated frame as a
+// missing refusal.
+func TestProtocolRefusalFollowsAnAlreadyQueuedReliableEvent(t *testing.T) {
+	t.Parallel()
+	harness := startSession(t, true)
+
+	// The datagram composition puts snapshots on the unreliable channel, so
+	// the first post-entry reliable write is the player's spawn transition.
+	harness.waitForServerWrite(t)
+	harness.writeReliable(t, &sarnautv1.ClientMessage{ClientSeq: 7})
+
+	message := harness.readReliable(t)
+	if message.GetSpawnEvent() == nil {
+		t.Fatalf("first server message = %v, want the queued spawn event", message)
+	}
+	failure := harness.readError(t)
+	if failure.GetCode() != sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE {
+		t.Errorf("error code = %v, want UNSUPPORTED_MESSAGE", failure.GetCode())
+	}
+
+	err := harness.wait(t)
+	violation := new(ProtocolViolation)
+	if !errors.As(err, &violation) {
+		t.Fatalf("handle() error = %v, want a *ProtocolViolation", err)
+	}
+}
+
 func TestMoveIntentOnTheStreamIsRefusedWhileDatagramsAreNegotiated(t *testing.T) {
 	t.Parallel()
 	harness := startSession(t, true)
@@ -111,8 +136,8 @@ func TestMoveIntentOnTheStreamIsRefusedWhileDatagramsAreNegotiated(t *testing.T)
 		},
 	})
 
-	failure := harness.readReliable(t).GetError()
-	if failure == nil || failure.GetCode() != sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE {
+	failure := harness.readError(t)
+	if failure.GetCode() != sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE {
 		t.Fatalf("server error = %v, want UNSUPPORTED_MESSAGE", failure)
 	}
 	if err := harness.wait(t); err == nil {
@@ -155,12 +180,13 @@ func TestSnapshotsCarryContentAndCombatFields(t *testing.T) {
 }
 
 type sessionHarness struct {
-	ctx        context.Context
-	client     Client
-	connection transport.Connection
-	entityID   uint64
-	spawnX     float32
-	results    chan error
+	ctx          context.Context
+	client       Client
+	connection   transport.Connection
+	serverWrites <-chan struct{}
+	entityID     uint64
+	spawnX       float32
+	results      chan error
 }
 
 func startSession(t *testing.T, unreliable bool) *sessionHarness {
@@ -239,19 +265,38 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 	if _, err := client.Handshake(ctx, clientSide); err != nil {
 		t.Fatalf("Handshake() error = %v", err)
 	}
+	waitForPipeFrameWrite(t, serverSide.writeStarted, "server hello")
 	entered, err := client.EnterZone(clientSide, zone.ID())
 	if err != nil {
 		t.Fatalf("EnterZone() error = %v", err)
 	}
+	waitForPipeFrameWrite(t, serverSide.writeStarted, "enter-zone response")
 
 	return &sessionHarness{
-		ctx:        ctx,
-		client:     client,
-		connection: clientSide,
-		entityID:   entered.GetOwnEntityId(),
-		spawnX:     entered.GetSpawnPosition().GetX(),
-		results:    results,
+		ctx:          ctx,
+		client:       client,
+		connection:   clientSide,
+		serverWrites: serverSide.writeStarted,
+		entityID:     entered.GetOwnEntityId(),
+		spawnX:       entered.GetSpawnPosition().GetX(),
+		results:      results,
 	}
+}
+
+func waitForPipeWrite(t *testing.T, writes <-chan struct{}, name string) {
+	t.Helper()
+	select {
+	case <-writes:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("no %s write started", name)
+	}
+}
+
+func waitForPipeFrameWrite(t *testing.T, writes <-chan struct{}, name string) {
+	t.Helper()
+	// WriteMessage writes the four-byte header and protobuf payload separately.
+	waitForPipeWrite(t, writes, name+" header")
+	waitForPipeWrite(t, writes, name+" payload")
 }
 
 func (harness *sessionHarness) writeReliable(t *testing.T, message *sarnautv1.ClientMessage) {
@@ -303,6 +348,22 @@ func (harness *sessionHarness) readReliable(t *testing.T) *sarnautv1.ServerMessa
 		t.Fatal("no server message arrived on the reliable stream")
 		return nil
 	}
+}
+
+func (harness *sessionHarness) readError(t *testing.T) *sarnautv1.Error {
+	t.Helper()
+	for attempt := 0; attempt < 32; attempt++ {
+		if failure := harness.readReliable(t).GetError(); failure != nil {
+			return failure
+		}
+	}
+	t.Fatal("no protocol error arrived on the reliable stream")
+	return nil
+}
+
+func (harness *sessionHarness) waitForServerWrite(t *testing.T) {
+	t.Helper()
+	waitForPipeWrite(t, harness.serverWrites, "post-entry reliable event")
 }
 
 func (harness *sessionHarness) sendMoveIntent(t *testing.T, sequence uint64) {
@@ -361,9 +422,10 @@ func (harness *sessionHarness) wait(t *testing.T) error {
 // write, and its datagram half is a lossy buffered channel.
 type pipeConnection struct {
 	net.Conn
-	unreliable bool
-	incoming   chan []byte
-	outgoing   chan []byte
+	unreliable   bool
+	incoming     chan []byte
+	outgoing     chan []byte
+	writeStarted chan struct{}
 }
 
 func newPipeConnections(unreliable bool) (serverSide, clientSide *pipeConnection) {
@@ -371,10 +433,11 @@ func newPipeConnections(unreliable bool) (serverSide, clientSide *pipeConnection
 	toServer := make(chan []byte, 64)
 	toClient := make(chan []byte, 64)
 	serverSide = &pipeConnection{
-		Conn:       serverStream,
-		unreliable: unreliable,
-		incoming:   toServer,
-		outgoing:   toClient,
+		Conn:         serverStream,
+		unreliable:   unreliable,
+		incoming:     toServer,
+		outgoing:     toClient,
+		writeStarted: make(chan struct{}, 16),
 	}
 	clientSide = &pipeConnection{
 		Conn:       clientStream,
@@ -383,6 +446,16 @@ func newPipeConnections(unreliable bool) (serverSide, clientSide *pipeConnection
 		outgoing:   toServer,
 	}
 	return serverSide, clientSide
+}
+
+func (connection *pipeConnection) Write(payload []byte) (int, error) {
+	if connection.writeStarted != nil {
+		select {
+		case connection.writeStarted <- struct{}{}:
+		default:
+		}
+	}
+	return connection.Conn.Write(payload)
 }
 
 func (connection *pipeConnection) CloseWrite() error { return nil }
