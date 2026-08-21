@@ -87,8 +87,16 @@ type commandReader struct {
 	// characterID is the identity the quest log is keyed on. Unlike entityID it
 	// survives a reconnect, which is why the quest module is addressed by it.
 	characterID uuid.UUID
-	datagrams   bool
-	span        trace.Span
+	// scripts is the impact interpreter's adapter, nil on the default
+	// composition. Its methods are nil-receiver safe, so verbs call it
+	// without a branch.
+	scripts *ScriptDriver
+	// lastQuestVerbCommitted reports whether the most recent runQuestVerb
+	// call committed a transaction, so a verb with a post-commit step —
+	// accept activating the quest's scripts — can see past the shared plumbing.
+	lastQuestVerbCommitted bool
+	datagrams              bool
+	span                   trace.Span
 }
 
 // readReliable drains the ordered stream. It is always started, whether or not

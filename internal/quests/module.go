@@ -326,6 +326,75 @@ func (module *Module) CreditKill(_ *world.Tick, kill Kill) {
 	}
 }
 
+// SpecialCredit is one advance of a `count-special` objective, addressed the
+// way a kill is: by the entity whose character earns it.
+//
+// It is declared here and carries no script vocabulary on purpose. What drives
+// a count-special counter is the impact interpreter, but this module has no
+// business knowing that — it receives "objective N of quest Q moved by D",
+// exactly as it receives "mob M died", and the translation from an
+// ImpactIncreaseQuestCount command to this value is the session adapter's.
+type SpecialCredit struct {
+	CharacterEntityID uint64
+	QuestID           string
+	ObjectiveIndex    int
+	Delta             int32
+}
+
+// CreditSpecial advances one `count-special` counter through the same progress
+// path a kill takes: counter moves, state is recomputed once, the update is
+// published to the owner.
+//
+// It is called with the zone lock held, from inside the tick whose event fired
+// the script trigger, so it does exactly what a world.System may do. The
+// counter clamps at the objective's limit rather than refusing: the data has
+// objectives with two independent incrementers against a limit of 1
+// (Quest_1_20/CountId_1 is reachable through DressTrigger and through
+// BrokenDoorExploit), and the second route arriving late is ordinary play, not
+// an error.
+func (module *Module) CreditSpecial(_ *world.Tick, credit SpecialCredit) {
+	if credit.Delta <= 0 {
+		return
+	}
+	characterID, ok := module.actors[credit.CharacterEntityID]
+	if !ok {
+		return
+	}
+	log, ok := module.logs[characterID]
+	if !ok {
+		return
+	}
+	held, ok := log.instances[credit.QuestID]
+	if !ok || !held.state.Active() {
+		return
+	}
+	definition, ok := module.catalog.Definition(credit.QuestID)
+	if !ok {
+		return
+	}
+	if credit.ObjectiveIndex < 0 ||
+		credit.ObjectiveIndex >= len(definition.Objectives) ||
+		credit.ObjectiveIndex >= len(held.counters) {
+		return
+	}
+	objective := definition.Objectives[credit.ObjectiveIndex]
+	if objective.Kind != pack.QuestObjectiveCountSpecial {
+		// Kill and item counters have their own rules — matching and
+		// recomputation — and a scripted increment must not bypass either.
+		return
+	}
+	if held.counters[credit.ObjectiveIndex] >= objective.Limit {
+		return
+	}
+	next := held.counters[credit.ObjectiveIndex] + credit.Delta
+	if next > objective.Limit {
+		next = objective.Limit
+	}
+	held.counters[credit.ObjectiveIndex] = next
+	held.state = progressState(definition, held.counters)
+	module.publish(characterID, module.updateFor(definition, held))
+}
+
 // InventoryChanged is rule 5.5.3: a `count-item` counter is recomputed from
 // what the character holds, never incremented.
 //
