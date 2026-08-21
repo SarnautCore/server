@@ -227,13 +227,9 @@ type Body struct {
 
 // Delivery is one recipient's server-authored view of an accepted message.
 type Delivery struct {
-	MessageID uint64
-	Channel   Channel
-	SentAt    time.Time
-	// SpamWeight is the authoritative source weight consumed by client bubble
-	// anti-spam. Zero means the authority assigned zero; clients never infer it
-	// from text or channel.
-	SpamWeight        uint32
+	MessageID         uint64
+	Channel           Channel
+	SentAt            time.Time
 	SenderCharacterID uuid.UUID
 	SenderEntityID    uint64
 	SenderName        string

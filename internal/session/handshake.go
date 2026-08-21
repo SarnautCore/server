@@ -13,6 +13,7 @@ import (
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/chat"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/party"
 	"github.com/SarnautCore/server/internal/quests"
@@ -324,6 +325,10 @@ type Server struct {
 	// membership through a client payload or stale teardown.
 	Party PartySessions
 
+	// LocalChat admits authenticated player entities to the world-owned Say
+	// topology. Its authority also serves Chat.Options.SayAudience.
+	LocalChat LocalChatSessions
+
 	// SaveInterval is checkpoint S2's cadence. Zero means
 	// [DefaultSaveInterval].
 	SaveInterval time.Duration
@@ -345,6 +350,15 @@ type Server struct {
 type PartySessions interface {
 	Connect(party.Actor) party.Refusal
 	Disconnect(party.Actor) party.Refusal
+}
+
+// LocalChatSessions binds authenticated world entities to the Say audience.
+type LocalChatSessions interface {
+	Admit(uuid.UUID, uint64, gametypes.Zone) (LocalChatSession, error)
+}
+
+type LocalChatSession interface {
+	Close()
 }
 
 // ZoneBinding is the set of modules that serve one hosted zone.
@@ -574,6 +588,14 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 			return err
 		}
 		defer binding.Combat.Release(entityID)
+	}
+	if server.LocalChat != nil {
+		localChat, err := server.LocalChat.Admit(admission.CharacterID, entityID, zone)
+		if err != nil {
+			return server.refuseEnterZone(connection, sarnautv1.ErrorCode_ERROR_CODE_INTERNAL,
+				"the character could not enter local chat")
+		}
+		defer localChat.Close()
 	}
 	// Loot ownership is keyed on the character, not on this entity or this
 	// session, because mechanics/loot.md rule 5.8.4 keeps a corpse yours across
