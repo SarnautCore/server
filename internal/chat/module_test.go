@@ -361,6 +361,45 @@ func TestConcurrentSendUpdateAndCloseRemainRaceFree(t *testing.T) {
 	session.Close()
 }
 
+func TestFanoutSnapshotsRecipientIdentityBeforeConcurrentPresenceUpdates(t *testing.T) {
+	t.Parallel()
+
+	clock := newTestClock(time.Date(2026, time.August, 21, 20, 45, 0, 0, time.UTC))
+	module := chat.New(chat.Options{Clock: clock.Now})
+	senderID := uuid.MustParse("019200f0-0000-7000-8000-00000000c053")
+	recipientID := uuid.MustParse("019200f0-0000-7000-8000-00000000c054")
+	sender := join(t, module, presence(senderID, 153, "Alice", "zone-a", 0), newRecordingSink())
+	defer sender.Close()
+	base := presence(recipientID, 154, "Bob", "zone-a", 0)
+	recipient := join(t, module, base, newRecordingSink())
+	defer recipient.Close()
+
+	start := make(chan struct{})
+	var group sync.WaitGroup
+	group.Add(2)
+	go func() {
+		defer group.Done()
+		<-start
+		for index := 0; index < 256; index++ {
+			clock.Advance(time.Second)
+			_ = sender.Send(t.Context(), send(uint64(index+1), chat.ChannelZone, "recipient race"))
+		}
+	}()
+	go func() {
+		defer group.Done()
+		<-start
+		for index := 0; index < 256; index++ {
+			updated := base
+			if index%2 == 0 {
+				updated.ZoneID = "zone-b"
+			}
+			_ = recipient.UpdatePresence(updated)
+		}
+	}()
+	close(start)
+	group.Wait()
+}
+
 type testCurrencySpender struct {
 	allow         bool
 	calls         int
