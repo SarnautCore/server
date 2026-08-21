@@ -20,10 +20,25 @@ import (
 	"github.com/SarnautCore/server/internal/pack"
 )
 
-// ErrDrawBudget reports a roll that hit MAX_DRAWS_PER_ROLL. A tree inside
-// MaxLootTreeDepth cannot reach it with any content the compiler accepts, so it
-// is a guard against a future evaluator bug rather than against content.
-var ErrDrawBudget = errors.New("loot: roll exceeded the draw budget")
+const (
+	// MaxObservableLootEntries is the retail loot window's five pages of four
+	// ordered item entries. A larger roll cannot be represented faithfully and
+	// is rejected rather than partially exposed.
+	MaxObservableLootEntries = 20
+	// LootPageSize is the fixed number of entries rendered on one retail page.
+	LootPageSize = 4
+)
+
+var (
+	// ErrDrawBudget reports a roll that hit MAX_DRAWS_PER_ROLL. A tree inside
+	// MaxLootTreeDepth cannot reach it with any content the compiler accepts, so
+	// it is a guard against a future evaluator bug rather than against content.
+	ErrDrawBudget = errors.New("loot: roll exceeded the draw budget")
+	// ErrLootEntryLimit reports content whose successful roll cannot fit the
+	// retail loot window. The module does not stand up a partially visible
+	// corpse for such a roll.
+	ErrLootEntryLimit = errors.New("loot: roll exceeds the observable item-entry limit")
+)
 
 // ItemGrant is one item and the count rolled for it. Grants are in draw order
 // and duplicates are deliberately not merged: merging happens at inventory
@@ -77,6 +92,9 @@ func evaluateNode(node pack.LootNode, stream Stream, drop *Drop) error {
 		// section 4 defines a Stack as holding at least one unit, and an
 		// ItemGrant of zero would reach inventory with nowhere to go.
 		if count := drawCount(node, stream); count > 0 {
+			if len(drop.Items) >= MaxObservableLootEntries {
+				return ErrLootEntryLimit
+			}
 			drop.Items = append(drop.Items, ItemGrant{ItemID: node.ItemID, Count: count})
 		}
 		return nil

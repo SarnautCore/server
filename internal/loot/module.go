@@ -1,8 +1,6 @@
 package loot
 
 import (
-	"context"
-	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -265,102 +263,6 @@ func (module *Module) Look(actorEntityID, corpseEntityID uint64) (Offer, Refusal
 		return nil
 	})
 	return offer, refusal
-}
-
-// Take is rule 5.6: the whole drop on one corpse, into one character.
-//
-// It runs in three phases, and the shape is forced by two constraints that
-// pull against each other. The corpse lives under the zone lock, and the award
-// is a database transaction that must never run under it. So: reserve under the
-// lock, commit outside it, then clear under the lock again.
-//
-// The reservation is what makes the two-phase shape safe. Between phases the
-// corpse still holds the drop and is marked in flight, so a retransmit is
-// refused rather than committing the same drop twice, and a crash in phase two
-// leaves the drop exactly where it was. The item is in the corpse or in the
-// bag, never in both and never in neither.
-func (module *Module) Take(ctx context.Context, actorEntityID, corpseEntityID uint64) (Result, error) {
-	var (
-		reserved Drop
-		owner    uuid.UUID
-		refusal  Refusal
-	)
-	_ = module.zone.GameCommand(func(gametypes.Tick) error {
-		held, actor := module.corpses[corpseEntityID], module.owners[actorEntityID]
-		switch {
-		case held == nil:
-			refusal = RefusalNoCorpse
-		case held.owner != actor:
-			refusal = RefusalNotYourLoot
-		case held.looted:
-			refusal = RefusalAlreadyLooted
-		case held.inFlight:
-			refusal = RefusalInProgress
-		default:
-			held.inFlight = true
-			reserved, owner = held.drop.Clone(), held.owner
-		}
-		return nil
-	})
-	if refusal != RefusalNone {
-		return Result{CorpseEntityID: corpseEntityID, Refusal: refusal}, refusal.err()
-	}
-
-	awarded, err := module.awarder.Award(ctx, owner, inventory.Award{
-		Money:  reserved.Money,
-		Grants: grantsFor(reserved),
-	})
-	if err != nil {
-		module.release(corpseEntityID)
-		if errors.Is(err, inventory.ErrBagFull) {
-			// Rule 5.6.3. The corpse is intact, the money is uncredited, and
-			// the client is told why. Nothing was destroyed.
-			return Result{CorpseEntityID: corpseEntityID, Refusal: RefusalBagFull}, ErrBagFull
-		}
-		module.logger.Error("loot award failed",
-			"corpse_entity_id", corpseEntityID,
-			"character_id", owner.String(),
-			"error", err,
-		)
-		return Result{CorpseEntityID: corpseEntityID, Refusal: RefusalInternal}, err
-	}
-
-	// Committed. Only now is the corpse emptied (rule 5.6.4); it stays standing
-	// until its despawn tick, but it is empty.
-	module.zoneClear(corpseEntityID)
-	return Result{
-		CorpseEntityID: corpseEntityID,
-		Refusal:        RefusalNone,
-		Money:          reserved.Money,
-		Items:          reserved.Items,
-		Slots:          awarded.Slots,
-		Currency:       awarded.Currency,
-		SaveSeq:        awarded.SaveSeq,
-	}, nil
-}
-
-func (module *Module) release(corpseEntityID uint64) {
-	_ = module.zone.GameCommand(func(gametypes.Tick) error {
-		if held, ok := module.corpses[corpseEntityID]; ok {
-			held.inFlight = false
-		}
-		return nil
-	})
-}
-
-func (module *Module) zoneClear(corpseEntityID uint64) {
-	_ = module.zone.GameCommand(func(gametypes.Tick) error {
-		held, ok := module.corpses[corpseEntityID]
-		if !ok {
-			// Despawned while the award was in flight. The character keeps what
-			// was committed; there is nothing left to empty.
-			return nil
-		}
-		held.looted = true
-		held.inFlight = false
-		held.drop = Drop{}
-		return nil
-	})
 }
 
 // CorpseCount is how many containers the module is holding. It is a diagnostic

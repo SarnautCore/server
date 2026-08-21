@@ -34,6 +34,9 @@ const (
 	// RefusalInternal means the award could not be committed. The corpse is
 	// left intact: an item that cannot be persisted has not been taken.
 	RefusalInternal
+	// RefusalInvalidItemIndex means a per-item take did not name an entry in
+	// the corpse's current ordered item list. Nothing is reserved or awarded.
+	RefusalInvalidItemIndex
 )
 
 func (refusal Refusal) String() string {
@@ -52,6 +55,8 @@ func (refusal Refusal) String() string {
 		return "in_progress"
 	case RefusalInternal:
 		return "internal"
+	case RefusalInvalidItemIndex:
+		return "invalid_item_index"
 	default:
 		return "unknown"
 	}
@@ -61,11 +66,12 @@ func (refusal Refusal) String() string {
 // reported to the client as its [Refusal]; these exist so a Go caller — the
 // slice driver, a test — can branch without re-deriving the reason.
 var (
-	ErrNoCorpse       = errors.New("loot: no such corpse")
-	ErrNotYourLoot    = errors.New("loot: this corpse belongs to another character")
-	ErrAlreadyLooted  = errors.New("loot: this corpse has already been looted")
-	ErrBagFull        = errors.New("loot: the bag cannot hold this drop")
-	ErrTakeInProgress = errors.New("loot: a take on this corpse is already running")
+	ErrNoCorpse         = errors.New("loot: no such corpse")
+	ErrNotYourLoot      = errors.New("loot: this corpse belongs to another character")
+	ErrAlreadyLooted    = errors.New("loot: this corpse has already been looted")
+	ErrBagFull          = errors.New("loot: the bag cannot hold this drop")
+	ErrTakeInProgress   = errors.New("loot: a take on this corpse is already running")
+	ErrInvalidItemIndex = errors.New("loot: item index is outside the current corpse drop")
 )
 
 func (refusal Refusal) err() error {
@@ -80,6 +86,8 @@ func (refusal Refusal) err() error {
 		return ErrBagFull
 	case RefusalInProgress:
 		return ErrTakeInProgress
+	case RefusalInvalidItemIndex:
+		return ErrInvalidItemIndex
 	case RefusalNone, RefusalInternal:
 		return nil
 	default:
