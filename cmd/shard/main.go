@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/config"
+	"github.com/SarnautCore/server/internal/gateway"
 	"github.com/SarnautCore/server/internal/health"
 	"github.com/SarnautCore/server/internal/infra"
 	"github.com/SarnautCore/server/internal/inventory"
@@ -98,11 +100,23 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		}
 	}()
 
-	tlsConfig, err := transport.NewDevServerTLSConfig()
+	var tlsConfig *tls.Config
+	listenAddress := settings.QUIC.PrivateListenAddress
+	if settings.Private.AllowDirectShard {
+		tlsConfig, err = transport.NewDevServerTLSConfig()
+		listenAddress = settings.QUIC.ListenAddress
+	} else {
+		if len(settings.Private.Secret) != 32 {
+			return errors.New("shard requires SARNAUT_PRIVATE_SHARED_SECRET_HEX")
+		}
+		tlsConfig, err = transport.LoadPrivateServerTLSConfig(
+			settings.Private.CertificatePath, settings.Private.PrivateKeyPath,
+		)
+	}
 	if err != nil {
 		return err
 	}
-	listener, err := transport.ListenQUIC(settings.QUIC.ListenAddress, tlsConfig)
+	listener, err := transport.ListenQUIC(listenAddress, tlsConfig)
 	if err != nil {
 		return err
 	}
@@ -161,10 +175,8 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	go worldModule.Run(ctx)
 	go combatModule.Run(ctx)
 
-	// Persistence and admission. Both are required: a shard that cannot save
-	// loses progress silently, and a shard that cannot redeem a ticket would
-	// have to admit anonymous peers, which is the one thing it must never do
-	// (ADR 0030, ADR 0031).
+	// Persistence remains shard-owned. Public admission and its NATS authority
+	// live in the gateway; this process receives only an asserted identity.
 	pool, err := clients.RequirePostgres()
 	if err != nil {
 		return err
@@ -172,12 +184,6 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	repository, err := charstore.NewPostgres(pool)
 	if err != nil {
 		return err
-	}
-	if clients.NATS == nil {
-		return errors.New(
-			"no NATS configured: the shard redeems ADR 0030 tickets over NATS request/reply. " +
-				"Set SARNAUT_NATS_URL",
-		)
 	}
 
 	worker := charstore.NewSaveWorker(
@@ -258,10 +264,10 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	// (mechanics/combat.md rules 5.9.3 and 5.9.4).
 	combatModule.SetKillSink(binding.KillSink())
 
-	instanceID := shardInstanceID(settings.Auth.InstanceID)
-	logger.Info("shard admission wired",
-		"instance_id", instanceID,
+	logger.Info("shard attachment wired",
+		"shard_id", settings.Private.ShardID,
 		"chargen_options", sortedOptionIDs(templates),
+		"direct_compatibility", settings.Private.AllowDirectShard,
 	)
 
 	server := session.Server{
@@ -274,14 +280,29 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		PackID:              content.ID(),
 		AllowUnverifiedPack: settings.Content.AllowUnverifiedPack,
 		Zones:               map[string]session.ZoneBinding{zone.ID(): binding},
-		Authority:           session.NewNATSAuthority(clients.NATS, instanceID, settings.Auth.RequestTimeout),
 		Characters:          characters,
 		SaveInterval:        settings.Persistence.SaveInterval,
 		Logger:              logger,
 	}
 	sessionErrors := make(chan error, 1)
 	go func() {
-		sessionErrors <- server.Serve(ctx, listener)
+		if settings.Private.AllowDirectShard {
+			if clients.NATS == nil {
+				sessionErrors <- errors.New("direct shard compatibility requires NATS")
+				return
+			}
+			server.Authority = gateway.NewNATSAuthority(
+				clients.NATS, shardInstanceID(settings.Auth.InstanceID), settings.Auth.RequestTimeout,
+			)
+			sessionErrors <- server.Serve(ctx, listener)
+			return
+		}
+		sessionErrors <- server.ServePrivate(ctx, listener, gateway.TrustConfig{
+			InstanceID: settings.Private.GatewayInstanceID,
+			ShardID:    settings.Private.ShardID,
+			KeyID:      settings.Private.KeyID,
+			Secret:     settings.Private.Secret,
+		})
 	}()
 
 	status.SetReady(true)

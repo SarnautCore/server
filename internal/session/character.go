@@ -184,14 +184,11 @@ func (character *characterSession) runPeriodicSaves(
 	zone *world.Zone,
 	entityID uint64,
 	characters CharacterStore,
-	authority Authority,
 	interval time.Duration,
 	logger *slog.Logger,
 ) error {
 	saves := time.NewTicker(interval)
 	defer saves.Stop()
-	locks := time.NewTicker(playLockRenewInterval)
-	defer locks.Stop()
 
 	for {
 		select {
@@ -199,27 +196,6 @@ func (character *characterSession) runPeriodicSaves(
 			return nil
 		case <-saves.C:
 			character.checkpoint(zone, entityID, characters, logger, "S2")
-		case <-locks.C:
-			granted, err := authority.RenewPlayLock(ctx, character.characterID)
-			if err != nil {
-				// A renewal that cannot be delivered is not fatal: the lock
-				// outlives one missed renewal, and dropping the player because
-				// auth blinked would be worse than the risk.
-				logger.Warn("play lock renewal failed",
-					"character_id", character.characterID.String(),
-					"error", err,
-				)
-				continue
-			}
-			if !granted {
-				logger.Warn("play lock lost to another holder",
-					"character_id", character.characterID.String(),
-				)
-			}
 		}
 	}
 }
-
-// playLockRenewInterval is ADR 0030 §4's 20 seconds against a 60-second lock:
-// two missed renewals still leave a session alive, three do not.
-const playLockRenewInterval = 20 * time.Second

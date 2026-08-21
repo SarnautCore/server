@@ -16,6 +16,7 @@ import (
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -325,7 +326,8 @@ type Server struct {
 
 	// sessions arbitrates two connections for one character. It is created by
 	// Serve, so every handler a Serve call spawns shares one registry.
-	sessions *sessionRegistry
+	sessions           *sessionRegistry
+	privateAttachments *privateAttachmentRegistry
 }
 
 // ZoneBinding is the set of modules that serve one hosted zone.
@@ -483,7 +485,6 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if !ok {
 		return fmt.Errorf("zone %q is not hosted by this shard", request.GetZoneId())
 	}
-	zone := binding.World
 
 	// Admission runs before anything else in EnterZone. A session that fails
 	// redemption never reaches CharacterBound and never touches the zone, so no
@@ -492,9 +493,29 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if err != nil {
 		return err
 	}
+	// The direct route exists only for the M3 delivery guard. Production uses
+	// ServePrivate and the gateway owns this release.
+	defer server.releaseDirectPlayLock(admission.CharacterID)
 	// The peer is identified. Everything past this point is either shard work or
 	// a session the zone supervises, so the admission deadline is spent.
 	admissionTimer.Stop()
+	return server.runAttachment(ctx, sessionCtx, cancel, span, connection, binding, admission, 0)
+}
+
+// runAttachment is the shard lifetime. It receives a credential-free identity
+// from either the private gateway handshake or the temporary direct-path
+// adapter and owns character load through final checkpoint and Zone.Leave.
+func (server Server) runAttachment(
+	ctx context.Context,
+	sessionCtx context.Context,
+	cancel context.CancelFunc,
+	span trace.Span,
+	connection transport.Connection,
+	binding ZoneBinding,
+	admission Admission,
+	minimumSaveSeq int64,
+) error {
+	zone := binding.World
 
 	// L1: the character's saved snapshot, or a fresh one materialized from the
 	// chargen table. It runs before the entity is created because the entity
@@ -509,6 +530,10 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		)
 		return server.refuseEnterZone(connection, sarnautv1.ErrorCode_ERROR_CODE_INTERNAL,
 			"the character could not be loaded")
+	}
+	if loaded.State.SaveSeq < minimumSaveSeq {
+		return server.refuseEnterZone(connection, sarnautv1.ErrorCode_ERROR_CODE_INTERNAL,
+			"the transfer checkpoint is not available")
 	}
 	character := newCharacterSession(admission, zone.ID(), loaded)
 
@@ -648,7 +673,6 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 			zone,
 			entityID,
 			server.Characters,
-			server.Authority,
 			server.saveInterval(),
 			server.logger(),
 		)
@@ -682,6 +706,18 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		return nil
 	}
 	return first
+}
+
+func (server Server) releaseDirectPlayLock(characterID uuid.UUID) {
+	if server.Authority == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := server.Authority.ReleasePlayLock(ctx, characterID); err != nil {
+		server.logger().Warn("direct-path play lock release failed",
+			"character_id", characterID.String(), "error", err)
+	}
 }
 
 // characterLevel converts a stored level into the unsigned one the gameplay
@@ -790,18 +826,6 @@ func (server Server) teardown(
 	saved := character.checkpoint(zone, entityID, server.Characters, server.logger(), "S1")
 	zone.Leave(entityID)
 
-	// The play lock is released on a context of its own for the same reason the
-	// save is: the connection's context is already cancelled here. A release
-	// that fails is not fatal — the lock's TTL frees the character within a
-	// minute either way.
-	releaseCtx, cancel := context.WithTimeout(context.Background(), playLockReleaseTimeout)
-	defer cancel()
-	if err := server.Authority.ReleasePlayLock(releaseCtx, admission.CharacterID); err != nil {
-		server.logger().Warn("play lock release failed",
-			"character_id", admission.CharacterID.String(),
-			"error", err,
-		)
-	}
 	server.logger().Info("character left zone",
 		"character_id", admission.CharacterID.String(),
 		"zone_id", zone.ID(),
@@ -809,11 +833,6 @@ func (server Server) teardown(
 		"final_save_enqueued", saved,
 	)
 }
-
-// playLockReleaseTimeout bounds the disconnect-path release. It is short: the
-// TTL is the real guarantee, and a slow release must not hold a goroutine open
-// through shutdown.
-const playLockReleaseTimeout = 2 * time.Second
 
 func (server Server) exchangeHello(connection transport.Connection) error {
 	hello := new(sarnautv1.ClientHello)

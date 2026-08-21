@@ -255,8 +255,6 @@ linters:
             - "!**/internal/infra/**/*.go"
             - "!**/internal/gateway/*.go"
             - "!**/internal/gateway/**/*.go"
-            - "!**/internal/session/*.go"
-            - "!**/internal/session/**/*.go"
             - "!**/cmd/**/*.go"
           deny:
             - pkg: github.com/nats-io
