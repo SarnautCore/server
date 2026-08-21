@@ -75,7 +75,8 @@ func newIntegrationRepository(t *testing.T) charstore.Repository {
 	pool := migratedPool(t)
 
 	const truncate = `
-		TRUNCATE shard.character_quests, shard.character_inventory, shard.character_state,
+		TRUNCATE shard.character_actions, shard.character_stats, shard.character_bag_layout,
+		         shard.character_equipment, shard.character_quests, shard.character_inventory, shard.character_state,
 		         auth.name_reservations, auth.characters, auth.accounts
 		RESTART IDENTITY CASCADE`
 	if _, err := pool.Exec(t.Context(), truncate); err != nil {
@@ -138,6 +139,78 @@ func TestMigrationsUpDownToZeroAndUpAgain(t *testing.T) {
 		t.Fatalf("up again: %v", err)
 	}
 	t.Logf("migrations applied, reversed to zero and re-applied; schema version %d", version)
+}
+
+func TestHUDMigrationBackfillsStableNonzeroInventoryInstanceIDs(t *testing.T) {
+	dsn := requirePostgresDSN(t)
+	pool := migratedPool(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
+	defer cancel()
+
+	migrator, err := charstore.NewMigrator(dsn)
+	if err != nil {
+		t.Fatalf("new migrator: %v", err)
+	}
+	defer func() {
+		if err := migrator.Up(context.Background()); err != nil {
+			t.Errorf("restore current migration version: %v", err)
+		}
+		if err := migrator.Close(); err != nil {
+			t.Errorf("close migrator: %v", err)
+		}
+	}()
+
+	if err := migrator.DownTo(ctx, 6); err != nil {
+		t.Fatalf("down to pre-HUD schema: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `TRUNCATE shard.character_inventory`); err != nil {
+		t.Fatalf("clear legacy inventory: %v", err)
+	}
+	firstCharacter := uuid.New()
+	secondCharacter := uuid.New()
+	const insertLegacy = `
+		INSERT INTO shard.character_inventory (character_id, slot, item_id, quantity)
+		VALUES ($1, $2, $3, 1)`
+	for _, row := range []struct {
+		characterID uuid.UUID
+		slot        int32
+		itemID      string
+	}{
+		{firstCharacter, 5, "item.legacy.five"},
+		{firstCharacter, 1, "item.legacy.one"},
+		{secondCharacter, 9, "item.legacy.other"},
+	} {
+		if _, err := pool.Exec(ctx, insertLegacy, row.characterID, row.slot, row.itemID); err != nil {
+			t.Fatalf("insert legacy inventory row: %v", err)
+		}
+	}
+	if err := migrator.Up(ctx); err != nil {
+		t.Fatalf("apply HUD migration over legacy rows: %v", err)
+	}
+
+	assertInventoryInstanceID := func(characterID uuid.UUID, slot int32, want string) {
+		t.Helper()
+		var got string
+		if err := pool.QueryRow(ctx, `
+			SELECT instance_id::text FROM shard.character_inventory
+			WHERE character_id = $1 AND slot = $2`, characterID, slot).Scan(&got); err != nil {
+			t.Fatalf("read backfilled instance id: %v", err)
+		}
+		if got != want {
+			t.Errorf("character %s slot %d instance_id = %s, want %s", characterID, slot, got, want)
+		}
+	}
+	assertInventoryInstanceID(firstCharacter, 1, "1")
+	assertInventoryInstanceID(firstCharacter, 5, "2")
+	assertInventoryInstanceID(secondCharacter, 9, "1")
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO shard.character_inventory (character_id, slot, instance_id, product_item_id, quantity)
+		VALUES ($1, 0, 0, 'item.invalid.zero', 1)`, uuid.New())
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "character_inventory_instance_id_check" {
+		t.Fatalf("zero instance insert error = %v, want character_inventory_instance_id_check", err)
+	}
 }
 
 func assertSchemaAbsent(t *testing.T, ctx context.Context, dsn, schema string) {
@@ -288,10 +361,14 @@ func TestRunInTxCommitIsVisibleToOtherConnections(t *testing.T) {
 			SaveSeq:     1,
 		},
 		Inventory: []charstore.InventoryItem{
-			{Slot: 0, ItemID: "item.sword-rusty", Quantity: 1},
-			{Slot: 1, ItemID: "item.potion-minor", Quantity: 5},
+			{Slot: 0, InstanceID: 1, ItemID: "item.sword-rusty", Quantity: 1},
+			{Slot: 1, InstanceID: 2, ItemID: "item.potion-minor", Quantity: 5},
 		},
 		Quests: []charstore.QuestState{{QuestID: "quest.league.first-blood", State: "accepted"}},
+		HUD: func() *charstore.CharacterHUDState {
+			hud := hudFixture("commit", 10)
+			return &hud
+		}(),
 	})
 	if err != nil {
 		t.Fatalf("save character: %v", err)
@@ -300,6 +377,10 @@ func TestRunInTxCommitIsVisibleToOtherConnections(t *testing.T) {
 	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_state WHERE character_id = $1`, 1, characterID)
 	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_inventory WHERE character_id = $1`, 2, characterID)
 	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_quests WHERE character_id = $1`, 1, characterID)
+	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_equipment WHERE character_id = $1`, 2, characterID)
+	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_bag_layout WHERE character_id = $1`, 1, characterID)
+	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_stats WHERE character_id = $1`, 14, characterID)
+	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_actions WHERE character_id = $1`, 36, characterID)
 }
 
 // The save worker under a real database: the checkpoint path end to end.
@@ -309,7 +390,7 @@ func TestSaveWorkerPersistsAgainstPostgres(t *testing.T) {
 	characterID := uuid.New()
 
 	snapshot := snapshotFor(characterID, 1)
-	snapshot.Inventory = []charstore.InventoryItem{{Slot: 0, ItemID: "item.sword-rusty", Quantity: 1}}
+	snapshot.Inventory = []charstore.InventoryItem{{Slot: 0, InstanceID: 1, ItemID: "item.sword-rusty", Quantity: 1}}
 	if !worker.Enqueue(snapshot) {
 		t.Fatal("Enqueue was refused with an empty queue")
 	}

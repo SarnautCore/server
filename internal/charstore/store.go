@@ -127,13 +127,15 @@ type InventoryItem = inventory.InventoryItem
 // quest module owns its own counter shape without a migration per change.
 type QuestState = quests.QuestState
 
-// Snapshot is everything one character save writes. ADR 0031 §5 requires all
-// three parts in a single transaction: never three transactions, never a partial
-// write, so inventory and quest state can never disagree.
+// Snapshot is everything one character save writes. HUD is nil for a producer
+// that does not own HUD mutation; that preserves the stored equipment, bag,
+// stats and action slots. A non-nil HUD is replaced in the same transaction as
+// state, inventory and quests.
 type Snapshot struct {
 	State     CharacterState
 	Inventory []InventoryItem
 	Quests    []QuestState
+	HUD       *CharacterHUDState
 }
 
 // Accounts owns auth.accounts.
@@ -221,6 +223,13 @@ type Quests interface {
 	LoadQuestStates(ctx context.Context, characterID uuid.UUID) ([]QuestState, error)
 }
 
+// HUDStates owns the character's equipment, equipped bag, product-native bag
+// layout, fourteen stat rows and thirty-six action slots.
+type HUDStates interface {
+	SaveCharacterHUD(ctx context.Context, characterID uuid.UUID, hud CharacterHUDState) error
+	LoadCharacterHUD(ctx context.Context, characterID uuid.UUID) (CharacterHUDState, error)
+}
+
 // Repository is the whole persistence surface. It is one interface rather than
 // five so that [Repository.RunInTx] can hand a caller a transactional view of
 // every table at once — which is what a character save needs.
@@ -231,6 +240,7 @@ type Repository interface {
 	CharacterStates
 	Inventory
 	Quests
+	HUDStates
 
 	// RunInTx runs fn inside one transaction, committing when fn returns nil and
 	// rolling back on any error or panic. The Repository handed to fn is scoped
@@ -248,18 +258,7 @@ type Repository interface {
 // call site has to remember.
 func SaveCharacter(ctx context.Context, repository Repository, snapshot Snapshot) error {
 	return repository.RunInTx(ctx, func(ctx context.Context, tx Repository) error {
-		if err := tx.SaveCharacterState(ctx, snapshot.State); err != nil {
-			return err
-		}
-		if err := tx.ReplaceInventory(ctx, snapshot.State.CharacterID, snapshot.Inventory); err != nil {
-			return err
-		}
-		for _, quest := range snapshot.Quests {
-			if err := tx.UpsertQuestState(ctx, snapshot.State.CharacterID, quest); err != nil {
-				return err
-			}
-		}
-		return nil
+		return saveWithin(ctx, tx, snapshot)
 	})
 }
 

@@ -27,9 +27,18 @@ var ErrBagFull = errors.New("inventory: bag is full")
 
 // Stack is one occupied bag slot: `1 <= Count <= item.stack_limit`.
 type Stack struct {
-	Slot   int32
-	ItemID string
-	Count  int32
+	Slot       int32
+	InstanceID uint64
+	ItemID     string
+	Count      int32
+
+	CounterValue       int32
+	Bound              bool
+	Cursed             bool
+	QuestOperator      bool
+	RemoveTime         *int64
+	RuneResourceID     *string
+	RuneSlotResourceID *string
 }
 
 // Grant is one item and count to insert, as `internal/loot` rolled it.

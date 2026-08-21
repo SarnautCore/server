@@ -29,7 +29,7 @@ func testTemplates() templates {
 			Level:    1,
 			Health:   100,
 		},
-		Inventory: []charstore.InventoryItem{{Slot: 0, ItemID: "item.consumable.harbor-tonic", Quantity: 3}},
+		Inventory: []charstore.InventoryItem{{Slot: 0, InstanceID: 1, ItemID: "item.consumable.harbor-tonic", Quantity: 3}},
 		Quests:    []charstore.QuestState{{QuestID: "quest.paper-harbor.mossy-gate", State: "offered"}},
 	}}
 }

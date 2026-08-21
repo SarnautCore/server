@@ -452,7 +452,7 @@ func (granter *bagGranter) pack(held map[string]int32) []charstore.InventoryItem
 			if count > remaining {
 				count = remaining
 			}
-			items = append(items, charstore.InventoryItem{Slot: slot, ItemID: itemID, Quantity: count})
+			items = append(items, charstore.InventoryItem{Slot: slot, InstanceID: uint64(slot) + 1, ItemID: itemID, Quantity: count})
 			remaining -= count
 			slot++
 		}

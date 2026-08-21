@@ -88,7 +88,30 @@ func (service *CharacterService) Load(
 			if err != nil {
 				return err
 			}
-			loaded = Snapshot{State: state, Inventory: inventory, Quests: quests}
+			hud, err := tx.LoadCharacterHUD(ctx, characterID)
+			switch {
+			case err == nil:
+				loaded = Snapshot{State: state, Inventory: inventory, Quests: quests, HUD: &hud}
+			case errors.Is(err, ErrNotFound):
+				// Rows written before HUD persistence existed are materialized from
+				// the same chargen template, without touching state or re-granting
+				// bag inventory and quests.
+				fresh, ok := service.templates.Template(chargenOptionID)
+				if !ok {
+					return fmt.Errorf("%w: %q", ErrNoTemplate, chargenOptionID)
+				}
+				if fresh.HUD != nil {
+					if err := tx.SaveCharacterHUD(ctx, characterID, *fresh.HUD); err != nil {
+						return err
+					}
+					hud := cloneHUDState(*fresh.HUD)
+					loaded = Snapshot{State: state, Inventory: inventory, Quests: quests, HUD: &hud}
+				} else {
+					loaded = Snapshot{State: state, Inventory: inventory, Quests: quests}
+				}
+			default:
+				return err
+			}
 			return nil
 		case errors.Is(err, ErrNotFound):
 			fresh, ok := service.templates.Template(chargenOptionID)
@@ -101,7 +124,7 @@ func (service *CharacterService) Load(
 			if err := saveWithin(ctx, tx, fresh); err != nil {
 				return err
 			}
-			loaded = fresh
+			loaded = cloneSnapshot(fresh)
 			return nil
 		default:
 			return err
@@ -130,14 +153,24 @@ func (service *CharacterService) CheckpointNow(ctx context.Context, snapshot Sna
 	return SaveNow(ctx, service.repository, snapshot, service.timeout)
 }
 
-// saveWithin writes the three tables of a snapshot inside an already-open
+// saveWithin writes every table of a snapshot inside an already-open
 // transaction. [SaveCharacter] would open its own, which nests correctly but
 // reads as though the materialization were two units of work.
 func saveWithin(ctx context.Context, tx Repository, snapshot Snapshot) error {
 	if err := tx.SaveCharacterState(ctx, snapshot.State); err != nil {
 		return err
 	}
-	if err := tx.ReplaceInventory(ctx, snapshot.State.CharacterID, snapshot.Inventory); err != nil {
+	if snapshot.HUD != nil {
+		replacer, ok := tx.(interface {
+			replaceInventoryAndHUD(context.Context, uuid.UUID, []InventoryItem, CharacterHUDState) error
+		})
+		if !ok {
+			return errors.New("store: repository does not support atomic inventory and HUD replacement")
+		}
+		if err := replacer.replaceInventoryAndHUD(ctx, snapshot.State.CharacterID, snapshot.Inventory, *snapshot.HUD); err != nil {
+			return err
+		}
+	} else if err := tx.ReplaceInventory(ctx, snapshot.State.CharacterID, snapshot.Inventory); err != nil {
 		return err
 	}
 	for _, quest := range snapshot.Quests {
@@ -146,4 +179,18 @@ func saveWithin(ctx context.Context, tx Repository, snapshot Snapshot) error {
 		}
 	}
 	return nil
+}
+
+func cloneSnapshot(snapshot Snapshot) Snapshot {
+	cloned := snapshot
+	cloned.Inventory = make([]InventoryItem, len(snapshot.Inventory))
+	for index, item := range snapshot.Inventory {
+		cloned.Inventory[index] = cloneInventoryItem(item)
+	}
+	cloned.Quests = append([]QuestState(nil), snapshot.Quests...)
+	if snapshot.HUD != nil {
+		hud := cloneHUDState(*snapshot.HUD)
+		cloned.HUD = &hud
+	}
+	return cloned
 }

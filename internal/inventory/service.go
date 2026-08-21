@@ -37,16 +37,36 @@ type Awarder interface {
 }
 
 type InventoryItem struct {
-	Slot     int32
+	Slot int32
+	// InstanceID is the stable uint64 item identity. Persistence rejects zero.
+	InstanceID uint64
+	// ItemID is the canonical product_item_id. It resolves static rules and
+	// presentation in the compiled catalogue.
 	ItemID   string
 	Quantity int32
+
+	// The remaining fields belong to the item instance, not the compiled item
+	// catalogue. Names, icons and quality stay in product content and are never
+	// copied into a character save.
+	CounterValue       int32
+	Bound              bool
+	Cursed             bool
+	QuestOperator      bool
+	RemoveTime         *int64
+	RuneResourceID     *string
+	RuneSlotResourceID *string
 }
 
 // FromStore adapts persisted rows into bag stacks.
 func FromStore(items []InventoryItem) []Stack {
 	stacks := make([]Stack, 0, len(items))
 	for _, item := range items {
-		stacks = append(stacks, Stack{Slot: item.Slot, ItemID: item.ItemID, Count: item.Quantity})
+		stacks = append(stacks, Stack{
+			Slot: item.Slot, InstanceID: item.InstanceID, ItemID: item.ItemID, Count: item.Quantity,
+			CounterValue: item.CounterValue, Bound: item.Bound, Cursed: item.Cursed,
+			QuestOperator: item.QuestOperator, RemoveTime: item.RemoveTime,
+			RuneResourceID: item.RuneResourceID, RuneSlotResourceID: item.RuneSlotResourceID,
+		})
 	}
 	return stacks
 }
@@ -56,9 +76,10 @@ func ToStore(stacks []Stack) []InventoryItem {
 	items := make([]InventoryItem, 0, len(stacks))
 	for _, stack := range stacks {
 		items = append(items, InventoryItem{
-			Slot:     stack.Slot,
-			ItemID:   stack.ItemID,
-			Quantity: stack.Count,
+			Slot: stack.Slot, InstanceID: stack.InstanceID, ItemID: stack.ItemID, Quantity: stack.Count,
+			CounterValue: stack.CounterValue, Bound: stack.Bound, Cursed: stack.Cursed,
+			QuestOperator: stack.QuestOperator, RemoveTime: stack.RemoveTime,
+			RuneResourceID: stack.RuneResourceID, RuneSlotResourceID: stack.RuneSlotResourceID,
 		})
 	}
 	return items

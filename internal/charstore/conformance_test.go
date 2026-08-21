@@ -3,7 +3,9 @@ package charstore_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/SarnautCore/server/internal/charstore"
@@ -188,7 +190,7 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) cha
 
 		characterID := uuid.New()
 		err := repository.PutItem(ctx, characterID, charstore.InventoryItem{
-			Slot: -1, ItemID: "item.fixture", Quantity: 1,
+			Slot: -1, InstanceID: 1, ItemID: "item.fixture", Quantity: 1,
 		})
 		if !errors.Is(err, charstore.ErrConstraintViolated) {
 			t.Errorf("put item in slot -1 error = %v, want ErrConstraintViolated", err)
@@ -293,7 +295,7 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) cha
 
 		put := func(slot int32, itemID string, quantity int32) {
 			t.Helper()
-			item := charstore.InventoryItem{Slot: slot, ItemID: itemID, Quantity: quantity}
+			item := charstore.InventoryItem{Slot: slot, InstanceID: uint64(slot) + 1, ItemID: itemID, Quantity: quantity}
 			if err := repository.PutItem(ctx, characterID, item); err != nil {
 				t.Fatalf("put %s x%d in slot %d: %v", itemID, quantity, slot, err)
 			}
@@ -309,7 +311,7 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) cha
 		}
 
 		// A different item must not be overwritten by a misaddressed write.
-		mismatched := charstore.InventoryItem{Slot: 1, ItemID: "item.potion-minor", Quantity: 1}
+		mismatched := charstore.InventoryItem{Slot: 1, InstanceID: 2, ItemID: "item.potion-minor", Quantity: 1}
 		if err := repository.PutItem(ctx, characterID, mismatched); !errors.Is(err, charstore.ErrSlotOccupied) {
 			t.Fatalf("put onto a different item error = %v, want ErrSlotOccupied", err)
 		}
@@ -350,6 +352,186 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) cha
 
 		if err := repository.MoveItem(ctx, characterID, 9, 10); !errors.Is(err, charstore.ErrNotFound) {
 			t.Errorf("move from an empty slot error = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("inventory item instance state round-trips losslessly", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		removeTime := int64(-9_223_372_036_854_775_000)
+		rune := "resource.rune.fixture"
+		runeSlot := "resource.rune-slot.fixture"
+		want := charstore.InventoryItem{
+			Slot: 3, InstanceID: ^uint64(0), ItemID: "item.fixture.native", Quantity: 7,
+			CounterValue: -4, Bound: true, Cursed: true, QuestOperator: true,
+			RemoveTime: &removeTime, RuneResourceID: &rune, RuneSlotResourceID: &runeSlot,
+		}
+		if err := repository.ReplaceInventory(ctx, characterID, []charstore.InventoryItem{want}); err != nil {
+			t.Fatalf("replace inventory: %v", err)
+		}
+		got := loadInventory(t, ctx, repository, characterID)
+		if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+			t.Fatalf("inventory instance = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("HUD state round-trips exact authored capacities and optional values", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		want := hudFixture("roundtrip", 1)
+		if err := repository.SaveCharacterHUD(ctx, characterID, want); err != nil {
+			t.Fatalf("save HUD: %v", err)
+		}
+		got, err := repository.LoadCharacterHUD(ctx, characterID)
+		if err != nil {
+			t.Fatalf("load HUD: %v", err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("HUD state = %#v, want %#v", got, want)
+		}
+		if len(got.Stats) != 14 || len(got.Actions) != 36 || len(charstore.RegularEquipmentSlots) != 20 {
+			t.Fatalf("closed capacities stats/actions/equipment = %d/%d/%d, want 14/36/20",
+				len(got.Stats), len(got.Actions), len(charstore.RegularEquipmentSlots))
+		}
+		if got.Stats[charstore.StatStrength].Base == nil ||
+			got.Stats[charstore.StatStrength].Result != nil ||
+			got.Stats[charstore.StatStrength].ResultLongTerm != nil {
+			t.Fatalf("strength components = %+v, want authored base and absent computed values", got.Stats[charstore.StatStrength])
+		}
+	})
+
+	t.Run("HUD constraints reject invented or structurally invalid state", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		for name, corrupt := range map[string]func(*charstore.CharacterHUDState){
+			"zero instance id": func(hud *charstore.CharacterHUDState) { hud.Equipment[0].InstanceID = 0 },
+			"ammo slot 17":     func(hud *charstore.CharacterHUDState) { hud.Equipment[0].Slot = 17 },
+			"six bag partitions": func(hud *charstore.CharacterHUDState) {
+				hud.BagLayout.Partitions = append(hud.BagLayout.Partitions,
+					charstore.BagPartition{Ordinal: 2, Capacity: 1},
+					charstore.BagPartition{Ordinal: 3, Capacity: 1},
+					charstore.BagPartition{Ordinal: 4, Capacity: 1},
+					charstore.BagPartition{Ordinal: 5, Capacity: 1})
+			},
+			"bag capacity 61": func(hud *charstore.CharacterHUDState) {
+				hud.BagLayout.Partitions = []charstore.BagPartition{{Ordinal: 0, Capacity: 60}, {Ordinal: 1, Capacity: 1}}
+			},
+			"stat order":   func(hud *charstore.CharacterHUDState) { hud.Stats[4].Ordinal = 5 },
+			"action order": func(hud *charstore.CharacterHUDState) { hud.Actions[0].Ordinal = 1 },
+		} {
+			t.Run(name, func(t *testing.T) {
+				hud := hudFixture(name, 1)
+				corrupt(&hud)
+				if err := repository.SaveCharacterHUD(ctx, uuid.New(), hud); !errors.Is(err, charstore.ErrConstraintViolated) {
+					t.Fatalf("SaveCharacterHUD() error = %v, want ErrConstraintViolated", err)
+				}
+			})
+		}
+	})
+
+	t.Run("an invalid HUD rolls back state and inventory", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		first := snapshotWithHUD(characterID, 1, "first")
+		if err := charstore.SaveCharacter(ctx, repository, first); err != nil {
+			t.Fatalf("seed snapshot: %v", err)
+		}
+		second := snapshotWithHUD(characterID, 2, "second")
+		second.HUD.Equipment[0].InstanceID = 0
+		if err := charstore.SaveCharacter(ctx, repository, second); !errors.Is(err, charstore.ErrConstraintViolated) {
+			t.Fatalf("invalid snapshot error = %v, want ErrConstraintViolated", err)
+		}
+		state, err := repository.LoadCharacterState(ctx, characterID)
+		if err != nil || state.SaveSeq != 1 {
+			t.Fatalf("state after rollback = %+v, %v; want sequence 1", state, err)
+		}
+		items := loadInventory(t, ctx, repository, characterID)
+		if len(items) != 1 || items[0].ItemID != "item.first" {
+			t.Fatalf("inventory after rollback = %+v, want first snapshot", items)
+		}
+		hud, err := repository.LoadCharacterHUD(ctx, characterID)
+		if err != nil || len(hud.Equipment) != 1 || hud.Equipment[0].ItemID != "item.weapon.first" {
+			t.Fatalf("HUD after rollback = %+v, %v; want first snapshot", hud, err)
+		}
+	})
+
+	t.Run("an item instance cannot exist in inventory and equipment", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		snapshot := snapshotWithHUD(characterID, 1, "duplicate")
+		snapshot.Inventory[0].InstanceID = snapshot.HUD.Equipment[0].InstanceID
+		if err := charstore.SaveCharacter(ctx, repository, snapshot); !errors.Is(err, charstore.ErrConstraintViolated) {
+			t.Fatalf("duplicate cross-container identity error = %v, want ErrConstraintViolated", err)
+		}
+		if _, err := repository.LoadCharacterState(ctx, characterID); !errors.Is(err, charstore.ErrNotFound) {
+			t.Fatalf("duplicate snapshot partially committed state: %v", err)
+		}
+	})
+
+	t.Run("a checkpoint atomically moves an instance from equipment to inventory", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		first := snapshotWithHUD(characterID, 1, "equipped")
+		if err := charstore.SaveCharacter(ctx, repository, first); err != nil {
+			t.Fatalf("seed equipped snapshot: %v", err)
+		}
+
+		second := snapshotWithHUD(characterID, 2, "unequipped")
+		second.Inventory[0].InstanceID = first.HUD.Equipment[0].InstanceID
+		second.Inventory[0].ItemID = first.HUD.Equipment[0].ItemID
+		if err := charstore.SaveCharacter(ctx, repository, second); err != nil {
+			t.Fatalf("save atomic unequip snapshot: %v", err)
+		}
+		items := loadInventory(t, ctx, repository, characterID)
+		if len(items) != 1 || items[0].InstanceID != first.HUD.Equipment[0].InstanceID {
+			t.Fatalf("inventory after unequip = %+v, want preserved instance %d", items, first.HUD.Equipment[0].InstanceID)
+		}
+	})
+
+	t.Run("concurrent snapshots cannot tear HUD from the winning sequence", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		if err := charstore.SaveCharacter(ctx, repository, snapshotWithHUD(characterID, 1, "seed")); err != nil {
+			t.Fatalf("seed snapshot: %v", err)
+		}
+		start := make(chan struct{})
+		errorsBySequence := make(chan error, 2)
+		var wait sync.WaitGroup
+		for sequence, marker := range map[int64]string{2: "second", 3: "third"} {
+			sequence, marker := sequence, marker
+			wait.Add(1)
+			go func() {
+				defer wait.Done()
+				<-start
+				errorsBySequence <- charstore.SaveCharacter(ctx, repository,
+					snapshotWithHUD(characterID, sequence, marker))
+			}()
+		}
+		close(start)
+		wait.Wait()
+		close(errorsBySequence)
+		for err := range errorsBySequence {
+			if err != nil && !errors.Is(err, charstore.ErrStaleSave) {
+				t.Fatalf("concurrent save error = %v", err)
+			}
+		}
+		state, err := repository.LoadCharacterState(ctx, characterID)
+		if err != nil || state.SaveSeq != 3 {
+			t.Fatalf("winning state = %+v, %v; want sequence 3", state, err)
+		}
+		hud, err := repository.LoadCharacterHUD(ctx, characterID)
+		if err != nil || len(hud.Equipment) != 1 || hud.Equipment[0].ItemID != "item.weapon.third" {
+			t.Fatalf("winning HUD = %+v, %v; want third", hud, err)
+		}
+		items := loadInventory(t, ctx, repository, characterID)
+		if len(items) != 1 || items[0].ItemID != "item.third" {
+			t.Fatalf("winning inventory = %+v, want third", items)
 		}
 	})
 
@@ -424,7 +606,7 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) cha
 				Health:      100,
 				SaveSeq:     1,
 			},
-			Inventory: []charstore.InventoryItem{{Slot: 0, ItemID: "item.sword-rusty", Quantity: 1}},
+			Inventory: []charstore.InventoryItem{{Slot: 0, InstanceID: 1, ItemID: "item.sword-rusty", Quantity: 1}},
 			Quests:    []charstore.QuestState{{QuestID: "quest.league.first-blood", State: "accepted"}},
 		})
 		if err != nil {
@@ -468,7 +650,7 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) cha
 				return err
 			}
 			if err := tx.PutItem(ctx, characterID, charstore.InventoryItem{
-				Slot: 0, ItemID: "item.sword-rusty", Quantity: 1,
+				Slot: 0, InstanceID: 1, ItemID: "item.sword-rusty", Quantity: 1,
 			}); err != nil {
 				return err
 			}
@@ -530,4 +712,62 @@ func loadInventory(
 		t.Fatalf("load inventory: %v", err)
 	}
 	return items
+}
+
+func hudFixture(marker string, firstInstanceID uint64) charstore.CharacterHUDState {
+	base := float32(12.5)
+	result := float32(14.25)
+	longTerm := float32(13.75)
+	abilityID := "ability." + marker
+	removeTime := int64(-7_654_321)
+	runeID := "resource.rune." + marker
+	runeSlotID := "resource.rune-slot." + marker
+	stats := charstore.EmptyOrderedStats()
+	stats[charstore.StatStrength].Base = &base
+	stats[charstore.StatMight].Result = &result
+	stats[charstore.StatLethality].ResultLongTerm = &longTerm
+	actions := charstore.EmptyOrderedActionSlots()
+	actions[0].AbilityID = &abilityID
+	return charstore.CharacterHUDState{
+		Equipment: []charstore.EquipmentItem{{
+			Slot: charstore.EquipmentMainhand,
+			ItemInstance: charstore.ItemInstance{
+				InstanceID: firstInstanceID, ItemID: "item.weapon." + marker, Quantity: 1,
+				CounterValue: -9, Bound: true, Cursed: true, QuestOperator: true,
+				RemoveTime: &removeTime, RuneResourceID: &runeID, RuneSlotResourceID: &runeSlotID,
+			},
+		}},
+		Bag: &charstore.ItemInstance{
+			InstanceID: firstInstanceID + 1, ItemID: "item.bag." + marker, Quantity: 1,
+		},
+		BagLayout: charstore.ProductBagLayout{
+			LayoutID: "bag.layout.36",
+			Partitions: []charstore.BagPartition{
+				{Ordinal: 0, Capacity: 8},
+				{Ordinal: 1, Capacity: 8},
+				{Ordinal: 2, Capacity: 8},
+				{Ordinal: 3, Capacity: 6},
+				{Ordinal: 4, Capacity: 6},
+			},
+		},
+		Stats:   stats,
+		Actions: actions,
+	}
+}
+
+func snapshotWithHUD(characterID uuid.UUID, saveSequence int64, marker string) charstore.Snapshot {
+	hud := hudFixture(marker, uint64(saveSequence)*10)
+	return charstore.Snapshot{
+		State: charstore.CharacterState{
+			CharacterID: characterID,
+			ZoneID:      "InstLeague1",
+			Level:       1,
+			Health:      100,
+			SaveSeq:     saveSequence,
+		},
+		Inventory: []charstore.InventoryItem{{
+			Slot: 0, InstanceID: uint64(saveSequence) * 100, ItemID: "item." + marker, Quantity: 1,
+		}},
+		HUD: &hud,
+	}
 }

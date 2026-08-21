@@ -15,7 +15,7 @@ import (
 // `tonic-tithe` asks for two of them, so a fresh character accepts that quest
 // already satisfied — which is what makes it the fixture for rule 5.5.3.
 var startingTonics = []charstore.InventoryItem{
-	{Slot: 0, ItemID: tonicItem, Quantity: 3},
+	{Slot: 0, InstanceID: 1, ItemID: tonicItem, Quantity: 3},
 }
 
 // TestAcceptingWithAnUnfinishedPrerequisiteIsRefused is rule 5.3.3 and
@@ -358,7 +358,7 @@ func TestAGrantThatDoesNotFitAbortsTheWholeTurnIn(t *testing.T) {
 	// items. The arithmetic is content's: two kinds at stack_limit 1.
 	full := make([]charstore.InventoryItem, 0, 15)
 	for slot := range int32(15) {
-		full = append(full, charstore.InventoryItem{Slot: slot, ItemID: scaleItem, Quantity: 1})
+		full = append(full, charstore.InventoryItem{Slot: slot, InstanceID: uint64(slot) + 1, ItemID: scaleItem, Quantity: 1})
 	}
 	fixture := newFixture(t, 1, full)
 

@@ -69,11 +69,19 @@ func validateCharacterState(state CharacterState) error {
 // validateInventoryItem applies shard.character_inventory's own constraints.
 // Quantity keeps its existing dedicated error, which callers already read.
 func validateInventoryItem(item InventoryItem) error {
-	if item.Quantity <= 0 {
-		return errQuantity(item.Quantity)
-	}
 	if item.Slot < 0 {
 		return fmt.Errorf("%w: slot is %d, must not be negative", ErrConstraintViolated, item.Slot)
 	}
-	return nil
+	return validateItemInstance(ItemInstance{
+		InstanceID:         item.InstanceID,
+		ItemID:             item.ItemID,
+		Quantity:           item.Quantity,
+		CounterValue:       item.CounterValue,
+		Bound:              item.Bound,
+		Cursed:             item.Cursed,
+		QuestOperator:      item.QuestOperator,
+		RemoveTime:         item.RemoveTime,
+		RuneResourceID:     item.RuneResourceID,
+		RuneSlotResourceID: item.RuneSlotResourceID,
+	})
 }

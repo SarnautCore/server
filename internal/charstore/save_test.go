@@ -84,7 +84,7 @@ func TestSaveWorkerPersistsQueuedSnapshots(t *testing.T) {
 	characterID := uuid.New()
 
 	snapshot := snapshotFor(characterID, 1)
-	snapshot.Inventory = []charstore.InventoryItem{{Slot: 0, ItemID: "item.sword-rusty", Quantity: 1}}
+	snapshot.Inventory = []charstore.InventoryItem{{Slot: 0, InstanceID: 1, ItemID: "item.sword-rusty", Quantity: 1}}
 	snapshot.Quests = []charstore.QuestState{{QuestID: "quest.league.first-blood", State: "accepted"}}
 	if !worker.Enqueue(snapshot) {
 		t.Fatal("Enqueue was refused with an empty queue")

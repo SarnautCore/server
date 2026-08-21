@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -419,13 +421,19 @@ func (store *postgresStore) PutItem(ctx context.Context, characterID uuid.UUID, 
 	// A different item leaves zero affected rows rather than being overwritten,
 	// which is how an item is never silently destroyed by a misaddressed write.
 	const statement = `
-		INSERT INTO shard.character_inventory (character_id, slot, item_id, quantity)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO shard.character_inventory (
+			character_id, slot, instance_id, product_item_id, quantity, counter_value,
+			is_bound, is_cursed, is_quest_operator, remove_time_raw,
+			rune_resource_id, rune_slot_resource_id
+		)
+		VALUES ($1, $2, $3::numeric, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (character_id, slot) DO UPDATE
 		SET quantity = character_inventory.quantity + EXCLUDED.quantity
-		WHERE character_inventory.item_id = EXCLUDED.item_id`
+		WHERE character_inventory.product_item_id = EXCLUDED.product_item_id`
 
-	tag, err := store.db.Exec(ctx, statement, characterID, item.Slot, item.ItemID, item.Quantity)
+	tag, err := store.db.Exec(ctx, statement, characterID, item.Slot, strconv.FormatUint(item.InstanceID, 10), item.ItemID, item.Quantity,
+		item.CounterValue, item.Bound, item.Cursed, item.QuestOperator, item.RemoveTime,
+		item.RuneResourceID, item.RuneSlotResourceID)
 	if err != nil {
 		return fmt.Errorf("put inventory item: %w", err)
 	}
@@ -470,12 +478,13 @@ func (store *postgresStore) moveItemLocked(ctx context.Context, characterID uuid
 
 func (store *postgresStore) itemAt(ctx context.Context, characterID uuid.UUID, slot int32) (InventoryItem, error) {
 	const statement = `
-		SELECT slot, item_id, quantity FROM shard.character_inventory
+		SELECT slot, instance_id::text, product_item_id, quantity, counter_value,
+		       is_bound, is_cursed, is_quest_operator, remove_time_raw,
+		       rune_resource_id, rune_slot_resource_id
+		FROM shard.character_inventory
 		WHERE character_id = $1 AND slot = $2 FOR UPDATE`
 
-	var item InventoryItem
-	err := store.db.QueryRow(ctx, statement, characterID, slot).
-		Scan(&item.Slot, &item.ItemID, &item.Quantity)
+	item, err := scanInventoryItem(store.db.QueryRow(ctx, statement, characterID, slot))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return InventoryItem{}, ErrNotFound
 	}
@@ -529,6 +538,19 @@ func (store *postgresStore) ReplaceInventory(ctx context.Context, characterID uu
 		if !ok {
 			return errors.New("store: transactional repository is not a postgres store")
 		}
+		hud, err := scoped.LoadCharacterHUD(ctx, characterID)
+		switch {
+		case err == nil:
+			if err := validateSnapshotItemIdentities(items, &hud); err != nil {
+				return err
+			}
+		case errors.Is(err, ErrNotFound):
+			if err := validateSnapshotItemIdentities(items, nil); err != nil {
+				return err
+			}
+		default:
+			return err
+		}
 
 		const clear = `DELETE FROM shard.character_inventory WHERE character_id = $1`
 		if _, err := scoped.db.Exec(ctx, clear, characterID); err != nil {
@@ -540,14 +562,20 @@ func (store *postgresStore) ReplaceInventory(ctx context.Context, characterID uu
 
 func (store *postgresStore) insertItems(ctx context.Context, characterID uuid.UUID, items []InventoryItem) error {
 	const statement = `
-		INSERT INTO shard.character_inventory (character_id, slot, item_id, quantity)
-		VALUES ($1, $2, $3, $4)`
+		INSERT INTO shard.character_inventory (
+			character_id, slot, instance_id, product_item_id, quantity, counter_value,
+			is_bound, is_cursed, is_quest_operator, remove_time_raw,
+			rune_resource_id, rune_slot_resource_id
+		)
+		VALUES ($1, $2, $3::numeric, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
 
 	for _, item := range items {
 		if err := validateInventoryItem(item); err != nil {
 			return err
 		}
-		_, err := store.db.Exec(ctx, statement, characterID, item.Slot, item.ItemID, item.Quantity)
+		_, err := store.db.Exec(ctx, statement, characterID, item.Slot, strconv.FormatUint(item.InstanceID, 10), item.ItemID, item.Quantity,
+			item.CounterValue, item.Bound, item.Cursed, item.QuestOperator, item.RemoveTime,
+			item.RuneResourceID, item.RuneSlotResourceID)
 		if err != nil {
 			return classifyConstraint(err, fmt.Sprintf("insert inventory item in slot %d", item.Slot))
 		}
@@ -555,9 +583,34 @@ func (store *postgresStore) insertItems(ctx context.Context, characterID uuid.UU
 	return nil
 }
 
+func (store *postgresStore) replaceInventoryAndHUD(
+	ctx context.Context,
+	characterID uuid.UUID,
+	items []InventoryItem,
+	hud CharacterHUDState,
+) error {
+	if err := validateHUDState(hud); err != nil {
+		return err
+	}
+	if err := validateSnapshotItemIdentities(items, &hud); err != nil {
+		return err
+	}
+	const clear = `DELETE FROM shard.character_inventory WHERE character_id = $1`
+	if _, err := store.db.Exec(ctx, clear, characterID); err != nil {
+		return fmt.Errorf("clear inventory: %w", err)
+	}
+	if err := store.insertItems(ctx, characterID, items); err != nil {
+		return err
+	}
+	return store.replaceHUDLocked(ctx, characterID, hud)
+}
+
 func (store *postgresStore) LoadInventory(ctx context.Context, characterID uuid.UUID) ([]InventoryItem, error) {
 	const statement = `
-		SELECT slot, item_id, quantity FROM shard.character_inventory
+		SELECT slot, instance_id::text, product_item_id, quantity, counter_value,
+		       is_bound, is_cursed, is_quest_operator, remove_time_raw,
+		       rune_resource_id, rune_slot_resource_id
+		FROM shard.character_inventory
 		WHERE character_id = $1 ORDER BY slot`
 
 	rows, err := store.db.Query(ctx, statement, characterID)
@@ -568,8 +621,8 @@ func (store *postgresStore) LoadInventory(ctx context.Context, characterID uuid.
 
 	items := make([]InventoryItem, 0)
 	for rows.Next() {
-		var item InventoryItem
-		if err := rows.Scan(&item.Slot, &item.ItemID, &item.Quantity); err != nil {
+		item, err := scanInventoryItem(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan inventory item: %w", err)
 		}
 		items = append(items, item)
@@ -578,6 +631,351 @@ func (store *postgresStore) LoadInventory(ctx context.Context, characterID uuid.
 		return nil, fmt.Errorf("read inventory: %w", err)
 	}
 	return items, nil
+}
+
+type rowScanner interface {
+	Scan(destinations ...any) error
+}
+
+func scanInventoryItem(row rowScanner) (InventoryItem, error) {
+	var item InventoryItem
+	var instanceID string
+	var removeTime pgtype.Int8
+	var runeResource, runeSlotResource pgtype.Text
+	err := row.Scan(
+		&item.Slot,
+		&instanceID,
+		&item.ItemID,
+		&item.Quantity,
+		&item.CounterValue,
+		&item.Bound,
+		&item.Cursed,
+		&item.QuestOperator,
+		&removeTime,
+		&runeResource,
+		&runeSlotResource,
+	)
+	if err != nil {
+		return InventoryItem{}, err
+	}
+	item.InstanceID, err = strconv.ParseUint(instanceID, 10, 64)
+	if err != nil {
+		return InventoryItem{}, fmt.Errorf("parse inventory instance id %q: %w", instanceID, err)
+	}
+	applyNullableItemFields(&item.RemoveTime, &item.RuneResourceID, &item.RuneSlotResourceID,
+		removeTime, runeResource, runeSlotResource)
+	return item, nil
+}
+
+func scanEquipmentItem(row rowScanner) (EquipmentSlot, ItemInstance, error) {
+	var slot int16
+	var item ItemInstance
+	var instanceID string
+	var removeTime pgtype.Int8
+	var runeResource, runeSlotResource pgtype.Text
+	err := row.Scan(
+		&slot,
+		&instanceID,
+		&item.ItemID,
+		&item.Quantity,
+		&item.CounterValue,
+		&item.Bound,
+		&item.Cursed,
+		&item.QuestOperator,
+		&removeTime,
+		&runeResource,
+		&runeSlotResource,
+	)
+	if err != nil {
+		return 0, ItemInstance{}, err
+	}
+	item.InstanceID, err = strconv.ParseUint(instanceID, 10, 64)
+	if err != nil {
+		return 0, ItemInstance{}, fmt.Errorf("parse equipment instance id %q: %w", instanceID, err)
+	}
+	applyNullableItemFields(&item.RemoveTime, &item.RuneResourceID, &item.RuneSlotResourceID,
+		removeTime, runeResource, runeSlotResource)
+	return EquipmentSlot(slot), item, nil
+}
+
+func applyNullableItemFields(
+	removeTime **int64,
+	runeResource **string,
+	runeSlotResource **string,
+	storedRemoveTime pgtype.Int8,
+	storedRuneResource pgtype.Text,
+	storedRuneSlotResource pgtype.Text,
+) {
+	if storedRemoveTime.Valid {
+		value := storedRemoveTime.Int64
+		*removeTime = &value
+	}
+	if storedRuneResource.Valid {
+		value := storedRuneResource.String
+		*runeResource = &value
+	}
+	if storedRuneSlotResource.Valid {
+		value := storedRuneSlotResource.String
+		*runeSlotResource = &value
+	}
+}
+
+func optionalFloat4(value pgtype.Float4) *float32 {
+	if !value.Valid {
+		return nil
+	}
+	authored := value.Float32
+	return &authored
+}
+
+func (store *postgresStore) SaveCharacterHUD(
+	ctx context.Context,
+	characterID uuid.UUID,
+	hud CharacterHUDState,
+) error {
+	if characterID == uuid.Nil {
+		return fmt.Errorf("%w: HUD state has no character_id", ErrConstraintViolated)
+	}
+	if err := validateHUDState(hud); err != nil {
+		return err
+	}
+	return store.RunInTx(ctx, func(ctx context.Context, tx Repository) error {
+		scoped, ok := tx.(*postgresStore)
+		if !ok {
+			return errors.New("store: transactional repository is not a postgres store")
+		}
+		inventory, err := scoped.LoadInventory(ctx, characterID)
+		if err != nil {
+			return err
+		}
+		if err := validateSnapshotItemIdentities(inventory, &hud); err != nil {
+			return err
+		}
+		return scoped.replaceHUDLocked(ctx, characterID, hud)
+	})
+}
+
+func (store *postgresStore) replaceHUDLocked(
+	ctx context.Context,
+	characterID uuid.UUID,
+	hud CharacterHUDState,
+) error {
+	if _, err := store.db.Exec(ctx,
+		`DELETE FROM shard.character_equipment WHERE character_id = $1`, characterID); err != nil {
+		return fmt.Errorf("clear character equipment: %w", err)
+	}
+	for _, equipped := range hud.Equipment {
+		if err := store.insertEquipmentItem(ctx, characterID, equipped.Slot, equipped.ItemInstance); err != nil {
+			return err
+		}
+	}
+	if hud.Bag != nil {
+		if err := store.insertEquipmentItem(ctx, characterID, EquipmentBag, *hud.Bag); err != nil {
+			return err
+		}
+	}
+
+	var partitions [MaxBagPartitions]*int16
+	for index, partition := range hud.BagLayout.Partitions {
+		capacity := int16(partition.Capacity)
+		partitions[index] = &capacity
+	}
+	const saveLayout = `
+		INSERT INTO shard.character_bag_layout (
+			character_id, layout_id, partition_0, partition_1, partition_2, partition_3, partition_4
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (character_id) DO UPDATE SET
+			layout_id = EXCLUDED.layout_id,
+			partition_0 = EXCLUDED.partition_0,
+			partition_1 = EXCLUDED.partition_1,
+			partition_2 = EXCLUDED.partition_2,
+			partition_3 = EXCLUDED.partition_3,
+			partition_4 = EXCLUDED.partition_4`
+	if _, err := store.db.Exec(ctx, saveLayout, characterID, hud.BagLayout.LayoutID,
+		partitions[0], partitions[1], partitions[2], partitions[3], partitions[4]); err != nil {
+		return classifyConstraint(err, "save character bag layout")
+	}
+
+	if _, err := store.db.Exec(ctx,
+		`DELETE FROM shard.character_stats WHERE character_id = $1`, characterID); err != nil {
+		return fmt.Errorf("clear character stats: %w", err)
+	}
+	const insertStat = `
+		INSERT INTO shard.character_stats (
+			character_id, ordinal, base, result, result_long_term
+		) VALUES ($1, $2, $3, $4, $5)`
+	for _, stat := range hud.Stats {
+		if _, err := store.db.Exec(ctx, insertStat, characterID, int16(stat.Ordinal),
+			stat.Base, stat.Result, stat.ResultLongTerm); err != nil {
+			return classifyConstraint(err, fmt.Sprintf("insert character stat %d", stat.Ordinal))
+		}
+	}
+
+	if _, err := store.db.Exec(ctx,
+		`DELETE FROM shard.character_actions WHERE character_id = $1`, characterID); err != nil {
+		return fmt.Errorf("clear character action slots: %w", err)
+	}
+	const insertAction = `
+		INSERT INTO shard.character_actions (character_id, ordinal, ability_id) VALUES ($1, $2, $3)`
+	for _, action := range hud.Actions {
+		if _, err := store.db.Exec(ctx, insertAction, characterID, action.Ordinal, action.AbilityID); err != nil {
+			return classifyConstraint(err, fmt.Sprintf("insert character action slot %d", action.Ordinal))
+		}
+	}
+	return nil
+}
+
+func (store *postgresStore) insertEquipmentItem(
+	ctx context.Context,
+	characterID uuid.UUID,
+	slot EquipmentSlot,
+	item ItemInstance,
+) error {
+	const statement = `
+		INSERT INTO shard.character_equipment (
+			character_id, slot, instance_id, product_item_id, quantity, counter_value,
+			is_bound, is_cursed, is_quest_operator, remove_time_raw,
+			rune_resource_id, rune_slot_resource_id
+		) VALUES ($1, $2, $3::numeric, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+	_, err := store.db.Exec(ctx, statement, characterID, int16(slot), strconv.FormatUint(item.InstanceID, 10), item.ItemID, item.Quantity,
+		item.CounterValue, item.Bound, item.Cursed, item.QuestOperator, item.RemoveTime,
+		item.RuneResourceID, item.RuneSlotResourceID)
+	if err != nil {
+		return classifyConstraint(err, fmt.Sprintf("insert equipment item in slot %d", slot))
+	}
+	return nil
+}
+
+func (store *postgresStore) LoadCharacterHUD(
+	ctx context.Context,
+	characterID uuid.UUID,
+) (CharacterHUDState, error) {
+	const loadLayout = `
+		SELECT layout_id, partition_0, partition_1, partition_2, partition_3, partition_4
+		FROM shard.character_bag_layout WHERE character_id = $1`
+	var hud CharacterHUDState
+	var capacities [MaxBagPartitions]pgtype.Int2
+	err := store.db.QueryRow(ctx, loadLayout, characterID).Scan(
+		&hud.BagLayout.LayoutID,
+		&capacities[0],
+		&capacities[1],
+		&capacities[2],
+		&capacities[3],
+		&capacities[4],
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CharacterHUDState{}, ErrNotFound
+	}
+	if err != nil {
+		return CharacterHUDState{}, fmt.Errorf("scan character bag layout: %w", err)
+	}
+	for ordinal, capacity := range capacities {
+		if capacity.Valid {
+			hud.BagLayout.Partitions = append(hud.BagLayout.Partitions, BagPartition{
+				Ordinal: int16(ordinal), Capacity: int32(capacity.Int16),
+			})
+		}
+	}
+
+	const loadEquipment = `
+		SELECT slot, instance_id::text, product_item_id, quantity, counter_value,
+		       is_bound, is_cursed, is_quest_operator, remove_time_raw,
+		       rune_resource_id, rune_slot_resource_id
+		FROM shard.character_equipment WHERE character_id = $1 ORDER BY slot`
+	rows, err := store.db.Query(ctx, loadEquipment, characterID)
+	if err != nil {
+		return CharacterHUDState{}, fmt.Errorf("query character equipment: %w", err)
+	}
+	for rows.Next() {
+		slot, item, err := scanEquipmentItem(rows)
+		if err != nil {
+			rows.Close()
+			return CharacterHUDState{}, fmt.Errorf("scan character equipment: %w", err)
+		}
+		if slot == EquipmentBag {
+			bag := item
+			hud.Bag = &bag
+		} else {
+			hud.Equipment = append(hud.Equipment, EquipmentItem{Slot: slot, ItemInstance: item})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return CharacterHUDState{}, fmt.Errorf("read character equipment: %w", err)
+	}
+	rows.Close()
+
+	hud.Stats = EmptyOrderedStats()
+	const loadStats = `
+		SELECT ordinal, base, result, result_long_term
+		FROM shard.character_stats WHERE character_id = $1 ORDER BY ordinal`
+	rows, err = store.db.Query(ctx, loadStats, characterID)
+	if err != nil {
+		return CharacterHUDState{}, fmt.Errorf("query character stats: %w", err)
+	}
+	statRows := 0
+	for rows.Next() {
+		var ordinal int16
+		var base, result, resultLongTerm pgtype.Float4
+		if err := rows.Scan(&ordinal, &base, &result, &resultLongTerm); err != nil {
+			rows.Close()
+			return CharacterHUDState{}, fmt.Errorf("scan character stat: %w", err)
+		}
+		if ordinal < 0 || ordinal >= int16(StatCount) {
+			rows.Close()
+			return CharacterHUDState{}, fmt.Errorf("store: character stat ordinal %d is outside 0..13", ordinal)
+		}
+		hud.Stats[ordinal].Base = optionalFloat4(base)
+		hud.Stats[ordinal].Result = optionalFloat4(result)
+		hud.Stats[ordinal].ResultLongTerm = optionalFloat4(resultLongTerm)
+		statRows++
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return CharacterHUDState{}, fmt.Errorf("read character stats: %w", err)
+	}
+	rows.Close()
+	if statRows != int(StatCount) {
+		return CharacterHUDState{}, fmt.Errorf("store: character has %d stat rows, want exactly %d", statRows, StatCount)
+	}
+
+	hud.Actions = EmptyOrderedActionSlots()
+	const loadActions = `
+		SELECT ordinal, ability_id FROM shard.character_actions WHERE character_id = $1 ORDER BY ordinal`
+	rows, err = store.db.Query(ctx, loadActions, characterID)
+	if err != nil {
+		return CharacterHUDState{}, fmt.Errorf("query character action slots: %w", err)
+	}
+	actionRows := 0
+	for rows.Next() {
+		var ordinal int16
+		var ability pgtype.Text
+		if err := rows.Scan(&ordinal, &ability); err != nil {
+			rows.Close()
+			return CharacterHUDState{}, fmt.Errorf("scan character action slot: %w", err)
+		}
+		if ordinal < 0 || ordinal >= ActionSlotCount {
+			rows.Close()
+			return CharacterHUDState{}, fmt.Errorf("store: character action ordinal %d is outside 0..35", ordinal)
+		}
+		if ability.Valid {
+			value := ability.String
+			hud.Actions[ordinal].AbilityID = &value
+		}
+		actionRows++
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return CharacterHUDState{}, fmt.Errorf("read character action slots: %w", err)
+	}
+	rows.Close()
+	if actionRows != ActionSlotCount {
+		return CharacterHUDState{}, fmt.Errorf("store: character has %d action rows, want exactly %d", actionRows, ActionSlotCount)
+	}
+	if err := validateHUDState(hud); err != nil {
+		return CharacterHUDState{}, fmt.Errorf("load character HUD: %w", err)
+	}
+	return hud, nil
 }
 
 func (store *postgresStore) UpsertQuestState(ctx context.Context, characterID uuid.UUID, quest QuestState) error {

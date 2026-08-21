@@ -50,6 +50,9 @@ func (service *InventoryService) Award(ctx context.Context, characterID uuid.UUI
 		if err != nil {
 			return err
 		}
+		if err := assignMissingInstanceIDs(placed); err != nil {
+			return err
+		}
 		if err := tx.ReplaceInventory(ctx, characterID, inventory.ToStore(placed)); err != nil {
 			return fmt.Errorf("write inventory: %w", err)
 		}
@@ -89,6 +92,9 @@ func (service *InventoryService) GrantQuestReward(ctx context.Context, grant que
 		if err != nil {
 			return err
 		}
+		if err := assignMissingInstanceIDs(placed); err != nil {
+			return err
+		}
 		if err := tx.ReplaceInventory(ctx, grant.CharacterID, inventory.ToStore(placed)); err != nil {
 			return fmt.Errorf("write inventory: %w", err)
 		}
@@ -120,4 +126,28 @@ func inventoryGrants(counts []quests.ItemCount) []inventory.Grant {
 		grants = append(grants, inventory.Grant{ItemID: count.ItemID, Count: count.Count})
 	}
 	return grants
+}
+
+// assignMissingInstanceIDs allocates within one character while its save
+// transaction is open. Existing stack identities win; only stacks created by
+// this grant have zero. Save-sequence rejection rolls back a racing allocator,
+// so two concurrent grants cannot commit the same next id.
+func assignMissingInstanceIDs(stacks []inventory.Stack) error {
+	var highest uint64
+	for _, stack := range stacks {
+		if stack.InstanceID > highest {
+			highest = stack.InstanceID
+		}
+	}
+	for index := range stacks {
+		if stacks[index].InstanceID != 0 {
+			continue
+		}
+		if highest == ^uint64(0) {
+			return errors.New("inventory: item instance id space is exhausted")
+		}
+		highest++
+		stacks[index].InstanceID = highest
+	}
+	return nil
 }

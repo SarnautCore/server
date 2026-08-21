@@ -118,6 +118,23 @@ func (repository *failingRepository) LoadQuestStates(context.Context, uuid.UUID)
 	return nil, nil
 }
 
+func (repository *failingRepository) SaveCharacterHUD(
+	context.Context,
+	uuid.UUID,
+	charstore.CharacterHUDState,
+) error {
+	repository.fail("SaveCharacterHUD")
+	return nil
+}
+
+func (repository *failingRepository) LoadCharacterHUD(
+	context.Context,
+	uuid.UUID,
+) (charstore.CharacterHUDState, error) {
+	repository.fail("LoadCharacterHUD")
+	return charstore.CharacterHUDState{}, nil
+}
+
 func (repository *failingRepository) RunInTx(context.Context, func(context.Context, charstore.Repository) error) error {
 	repository.fail("RunInTx")
 	return nil

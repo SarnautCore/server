@@ -23,6 +23,7 @@ type memoryState struct {
 	states       map[uuid.UUID]CharacterState
 	inventory    map[uuid.UUID]map[int32]InventoryItem
 	quests       map[uuid.UUID]map[string]QuestState
+	huds         map[uuid.UUID]CharacterHUDState
 }
 
 func newMemoryState() *memoryState {
@@ -35,6 +36,7 @@ func newMemoryState() *memoryState {
 		states:       make(map[uuid.UUID]CharacterState),
 		inventory:    make(map[uuid.UUID]map[int32]InventoryItem),
 		quests:       make(map[uuid.UUID]map[string]QuestState),
+		huds:         make(map[uuid.UUID]CharacterHUDState),
 	}
 }
 
@@ -48,9 +50,14 @@ func (state *memoryState) clone() *memoryState {
 		states:       copyMap(state.states),
 		inventory:    make(map[uuid.UUID]map[int32]InventoryItem, len(state.inventory)),
 		quests:       make(map[uuid.UUID]map[string]QuestState, len(state.quests)),
+		huds:         make(map[uuid.UUID]CharacterHUDState, len(state.huds)),
 	}
 	for characterID, slots := range state.inventory {
-		copied.inventory[characterID] = copyMap(slots)
+		clonedSlots := make(map[int32]InventoryItem, len(slots))
+		for slot, item := range slots {
+			clonedSlots[slot] = cloneInventoryItem(item)
+		}
+		copied.inventory[characterID] = clonedSlots
 	}
 	for characterID, quests := range state.quests {
 		byQuest := make(map[string]QuestState, len(quests))
@@ -59,6 +66,9 @@ func (state *memoryState) clone() *memoryState {
 			byQuest[questID] = quest
 		}
 		copied.quests[characterID] = byQuest
+	}
+	for characterID, hud := range state.huds {
+		copied.huds[characterID] = cloneHUDState(hud)
 	}
 	return copied
 }
@@ -369,7 +379,7 @@ func (store *memoryStore) PutItem(ctx context.Context, characterID uuid.UUID, it
 	existing, occupied := slots[item.Slot]
 	switch {
 	case !occupied:
-		slots[item.Slot] = item
+		slots[item.Slot] = cloneInventoryItem(item)
 	case existing.ItemID == item.ItemID:
 		existing.Quantity += item.Quantity
 		slots[item.Slot] = existing
@@ -422,13 +432,62 @@ func (store *memoryStore) ReplaceInventory(ctx context.Context, characterID uuid
 	defer done()
 
 	slots := make(map[int32]InventoryItem, len(items))
+	instances := make(map[uint64]struct{}, len(items))
 	for _, item := range items {
 		if err := validateInventoryItem(item); err != nil {
 			return err
 		}
-		slots[item.Slot] = item
+		if _, duplicate := slots[item.Slot]; duplicate {
+			return fmt.Errorf("%w: inventory slot %d occurs twice", ErrConstraintViolated, item.Slot)
+		}
+		if _, duplicate := instances[item.InstanceID]; duplicate {
+			return fmt.Errorf("%w: inventory instance id %d occurs twice", ErrConstraintViolated, item.InstanceID)
+		}
+		instances[item.InstanceID] = struct{}{}
+		slots[item.Slot] = cloneInventoryItem(item)
+	}
+	if hud, exists := state.huds[characterID]; exists {
+		if err := validateSnapshotItemIdentities(items, &hud); err != nil {
+			return err
+		}
 	}
 	state.inventory[characterID] = slots
+	return nil
+}
+
+func (store *memoryStore) replaceInventoryAndHUD(
+	ctx context.Context,
+	characterID uuid.UUID,
+	items []InventoryItem,
+	hud CharacterHUDState,
+) error {
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	if characterID == uuid.Nil {
+		return fmt.Errorf("%w: HUD state has no character_id", ErrConstraintViolated)
+	}
+	if err := validateHUDState(hud); err != nil {
+		return err
+	}
+	if err := validateSnapshotItemIdentities(items, &hud); err != nil {
+		return err
+	}
+	slots := make(map[int32]InventoryItem, len(items))
+	for _, item := range items {
+		if err := validateInventoryItem(item); err != nil {
+			return err
+		}
+		if _, duplicate := slots[item.Slot]; duplicate {
+			return fmt.Errorf("%w: inventory slot %d occurs twice", ErrConstraintViolated, item.Slot)
+		}
+		slots[item.Slot] = cloneInventoryItem(item)
+	}
+	state.inventory[characterID] = slots
+	state.huds[characterID] = cloneHUDState(hud)
 	return nil
 }
 
@@ -441,7 +500,7 @@ func (store *memoryStore) LoadInventory(ctx context.Context, characterID uuid.UU
 
 	items := make([]InventoryItem, 0, len(state.inventory[characterID]))
 	for _, item := range state.inventory[characterID] {
-		items = append(items, item)
+		items = append(items, cloneInventoryItem(item))
 	}
 	sort.Slice(items, func(left, right int) bool { return items[left].Slot < items[right].Slot })
 	return items, nil
@@ -481,6 +540,51 @@ func (store *memoryStore) LoadQuestStates(ctx context.Context, characterID uuid.
 	return quests, nil
 }
 
+func (store *memoryStore) SaveCharacterHUD(
+	ctx context.Context,
+	characterID uuid.UUID,
+	hud CharacterHUDState,
+) error {
+	if characterID == uuid.Nil {
+		return fmt.Errorf("%w: HUD state has no character_id", ErrConstraintViolated)
+	}
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	if err := validateHUDState(hud); err != nil {
+		return err
+	}
+	items := make([]InventoryItem, 0, len(state.inventory[characterID]))
+	for _, item := range state.inventory[characterID] {
+		items = append(items, item)
+	}
+	if err := validateSnapshotItemIdentities(items, &hud); err != nil {
+		return err
+	}
+	state.huds[characterID] = cloneHUDState(hud)
+	return nil
+}
+
+func (store *memoryStore) LoadCharacterHUD(
+	ctx context.Context,
+	characterID uuid.UUID,
+) (CharacterHUDState, error) {
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return CharacterHUDState{}, err
+	}
+	defer done()
+
+	hud, ok := state.huds[characterID]
+	if !ok {
+		return CharacterHUDState{}, ErrNotFound
+	}
+	return cloneHUDState(hud), nil
+}
+
 func (state *memoryState) inventorySlots(characterID uuid.UUID) map[int32]InventoryItem {
 	slots, ok := state.inventory[characterID]
 	if !ok {
@@ -488,4 +592,21 @@ func (state *memoryState) inventorySlots(characterID uuid.UUID) map[int32]Invent
 		state.inventory[characterID] = slots
 	}
 	return slots
+}
+
+func cloneInventoryItem(item InventoryItem) InventoryItem {
+	cloned := item
+	if item.RemoveTime != nil {
+		value := *item.RemoveTime
+		cloned.RemoveTime = &value
+	}
+	if item.RuneResourceID != nil {
+		value := *item.RuneResourceID
+		cloned.RuneResourceID = &value
+	}
+	if item.RuneSlotResourceID != nil {
+		value := *item.RuneSlotResourceID
+		cloned.RuneSlotResourceID = &value
+	}
+	return cloned
 }
