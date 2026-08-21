@@ -14,10 +14,11 @@ var (
 
 // Move relocates one occupied slot inside an authored bag layout.
 //
-// An empty destination receives the source. A matching item absorbs only what
-// its content-authored stack limit permits, leaving any remainder in the
-// source slot. A different item swaps with the source. Errors return no result
-// and never mutate slots.
+// An empty destination receives the source. A matching product with the same
+// mutable curse state absorbs only what its content-authored stack limit
+// permits, leaving any remainder in the source slot. A different product or
+// curse state swaps with the source. Errors return no result and never mutate
+// slots.
 func Move(slots []Stack, from, to int32, limits Limits, layout BagLayout) ([]Stack, error) {
 	if err := layout.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidMove, err)
@@ -51,7 +52,7 @@ func Move(slots []Stack, from, to int32, limits Limits, layout BagLayout) ([]Sta
 		working[to] = source
 		return ordered(working), nil
 	}
-	if destination.ItemID != source.ItemID {
+	if destination.ItemID != source.ItemID || destination.Cursed != source.Cursed {
 		source.Slot = to
 		destination.Slot = from
 		working[to] = source

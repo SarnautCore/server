@@ -58,6 +58,9 @@ type Item struct {
 	StackLimit int32
 	VendorSell int64
 	VendorBuy  int64
+	// CurseEligible is baked by the gameplay-data compiler. Runtime loot does
+	// not carry or reinterpret the source fields used to compute it.
+	CurseEligible bool
 	// BagLayout is nil for every item that does not grant inventory space.
 	// When present, it is one exact entry of the product layout catalog.
 	BagLayout *BagLayout
@@ -119,6 +122,7 @@ func (p *Pack) Item(id string) (Item, bool) {
 			StackLimit:    row.GetStackLimit(),
 			VendorSell:    row.GetVendorSell(),
 			VendorBuy:     row.GetVendorBuy(),
+			CurseEligible: row.GetCurseEligible(),
 			BagLayout:     bagLayout,
 		}, true
 	}

@@ -342,6 +342,10 @@ message Item {
   // `bag_layout_id`, `bag_capacity`, and this list are either all absent or
   // together name one of the product's admitted layouts.
   repeated uint32 bag_partition_sizes = 12;
+  // True when the offline gameplay-data compiler found that this product can
+  // appear as a cursed world drop. The runtime consumes this product flag and
+  // never reinterprets source-format level, quality, or stat fields.
+  bool curse_eligible = 13;
   // Untyped passthrough; see Zone.extra.
   map<string, string> extra = 15;
 }

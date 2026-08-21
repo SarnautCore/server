@@ -89,6 +89,24 @@ func TestMoveSwapsDifferentItems(t *testing.T) {
 	}
 }
 
+func TestMoveSwapsMatchingProductsWithDifferentCurseState(t *testing.T) {
+	before := []inventory.Stack{
+		{Slot: 2, InstanceID: 12, ItemID: tonic, Count: 3, Cursed: true},
+		{Slot: 7, InstanceID: 19, ItemID: tonic, Count: 9, Cursed: false},
+	}
+	got, err := inventory.Move(before, 2, 7, fixtureLimits(), moveLayout(t))
+	if err != nil {
+		t.Fatalf("Move() error = %v", err)
+	}
+	want := []inventory.Stack{
+		{Slot: 2, InstanceID: 19, ItemID: tonic, Count: 9, Cursed: false},
+		{Slot: 7, InstanceID: 12, ItemID: tonic, Count: 3, Cursed: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Move() = %+v, want curse-preserving swap %+v", got, want)
+	}
+}
+
 func TestMoveRejectsBadRequestsWithoutMutation(t *testing.T) {
 	valid := []inventory.Stack{
 		{Slot: 2, ItemID: tonic, Count: 3},

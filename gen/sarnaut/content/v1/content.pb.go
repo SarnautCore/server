@@ -1850,6 +1850,10 @@ type Item struct {
 	// `bag_layout_id`, `bag_capacity`, and this list are either all absent or
 	// together name one of the product's admitted layouts.
 	BagPartitionSizes []uint32 `protobuf:"varint,12,rep,packed,name=bag_partition_sizes,json=bagPartitionSizes,proto3" json:"bag_partition_sizes,omitempty"`
+	// True when the offline gameplay-data compiler found that this product can
+	// appear as a cursed world drop. The runtime consumes this product flag and
+	// never reinterprets source-format level, quality, or stat fields.
+	CurseEligible bool `protobuf:"varint,13,opt,name=curse_eligible,json=curseEligible,proto3" json:"curse_eligible,omitempty"`
 	// Untyped passthrough; see Zone.extra.
 	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
@@ -1968,6 +1972,13 @@ func (x *Item) GetBagPartitionSizes() []uint32 {
 		return x.BagPartitionSizes
 	}
 	return nil
+}
+
+func (x *Item) GetCurseEligible() bool {
+	if x != nil {
+		return x.CurseEligible
+	}
+	return false
 }
 
 func (x *Item) GetExtra() map[string]string {
@@ -4220,7 +4231,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa7\x04\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bname_key\x18\x02 \x01(\tR\anameKey\x12\x1a\n" +
@@ -4237,7 +4248,8 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\rbag_layout_id\x18\n" +
 	" \x01(\tR\vbagLayoutId\x12!\n" +
 	"\fbag_capacity\x18\v \x01(\rR\vbagCapacity\x12.\n" +
-	"\x13bag_partition_sizes\x18\f \x03(\rR\x11bagPartitionSizes\x129\n" +
+	"\x13bag_partition_sizes\x18\f \x03(\rR\x11bagPartitionSizes\x12%\n" +
+	"\x0ecurse_eligible\x18\r \x01(\bR\rcurseEligible\x129\n" +
 	"\x05extra\x18\x0f \x03(\v2#.sarnaut.content.v1.Item.ExtraEntryR\x05extra\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +

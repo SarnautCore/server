@@ -140,7 +140,7 @@ func (module *Module) MobKilled(tick gametypes.Tick, kill Kill) {
 	)
 
 	stream := NewStream(seed)
-	drop, err := Evaluate(table, stream)
+	drop, err := EvaluateWithCurses(table, module.rules.items, stream)
 	if err != nil {
 		module.logger.Error("loot roll failed",
 			"loot_table_id", table.ID, "loot_seed", digest, "error", err)
@@ -309,7 +309,11 @@ type Kill struct {
 func grantsFor(drop Drop) []inventory.Grant {
 	grants := make([]inventory.Grant, 0, len(drop.Items))
 	for _, item := range drop.Items {
-		grants = append(grants, inventory.Grant{ItemID: item.ItemID, Count: item.Count})
+		grants = append(grants, inventory.Grant{
+			ItemID: item.ItemID,
+			Count:  item.Count,
+			Cursed: item.IsCursed,
+		})
 	}
 	return grants
 }

@@ -40,12 +40,14 @@ var (
 	ErrLootEntryLimit = errors.New("loot: roll exceeds the observable item-entry limit")
 )
 
-// ItemGrant is one item and the count rolled for it. Grants are in draw order
-// and duplicates are deliberately not merged: merging happens at inventory
-// insertion, where stack limits are known (rule 5.5.5).
+// ItemGrant is one item instance shape and its count. Ordinary grants keep the
+// table's drawn count and IsCursed false. The curse pass appends count-one
+// cursed grants. Grants stay in draw order and duplicates are not merged:
+// inventory insertion knows both the stack limit and mutable curse identity.
 type ItemGrant struct {
-	ItemID string
-	Count  int32
+	ItemID   string
+	Count    int32
+	IsCursed bool
 }
 
 // Drop is the result of one roll: a money amount and a list of grants.
@@ -95,7 +97,13 @@ func evaluateNode(node pack.LootNode, stream Stream, drop *Drop) error {
 			if len(drop.Items) >= MaxObservableLootEntries {
 				return ErrLootEntryLimit
 			}
-			drop.Items = append(drop.Items, ItemGrant{ItemID: node.ItemID, Count: count})
+			drop.Items = append(drop.Items, ItemGrant{
+				ItemID: node.ItemID,
+				Count:  count,
+				// The ordinary table roll is never cursed. The separate curse
+				// pass may append a count-one cursed grant of the same product.
+				IsCursed: false,
+			})
 		}
 		return nil
 	case pack.LootNodeMoney:

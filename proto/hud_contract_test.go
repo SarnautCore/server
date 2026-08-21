@@ -146,8 +146,15 @@ func TestGameplayUIWireGolden(t *testing.T) {
 				Slots: []*sarnautv1.ActionBarSlotState{{
 					SlotIndex: 35,
 					AbilityId: "ability.warrior.auto-attack", CooldownRemainingMilliseconds: 2, CooldownDurationMilliseconds: 5, Available: true,
-					UnavailableReason: sarnautv1.ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_NONE,
+					UnavailableReason: sarnautv1.ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_NO_RESOURCE,
 				}},
+			}},
+		},
+		"server_combat_no_resource": &sarnautv1.ServerMessage{
+			ServerTick: 47,
+			Payload: &sarnautv1.ServerMessage_CombatEvent{CombatEvent: &sarnautv1.CombatEvent{
+				CasterId: 1, TargetId: 2, AbilityId: "ability.resource-gated",
+				Rejection: sarnautv1.AbilityRejection_ABILITY_REJECTION_NO_RESOURCE,
 			}},
 		},
 		"server_quest_log_replacement": &sarnautv1.ServerMessage{
@@ -165,9 +172,16 @@ func TestGameplayUIWireGolden(t *testing.T) {
 				Revision: 42, RequestId: 43, RequestedQuestId: "quest.rat-killer",
 				Mode: sarnautv1.QuestInfoMode_QUEST_INFO_MODE_TURN_IN, NpcEntityId: 77,
 				Refusal:  sarnautv1.QuestInfoRefusal_QUEST_INFO_REFUSAL_NONE,
-				Info:     &sarnautv1.QuestInfo{Id: "quest.rat-killer", Name: "Rat Killer", Level: 4, Goal: "Defeat rats", CanCancel: true},
+				Info:     &sarnautv1.QuestInfo{Id: "quest.rat-killer", Name: "Rat Killer", Level: 4, Goal: "Defeat rats", CanCancel: true, RepeatPeriod: 21},
 				Progress: &sarnautv1.QuestProgress{Id: "quest.rat-killer", State: sarnautv1.QuestUiState_QUEST_UI_STATE_IN_PROGRESS, Objectives: []*sarnautv1.QuestObjectiveState{{Name: "Rats", Progress: 2, Required: 3, Type: sarnautv1.QuestObjectiveType_QUEST_OBJECTIVE_TYPE_KILL, ShowCounterValue: true}}},
 				Reward:   &sarnautv1.QuestReward{Money: 5, Experience: 10, MandatoryItems: []*sarnautv1.QuestRewardItem{{ProductItemId: "item.reward", Count: 1}}, MandatoryItemsCount: 1},
+			}},
+		},
+		"server_social_friends_replacement": &sarnautv1.ServerMessage{
+			ServerTick: 48,
+			Payload: &sarnautv1.ServerMessage_SocialFriendsReplacement{SocialFriendsReplacement: &sarnautv1.SocialFriendsReplacement{
+				Revision: 49,
+				Friends:  []*sarnautv1.SocialFriend{{CharacterId: "019200f0-0000-7000-8000-000000000032", DisplayName: "Ayla"}},
 			}},
 		},
 	}
@@ -226,6 +240,7 @@ func TestGameplayUIEnvelopeCasesUseHUDRange(t *testing.T) {
 		"target_state_replacement":       {36, protoreflect.MessageKind},
 		"action_bar_replacement":         {37, protoreflect.MessageKind},
 		"inventory_slot_cooldown_update": {38, protoreflect.MessageKind},
+		"social_friends_replacement":     {39, protoreflect.MessageKind},
 	})
 
 	// Chat and every older case retain their field numbers. The absent gaps are
@@ -237,6 +252,26 @@ func TestGameplayUIEnvelopeCasesUseHUDRange(t *testing.T) {
 		if client.Fields().ByNumber(number) != nil || server.Fields().ByNumber(number) != nil {
 			t.Errorf("envelope field %d is occupied; want coordinated gap 22..29", number)
 		}
+	}
+}
+
+func TestSocialFriendsCarryOnlyStableIdentityAndName(t *testing.T) {
+	friend := (&sarnautv1.SocialFriend{}).ProtoReflect().Descriptor()
+	if friend.Fields().Len() != 2 {
+		t.Fatalf("SocialFriend fields = %d, want 2", friend.Fields().Len())
+	}
+	assertHUDField(t, friend, "character_id", 1, protoreflect.StringKind)
+	assertHUDField(t, friend, "display_name", 2, protoreflect.StringKind)
+
+	replacement := (&sarnautv1.SocialFriendsReplacement{}).ProtoReflect().Descriptor()
+	assertHUDField(t, replacement, "revision", 1, protoreflect.Uint64Kind)
+	assertHUDField(t, replacement, "friends", 2, protoreflect.MessageKind)
+	options, ok := replacement.Fields().ByName("friends").Options().(*descriptorpb.FieldOptions)
+	if !ok {
+		t.Fatal("SocialFriendsReplacement.friends options are missing")
+	}
+	if proto.HasExtension(options, sarnautv1.E_MaxCount) {
+		t.Error("SocialFriendsReplacement.friends invents an unproven maximum count")
 	}
 }
 
@@ -474,6 +509,10 @@ func TestLootContractPreservesRetailPagingAndSelectors(t *testing.T) {
 	if invalid == nil || invalid.Number() != 8 {
 		t.Errorf("invalid-index refusal = %v, want 8", invalid)
 	}
+	stale := hud.Values().ByName("LOOT_UI_REFUSAL_STALE_REVISION")
+	if stale == nil || stale.Number() != 9 {
+		t.Errorf("stale-revision refusal = %v, want 9", stale)
+	}
 }
 
 func TestQuestDetailAndCardinalitiesAreFrozen(t *testing.T) {
@@ -481,6 +520,7 @@ func TestQuestDetailAndCardinalitiesAreFrozen(t *testing.T) {
 	if questInfo.Fields().Len() != 27 {
 		t.Fatalf("QuestInfo fields = %d, want 27", questInfo.Fields().Len())
 	}
+	assertHUDField(t, questInfo, "repeat_period", 21, protoreflect.Int32Kind)
 	for _, name := range []protoreflect.Name{"debug_name", "zones_map_id"} {
 		if !questInfo.Fields().ByName(name).HasPresence() {
 			t.Errorf("QuestInfo.%s lost optional presence", name)
@@ -655,6 +695,16 @@ func TestTargetAndActionBarAreAuthoritative(t *testing.T) {
 	stale := refusal.Values().ByName("ACTION_ACTIVATION_REFUSAL_STALE_REVISION")
 	if stale == nil || stale.Number() != 2 {
 		t.Errorf("action stale-revision refusal = %v, want 2", stale)
+	}
+	unavailable := sarnautv1.ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_UNSPECIFIED.Descriptor()
+	noResource := unavailable.Values().ByName("ACTION_UNAVAILABLE_REASON_NO_RESOURCE")
+	if noResource == nil || noResource.Number() != 10 {
+		t.Errorf("action no-resource reason = %v, want 10", noResource)
+	}
+	ability := sarnautv1.AbilityRejection_ABILITY_REJECTION_UNSPECIFIED.Descriptor()
+	abilityNoResource := ability.Values().ByName("ABILITY_REJECTION_NO_RESOURCE")
+	if abilityNoResource == nil || abilityNoResource.Number() != 8 {
+		t.Errorf("ability no-resource rejection = %v, want 8", abilityNoResource)
 	}
 }
 

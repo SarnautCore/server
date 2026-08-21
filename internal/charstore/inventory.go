@@ -303,7 +303,11 @@ func cloneMoveItems(items []inventory.InventoryItem) []inventory.InventoryItem {
 func inventoryGrants(counts []quests.ItemCount) []inventory.Grant {
 	grants := make([]inventory.Grant, 0, len(counts))
 	for _, count := range counts {
-		grants = append(grants, inventory.Grant{ItemID: count.ItemID, Count: count.Count})
+		grants = append(grants, inventory.Grant{
+			ItemID: count.ItemID,
+			Count:  count.Count,
+			Cursed: false,
+		})
 	}
 	return grants
 }

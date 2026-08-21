@@ -45,6 +45,7 @@ type Stack struct {
 type Grant struct {
 	ItemID string
 	Count  int32
+	Cursed bool
 }
 
 // Limits answers what one item's stack limit is. `internal/pack` implements it;
@@ -121,7 +122,7 @@ func place(working map[int32]Stack, grant Grant, limit, capacity int32) error {
 			break
 		}
 		stack := working[slot]
-		if stack.ItemID != grant.ItemID || stack.Count >= limit {
+		if stack.ItemID != grant.ItemID || stack.Cursed != grant.Cursed || stack.Count >= limit {
 			continue
 		}
 		room := limit - stack.Count
@@ -149,7 +150,12 @@ func place(working map[int32]Stack, grant Grant, limit, capacity int32) error {
 		if count > remaining {
 			count = remaining
 		}
-		working[next] = Stack{Slot: next, ItemID: grant.ItemID, Count: count}
+		working[next] = Stack{
+			Slot:   next,
+			ItemID: grant.ItemID,
+			Count:  count,
+			Cursed: grant.Cursed,
+		}
 		remaining -= count
 	}
 	return nil
@@ -164,16 +170,21 @@ func place(working map[int32]Stack, grant Grant, limit, capacity int32) error {
 // comes out too high.
 func merge(grants []Grant) []Grant {
 	merged := make([]Grant, 0, len(grants))
-	at := make(map[string]int, len(grants))
+	type grantIdentity struct {
+		itemID string
+		cursed bool
+	}
+	at := make(map[grantIdentity]int, len(grants))
 	for _, grant := range grants {
 		if grant.Count <= 0 {
 			continue
 		}
-		if index, seen := at[grant.ItemID]; seen {
+		identity := grantIdentity{itemID: grant.ItemID, cursed: grant.Cursed}
+		if index, seen := at[identity]; seen {
 			merged[index].Count += grant.Count
 			continue
 		}
-		at[grant.ItemID] = len(merged)
+		at[identity] = len(merged)
 		merged = append(merged, grant)
 	}
 	return merged
