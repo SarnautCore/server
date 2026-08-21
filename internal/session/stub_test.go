@@ -33,11 +33,23 @@ func stubAdmission() session.Admission {
 // integrationTemplate is the fresh-character snapshot the stub store
 // materializes from, standing in for the pack's chargen row.
 func integrationTemplate(position charstore.Vec3) charstore.Snapshot {
+	actions := charstore.EmptyOrderedActionSlots()
+	abilityID := "ability.melee.harbor-cleave"
+	actions[0].AbilityID = &abilityID
 	return charstore.Snapshot{
 		State: charstore.CharacterState{
 			Position: position,
 			Level:    1,
 			Health:   100,
+		},
+		HUD: &charstore.CharacterHUDState{
+			Bag: &charstore.ItemInstance{InstanceID: 100, ItemID: "item.bag.test-16", Quantity: 1},
+			BagLayout: charstore.ProductBagLayout{
+				LayoutID:   "bag.layout.16",
+				Partitions: []charstore.BagPartition{{Ordinal: 0, Capacity: 16}},
+			},
+			Stats:   charstore.EmptyOrderedStats(),
+			Actions: actions,
 		},
 	}
 }

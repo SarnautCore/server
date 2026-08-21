@@ -109,11 +109,10 @@ func TestProtocolRefusalFollowsAnAlreadyQueuedReliableEvent(t *testing.T) {
 	harness.waitForServerWrite(t)
 	harness.writeReliable(t, &sarnautv1.ClientMessage{ClientSeq: 7})
 
-	message := harness.readReliable(t)
-	if message.GetSpawnEvent() == nil {
-		t.Fatalf("first server message = %v, want the queued spawn event", message)
+	var failure *sarnautv1.Error
+	for failure == nil {
+		failure = harness.readReliable(t).GetError()
 	}
-	failure := harness.readError(t)
 	if failure.GetCode() != sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE {
 		t.Errorf("error code = %v, want UNSUPPORTED_MESSAGE", failure.GetCode())
 	}

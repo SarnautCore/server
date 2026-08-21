@@ -95,8 +95,13 @@ type commandReader struct {
 	// call committed a transaction, so a verb with a post-commit step —
 	// accept activating the quest's scripts — can see past the shared plumbing.
 	lastQuestVerbCommitted bool
-	datagrams              bool
-	span                   trace.Span
+	// HUD revisions are owned by this reliable command stream. Action binding
+	// revision follows persisted SaveSeq. Target selection is session-local.
+	actionRevision uint64
+	targetRevision uint64
+	selectedTarget uint64
+	datagrams      bool
+	span           trace.Span
 }
 
 // readReliable drains the ordered stream. It is always started, whether or not
@@ -187,6 +192,16 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 			return reader.refuseCarrier("quest_abandon", via)
 		}
 		return reader.questAbandon(payload.QuestAbandon)
+	case *sarnautv1.ClientMessage_TargetSelect:
+		if via != carrierReliable {
+			return reader.refuseCarrier("target_select", via)
+		}
+		return reader.targetSelect(payload.TargetSelect)
+	case *sarnautv1.ClientMessage_ActivateAction:
+		if via != carrierReliable {
+			return reader.refuseCarrier("activate_action", via)
+		}
+		return reader.activateAction(payload.ActivateAction)
 	default:
 		return reader.refuse(
 			sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,

@@ -121,11 +121,25 @@ func (character *characterSession) snapshotFrom(view world.CharacterSnapshot) ch
 	}
 	state.Health = view.Health
 	state.SaveSeq = character.saveSeq
+	character.loaded.State = state
 	return charstore.Snapshot{
 		State:     state,
 		Inventory: character.loaded.Inventory,
 		Quests:    character.questSnapshotLocked(),
+		HUD:       character.loaded.HUD,
 	}
+}
+
+// current returns the persisted state this session currently owns. Callers
+// use it to build reliable full replacements after admission and after a
+// committed inventory mutation.
+func (character *characterSession) current() charstore.Snapshot {
+	character.mu.Lock()
+	defer character.mu.Unlock()
+	snapshot := character.loaded
+	snapshot.Inventory = append([]charstore.InventoryItem(nil), character.loaded.Inventory...)
+	snapshot.Quests = append([]charstore.QuestState(nil), character.loaded.Quests...)
+	return snapshot
 }
 
 // adopt re-synchronises this view with a write some other unit of work already

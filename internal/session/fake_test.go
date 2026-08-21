@@ -195,6 +195,9 @@ func (characters *fakeCharacters) waitForCheckpoint(count int, within time.Durat
 // testTemplate is the fresh-character snapshot the fakes materialize from. It
 // mirrors what the chargen table gives a real first login.
 func testTemplate(position charstore.Vec3) charstore.Snapshot {
+	actions := charstore.EmptyOrderedActionSlots()
+	abilityID := "ability.melee.harbor-cleave"
+	actions[0].AbilityID = &abilityID
 	return charstore.Snapshot{
 		State: charstore.CharacterState{
 			Position: position,
@@ -203,6 +206,15 @@ func testTemplate(position charstore.Vec3) charstore.Snapshot {
 		},
 		Inventory: []charstore.InventoryItem{{Slot: 0, InstanceID: 1, ItemID: "item.consumable.harbor-tonic", Quantity: 3}},
 		Quests:    []charstore.QuestState{{QuestID: "quest.paper-harbor.mossy-gate", State: "offered"}},
+		HUD: &charstore.CharacterHUDState{
+			Bag: &charstore.ItemInstance{InstanceID: 2, ItemID: "item.bag.test-16", Quantity: 1},
+			BagLayout: charstore.ProductBagLayout{
+				LayoutID:   "bag.layout.16",
+				Partitions: []charstore.BagPartition{{Ordinal: 0, Capacity: 16}},
+			},
+			Stats:   charstore.EmptyOrderedStats(),
+			Actions: actions,
+		},
 	}
 }
 

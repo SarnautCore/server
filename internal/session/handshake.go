@@ -544,7 +544,7 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	// in place before any peer sees it — and before S0, which persists the
 	// level and health the combat module just gave it.
 	if binding.Combat != nil {
-		if err := binding.Combat.Admit(entityID); err != nil {
+		if err := binding.Combat.AdmitWithActions(entityID, actionBindings(loaded.HUD)); err != nil {
 			return err
 		}
 		defer binding.Combat.Release(entityID)
@@ -629,19 +629,32 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		character:   character,
 		entityID:    entityID,
 		characterID: admission.CharacterID,
-		datagrams:   connection.SupportsUnreliable(),
-		span:        span,
+		actionRevision: func() uint64 {
+			revision, _ := hudRevision(character.current().State.SaveSeq)
+			return revision
+		}(),
+		targetRevision: 1,
+		datagrams:      connection.SupportsUnreliable(),
+		span:           span,
 	}
 	// Every goroutine below reports exactly once into results, and handle does
 	// not return until it has read all of them: the deferred teardown must not
 	// run while a sender still holds the sink (ADR 0026). The buffer is sized to
 	// the maximum so none of them blocks on a send after the first error.
-	results := make(chan error, 7)
-	running := 5
+	results := make(chan error, 8)
+	running := 6
 	go func() { results <- sender.run(sessionCtx) }()
 	go func() { results <- events.run(sessionCtx) }()
 	go func() { results <- questUpdates.run(sessionCtx) }()
 	go func() { results <- reader.readReliable(sessionCtx) }()
+	go func() {
+		if err := writeInitialHUD(writer, admission, entityID, character.current(), binding); err != nil {
+			results <- fmt.Errorf("write initial HUD state: %w", err)
+			return
+		}
+		<-sessionCtx.Done()
+		results <- nil
+	}()
 	go func() {
 		results <- character.runPeriodicSaves(
 			sessionCtx,
@@ -654,7 +667,7 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		)
 	}()
 	if reader.datagrams {
-		running = 7
+		running = 8
 		go func() { results <- sender.runTransitions(sessionCtx) }()
 		go func() { results <- reader.readUnreliable(sessionCtx) }()
 	}

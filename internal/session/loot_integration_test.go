@@ -330,6 +330,7 @@ func (fixture *lootFixture) connect(t *testing.T, ticket string) *lootSession {
 func castUntilDead(t *testing.T, actor *lootSession, target *sarnautv1.EntitySnapshot) *sarnautv1.DeathEvent {
 	t.Helper()
 	var seq uint64
+	var last *sarnautv1.CombatEvent
 	for attempt := 0; attempt < 200; attempt++ {
 		seq++
 		if err := actor.client.SendCommand(actor.connection, &sarnautv1.ClientMessage{
@@ -355,10 +356,11 @@ func castUntilDead(t *testing.T, actor *lootSession, target *sarnautv1.EntitySna
 			if event.GetRejection() == sarnautv1.AbilityRejection_ABILITY_REJECTION_ON_COOLDOWN {
 				time.Sleep(100 * time.Millisecond)
 			}
+			last = event
 			break
 		}
 	}
-	t.Fatal("the mob never died")
+	t.Fatalf("the mob never died; last combat event = %v", last)
 	return nil
 }
 
@@ -482,7 +484,5 @@ type lootTemplates struct {
 }
 
 func (templates lootTemplates) Template(string) (charstore.Snapshot, bool) {
-	return charstore.Snapshot{
-		State: charstore.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
-	}, true
+	return integrationTemplate(templates.spawn), true
 }

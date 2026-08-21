@@ -589,7 +589,5 @@ type questTemplates struct {
 }
 
 func (templates questTemplates) Template(string) (charstore.Snapshot, bool) {
-	return charstore.Snapshot{
-		State: charstore.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
-	}, true
+	return integrationTemplate(templates.spawn), true
 }
