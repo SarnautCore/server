@@ -287,11 +287,14 @@ func m3Handlers() map[string]handler {
 		"ImpactIncreaseQuestCount": evalImpactIncreaseQuestCount,
 		"TagMobForKill":            evalTagMobForKill,
 
-		// Trigger binding: shape B finds the mobs, shape A binds to the player.
+		// Trigger binding: shape B finds the mobs, shape A binds to the player,
+		// and the two mobWorld agents bind across a spawn scope the host owns.
 		"ImpactFindSpawnTable":     evalFindSpawnTable,
 		"ImpactAttachTrigger":      evalAttachTrigger,
 		"TriggerAgentSelf":         evalTriggerAgent,
 		"TriggerAgentInterlocutor": evalTriggerAgent,
+		"TriggerAgentSimple":       evalTriggerAgent,
+		"TriggerAgentOnTagged":     evalTriggerAgent,
 
 		// Warrior kit.
 		"ScaledPhysicalWeaponDamage": evalScaledPhysicalWeaponDamage,

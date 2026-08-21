@@ -150,7 +150,23 @@ type Attachment struct {
 	// Trigger is the TriggerResource node. Its effects decide what fires.
 	Trigger *Node
 	// EntityID is the bearer: the player for shape A, each rat for shape B.
+	// Empty for a spawn-scoped attachment, which names a MobWorld instead of an
+	// entity; the host materializes a per-entity copy — same fields, EntityID
+	// filled in — before it fires anything.
 	EntityID string
+	// MobWorld makes the attachment spawn-scoped. TriggerAgentSimple and
+	// TriggerAgentOnTagged bind their trigger to a mob *kind* — Quest_4_10 names
+	// LI_Necromancer, Quest_2_10 names RuffianMageMiniboss2_2 — not to a live
+	// entity the evaluator could resolve at activation time. The host registry
+	// owns liveness: it covers the mobs of that world that exist now and the
+	// ones a spawn table stands up later, which is exactly why this is a scope
+	// on the attachment rather than a Resolve call at evaluation time.
+	MobWorld Ref
+	// OnlyTagged narrows a spawn scope to mobs already marked by TagMobForKill.
+	// It is TriggerAgentOnTagged's whole difference from TriggerAgentSimple:
+	// Quest_2_10 tags the miniboss's spawn table in its startImpacts, and only
+	// the tagged mobs carry GibberSummon.
+	OnlyTagged bool
 	// Frame is the invocation that attached the trigger, restored when an event
 	// fires it. Its CasterID is the character whose quest the trigger serves,
 	// which is what makes shape B credit the killer rather than the corpse.

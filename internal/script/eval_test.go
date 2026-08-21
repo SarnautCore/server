@@ -263,16 +263,16 @@ func TestTheThreeTiersBehaveDifferently(t *testing.T) {
 // handler for is the tier table and the code disagreeing, and saying nothing
 // would make a coverage regression invisible.
 //
-// TriggerAgentOnTagged is a real instance of that gap rather than an invented
-// one: ADR 0036's amendment puts all four TriggerAgent binders in the
-// implemented tier, and this build registers Self and Interlocutor because those
-// are the two the tutorial's count-special path reaches. Simple and OnTagged
-// wait for the round that has data to write them against.
+// ImpactGiveItem is a real instance of that gap rather than an invented one:
+// ADR 0036's amendment puts it in the implemented tier at 54 uses, and this
+// build registers no handler for it yet — the give-item path waits for the
+// round that wires the inventory grant. All four TriggerAgent binders, which
+// previously played this role, now have handlers.
 func TestAnImplementedOpcodeWithNoHandlerIsRefusedAsABuildError(t *testing.T) {
 	t.Parallel()
 
 	host := newFakeHost()
-	node := impact("q1-30/attach", "TriggerAgentOnTagged")
+	node := impact("q1-20/rewardImpacts[0]", "ImpactGiveItem")
 
 	_, err := run(host, node, newFrame())
 	if err == nil {
