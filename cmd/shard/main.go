@@ -14,6 +14,7 @@ import (
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/chat"
+	"github.com/SarnautCore/server/internal/chataudience"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/config"
 	"github.com/SarnautCore/server/internal/health"
@@ -26,7 +27,9 @@ import (
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/script"
 	"github.com/SarnautCore/server/internal/session"
+	"github.com/SarnautCore/server/internal/social"
 	"github.com/SarnautCore/server/internal/transport"
+	"github.com/SarnautCore/server/internal/visibility"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -202,12 +205,19 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		settings.Persistence.SaveTimeout,
 	)
 	partyAuthority := party.New()
+	chatInfluence := visibility.NewInfluence()
+	chatIgnoreLists := social.NewIgnoreLists()
+	sayAudience, err := chataudience.New(content, chatInfluence, chatIgnoreLists)
+	if err != nil {
+		return fmt.Errorf("construct Say audience: %w", err)
+	}
+	localChatSessions := newWorldChatSessions(sayAudience, chatInfluence)
 	chatModule := chat.New(chat.Options{
 		Directory:     characterDirectory{characters: repository},
 		GroupAudience: partyChatAudience{parties: partyAuthority},
-		// Say remains disabled here until the production visibility, faction,
-		// and reverse-ignore adapters are wired. ZoneSpecial and World remain
-		// disabled until their exact one-unit currency debit is atomic.
+		SayAudience:   sayAudience,
+		// ZoneSpecial and World remain fail-closed until the exact alternative
+		// currency ledger is composed below.
 	})
 	// The bag is behind the repository, and the loot module is behind the bag:
 	// nothing in `internal/loot` can reach a database, and nothing in
@@ -287,6 +297,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		Characters:          characters,
 		Chat:                chatModule,
 		Party:               partyAuthority,
+		LocalChat:           localChatSessions,
 		SaveInterval:        settings.Persistence.SaveInterval,
 		Logger:              logger,
 	}
