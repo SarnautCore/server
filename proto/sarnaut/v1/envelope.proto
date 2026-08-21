@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package sarnaut.v1;
 
+import "sarnaut/v1/chat.proto";
 import "sarnaut/v1/movement.proto";
 import "sarnaut/v1/replication.proto";
 
@@ -28,6 +29,7 @@ message ClientMessage {
     QuestTurnIn quest_turn_in = 15;
     QuestAbandon quest_abandon = 16;
     Logout logout = 17;
+    ChatSendRequest chat_send_request = 18;
   }
 }
 
@@ -44,6 +46,8 @@ message ServerMessage {
     Error error = 17;
     SpawnEvent spawn_event = 18;
     DespawnEvent despawn_event = 19;
+    ChatDelivery chat_delivery = 20;
+    ChatRejection chat_rejection = 21;
   }
 }
 

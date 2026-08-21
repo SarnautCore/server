@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+package sarnaut.v1;
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+option csharp_namespace = "Sarnaut.Protocol.V1";
+
+// ChatChannel preserves the numeric values of the retail Replica::ChatType.
+// Only channels with a proven request and display contract are exposed. The
+// other retail values stay reserved until their complete behavior is known.
+enum ChatChannel {
+  CHAT_CHANNEL_WHISPER = 0;
+  CHAT_CHANNEL_GROUP = 1;
+  CHAT_CHANNEL_SAY = 2;
+
+  reserved 3;
+  reserved "CHAT_CHANNEL_YELL";
+
+  CHAT_CHANNEL_ZONE = 4;
+  CHAT_CHANNEL_ZONE_SPECIAL = 5;
+  CHAT_CHANNEL_WORLD = 6;
+
+  // Emotes use a command path, not ordinary free-text chat.
+  reserved 7;
+  reserved "CHAT_CHANNEL_EMOTE";
+
+  reserved 8;
+  reserved "CHAT_CHANNEL_NAMED";
+
+  CHAT_CHANNEL_GUILD = 9;
+  CHAT_CHANNEL_GUILD_OFFICER = 10;
+  CHAT_CHANNEL_RAID = 11;
+
+  reserved 12;
+  reserved "CHAT_CHANNEL_PSIONIC";
+}
+
+// ChatSendRequest is the complete client-authored part of a chat message. The
+// server derives sender identity and state from the authenticated session.
+message ChatSendRequest {
+  // Client-chosen correlation id. It is scoped to this session.
+  uint64 request_id = 1;
+  ChatChannel channel = 2;
+
+  // Retail limits the composer to 300 Windows wchar_t units. In this protocol
+  // that means 1 to 300 valid UTF-16 code units. Whitespace-only text is valid.
+  // Peers reject unpaired surrogates and do not trim, normalize, or rewrite the
+  // text. A composer must stop before the limit at a Unicode scalar boundary,
+  // never between a surrogate pair. The retail client also permits no more
+  // than one send per 1000 milliseconds.
+  string text = 3;
+
+  // A target is channel-specific. named_channel is retained in the request
+  // shape for a future named-channel contract, but this protocol version has
+  // no CHAT_CHANNEL_NAMED value and must reject attempts to use it.
+  oneof target {
+    string whisper_character_name = 4;
+    string named_channel = 5;
+  }
+}
+
+// LocalizedChatBody refers only to the project's baked localization catalog.
+// Source resource paths and original-format identifiers are not wire ids.
+message LocalizedChatBody {
+  string product_localization_id = 1;
+  repeated string arguments = 2;
+}
+
+// UnreadableFactionChatBody preserves the retail cross-faction display case.
+// The client resolves the baked product localization id to the faction name;
+// no source resource path or original-format id crosses the wire.
+message UnreadableFactionChatBody {
+  string faction_name_localization_id = 1;
+}
+
+// ChatBody separates player-authored text from server-authored localized text.
+// A client can send only ChatSendRequest.text; it cannot submit this message.
+message ChatBody {
+  oneof value {
+    string user_text = 1;
+    LocalizedChatBody localized = 2;
+    UnreadableFactionChatBody unreadable_faction = 3;
+  }
+}
+
+// ChatDelivery is server-authoritative. request_id is nonzero only on the
+// sender's echo, where it correlates the delivery with ChatSendRequest.
+message ChatDelivery {
+  uint64 message_id = 1;
+  uint64 request_id = 2;
+  ChatChannel channel = 3;
+  int64 sent_at_unix_milliseconds = 4;
+  uint64 sender_entity_id = 5;
+  string sender_name = 6;
+  bool sender_alive = 7;
+  ChatBody body = 8;
+  bool is_echo = 9;
+
+  oneof context {
+    string whisper_peer_name = 10;
+    string named_channel = 11;
+  }
+}
+
+// ChatRejectionReason contains ordinary chat refusals. Values 0 through 7
+// preserve the retail Replica::ChatFailedType numbers. These refusals do not
+// close the session. Malformed envelopes remain protocol Error messages.
+enum ChatRejectionReason {
+  CHAT_REJECTION_REASON_MUTE = 0;
+  CHAT_REJECTION_REASON_INTERNAL_ERROR = 1;
+  CHAT_REJECTION_REASON_SILENCE = 2;
+  CHAT_REJECTION_REASON_NO_POINTS = 3;
+  CHAT_REJECTION_REASON_ENEMY_FACTION = 4;
+  CHAT_REJECTION_REASON_IGNORED = 5;
+  CHAT_REJECTION_REASON_DEAD = 6;
+  CHAT_REJECTION_REASON_NOT_PSIONIC = 7;
+
+  CHAT_REJECTION_REASON_TARGET_NOT_FOUND = 8;
+  CHAT_REJECTION_REASON_TARGET_OFFLINE = 9;
+  CHAT_REJECTION_REASON_RATE_LIMITED = 10;
+  CHAT_REJECTION_REASON_TOO_LONG = 11;
+  CHAT_REJECTION_REASON_NOT_MEMBER = 12;
+  CHAT_REJECTION_REASON_NOT_AUTHORIZED = 13;
+  CHAT_REJECTION_REASON_UNSUPPORTED_CHANNEL = 14;
+  CHAT_REJECTION_REASON_EMPTY = 15;
+}
+
+message ChatRejection {
+  uint64 request_id = 1;
+  ChatChannel channel = 2;
+  ChatRejectionReason reason = 3;
+
+  // Optional display text from the project's baked localization catalog.
+  LocalizedChatBody detail = 4;
+
+  // Set only when another request may succeed after this delay.
+  uint32 retry_after_milliseconds = 5;
+}

@@ -427,6 +427,7 @@ type ClientMessage struct {
 	//	*ClientMessage_QuestTurnIn
 	//	*ClientMessage_QuestAbandon
 	//	*ClientMessage_Logout
+	//	*ClientMessage_ChatSendRequest
 	Payload       isClientMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -548,6 +549,15 @@ func (x *ClientMessage) GetLogout() *Logout {
 	return nil
 }
 
+func (x *ClientMessage) GetChatSendRequest() *ChatSendRequest {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_ChatSendRequest); ok {
+			return x.ChatSendRequest
+		}
+	}
+	return nil
+}
+
 type isClientMessage_Payload interface {
 	isClientMessage_Payload()
 }
@@ -584,6 +594,10 @@ type ClientMessage_Logout struct {
 	Logout *Logout `protobuf:"bytes,17,opt,name=logout,proto3,oneof"`
 }
 
+type ClientMessage_ChatSendRequest struct {
+	ChatSendRequest *ChatSendRequest `protobuf:"bytes,18,opt,name=chat_send_request,json=chatSendRequest,proto3,oneof"`
+}
+
 func (*ClientMessage_MoveIntent) isClientMessage_Payload() {}
 
 func (*ClientMessage_AbilityUse) isClientMessage_Payload() {}
@@ -600,6 +614,8 @@ func (*ClientMessage_QuestAbandon) isClientMessage_Payload() {}
 
 func (*ClientMessage_Logout) isClientMessage_Payload() {}
 
+func (*ClientMessage_ChatSendRequest) isClientMessage_Payload() {}
+
 type ServerMessage struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	ServerTick uint64                 `protobuf:"varint,1,opt,name=server_tick,json=serverTick,proto3" json:"server_tick,omitempty"`
@@ -615,6 +631,8 @@ type ServerMessage struct {
 	//	*ServerMessage_Error
 	//	*ServerMessage_SpawnEvent
 	//	*ServerMessage_DespawnEvent
+	//	*ServerMessage_ChatDelivery
+	//	*ServerMessage_ChatRejection
 	Payload       isServerMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -754,6 +772,24 @@ func (x *ServerMessage) GetDespawnEvent() *DespawnEvent {
 	return nil
 }
 
+func (x *ServerMessage) GetChatDelivery() *ChatDelivery {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_ChatDelivery); ok {
+			return x.ChatDelivery
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetChatRejection() *ChatRejection {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_ChatRejection); ok {
+			return x.ChatRejection
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Payload interface {
 	isServerMessage_Payload()
 }
@@ -798,6 +834,14 @@ type ServerMessage_DespawnEvent struct {
 	DespawnEvent *DespawnEvent `protobuf:"bytes,19,opt,name=despawn_event,json=despawnEvent,proto3,oneof"`
 }
 
+type ServerMessage_ChatDelivery struct {
+	ChatDelivery *ChatDelivery `protobuf:"bytes,20,opt,name=chat_delivery,json=chatDelivery,proto3,oneof"`
+}
+
+type ServerMessage_ChatRejection struct {
+	ChatRejection *ChatRejection `protobuf:"bytes,21,opt,name=chat_rejection,json=chatRejection,proto3,oneof"`
+}
+
 func (*ServerMessage_SnapshotBatch) isServerMessage_Payload() {}
 
 func (*ServerMessage_CombatEvent) isServerMessage_Payload() {}
@@ -817,6 +861,10 @@ func (*ServerMessage_Error) isServerMessage_Payload() {}
 func (*ServerMessage_SpawnEvent) isServerMessage_Payload() {}
 
 func (*ServerMessage_DespawnEvent) isServerMessage_Payload() {}
+
+func (*ServerMessage_ChatDelivery) isServerMessage_Payload() {}
+
+func (*ServerMessage_ChatRejection) isServerMessage_Payload() {}
 
 // Error is a typed refusal, never a bare string. It always travels on the
 // reliable channel.
@@ -2026,7 +2074,7 @@ var File_sarnaut_v1_envelope_proto protoreflect.FileDescriptor
 const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\n" +
 	"\x19sarnaut/v1/envelope.proto\x12\n" +
-	"sarnaut.v1\x1a\x19sarnaut/v1/movement.proto\x1a\x1csarnaut/v1/replication.proto\"\x8a\x04\n" +
+	"sarnaut.v1\x1a\x15sarnaut/v1/chat.proto\x1a\x19sarnaut/v1/movement.proto\x1a\x1csarnaut/v1/replication.proto\"\xd5\x04\n" +
 	"\rClientMessage\x12\x1d\n" +
 	"\n" +
 	"client_seq\x18\x01 \x01(\x04R\tclientSeq\x12?\n" +
@@ -2040,8 +2088,9 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\fquest_accept\x18\x0e \x01(\v2\x17.sarnaut.v1.QuestAcceptH\x00R\vquestAccept\x12=\n" +
 	"\rquest_turn_in\x18\x0f \x01(\v2\x17.sarnaut.v1.QuestTurnInH\x00R\vquestTurnIn\x12?\n" +
 	"\rquest_abandon\x18\x10 \x01(\v2\x18.sarnaut.v1.QuestAbandonH\x00R\fquestAbandon\x12,\n" +
-	"\x06logout\x18\x11 \x01(\v2\x12.sarnaut.v1.LogoutH\x00R\x06logoutB\t\n" +
-	"\apayload\"\xaa\x05\n" +
+	"\x06logout\x18\x11 \x01(\v2\x12.sarnaut.v1.LogoutH\x00R\x06logout\x12I\n" +
+	"\x11chat_send_request\x18\x12 \x01(\v2\x1b.sarnaut.v1.ChatSendRequestH\x00R\x0fchatSendRequestB\t\n" +
+	"\apayload\"\xaf\x06\n" +
 	"\rServerMessage\x12\x1f\n" +
 	"\vserver_tick\x18\x01 \x01(\x04R\n" +
 	"serverTick\x12B\n" +
@@ -2059,7 +2108,9 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x05error\x18\x11 \x01(\v2\x11.sarnaut.v1.ErrorH\x00R\x05error\x129\n" +
 	"\vspawn_event\x18\x12 \x01(\v2\x16.sarnaut.v1.SpawnEventH\x00R\n" +
 	"spawnEvent\x12?\n" +
-	"\rdespawn_event\x18\x13 \x01(\v2\x18.sarnaut.v1.DespawnEventH\x00R\fdespawnEventB\t\n" +
+	"\rdespawn_event\x18\x13 \x01(\v2\x18.sarnaut.v1.DespawnEventH\x00R\fdespawnEvent\x12?\n" +
+	"\rchat_delivery\x18\x14 \x01(\v2\x18.sarnaut.v1.ChatDeliveryH\x00R\fchatDelivery\x12B\n" +
+	"\x0echat_rejection\x18\x15 \x01(\v2\x19.sarnaut.v1.ChatRejectionH\x00R\rchatRejectionB\t\n" +
 	"\apayload\"J\n" +
 	"\x05Error\x12)\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x15.sarnaut.v1.ErrorCodeR\x04code\x12\x16\n" +
@@ -2241,8 +2292,11 @@ var file_sarnaut_v1_envelope_proto_goTypes = []any{
 	(*QuestObjectiveProgress)(nil), // 24: sarnaut.v1.QuestObjectiveProgress
 	(*QuestStateUpdate)(nil),       // 25: sarnaut.v1.QuestStateUpdate
 	(*ClientMoveIntent)(nil),       // 26: sarnaut.v1.ClientMoveIntent
-	(*SnapshotBatch)(nil),          // 27: sarnaut.v1.SnapshotBatch
-	(*EntitySnapshot)(nil),         // 28: sarnaut.v1.EntitySnapshot
+	(*ChatSendRequest)(nil),        // 27: sarnaut.v1.ChatSendRequest
+	(*SnapshotBatch)(nil),          // 28: sarnaut.v1.SnapshotBatch
+	(*ChatDelivery)(nil),           // 29: sarnaut.v1.ChatDelivery
+	(*ChatRejection)(nil),          // 30: sarnaut.v1.ChatRejection
+	(*EntitySnapshot)(nil),         // 31: sarnaut.v1.EntitySnapshot
 }
 var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
 	26, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
@@ -2253,32 +2307,35 @@ var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
 	14, // 5: sarnaut.v1.ClientMessage.quest_turn_in:type_name -> sarnaut.v1.QuestTurnIn
 	15, // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
 	16, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
-	27, // 8: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
-	17, // 9: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
-	18, // 10: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
-	20, // 11: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
-	21, // 12: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
-	23, // 13: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
-	25, // 14: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
-	7,  // 15: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
-	8,  // 16: sarnaut.v1.ServerMessage.spawn_event:type_name -> sarnaut.v1.SpawnEvent
-	9,  // 17: sarnaut.v1.ServerMessage.despawn_event:type_name -> sarnaut.v1.DespawnEvent
-	0,  // 18: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
-	28, // 19: sarnaut.v1.SpawnEvent.entity:type_name -> sarnaut.v1.EntitySnapshot
-	1,  // 20: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
-	19, // 21: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
-	2,  // 22: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
-	19, // 23: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
-	22, // 24: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
-	3,  // 25: sarnaut.v1.QuestStateUpdate.state:type_name -> sarnaut.v1.QuestState
-	24, // 26: sarnaut.v1.QuestStateUpdate.objectives:type_name -> sarnaut.v1.QuestObjectiveProgress
-	4,  // 27: sarnaut.v1.QuestStateUpdate.refusal:type_name -> sarnaut.v1.QuestRefusal
-	19, // 28: sarnaut.v1.QuestStateUpdate.items:type_name -> sarnaut.v1.LootItem
-	29, // [29:29] is the sub-list for method output_type
-	29, // [29:29] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	27, // 8: sarnaut.v1.ClientMessage.chat_send_request:type_name -> sarnaut.v1.ChatSendRequest
+	28, // 9: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
+	17, // 10: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
+	18, // 11: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
+	20, // 12: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
+	21, // 13: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
+	23, // 14: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
+	25, // 15: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
+	7,  // 16: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
+	8,  // 17: sarnaut.v1.ServerMessage.spawn_event:type_name -> sarnaut.v1.SpawnEvent
+	9,  // 18: sarnaut.v1.ServerMessage.despawn_event:type_name -> sarnaut.v1.DespawnEvent
+	29, // 19: sarnaut.v1.ServerMessage.chat_delivery:type_name -> sarnaut.v1.ChatDelivery
+	30, // 20: sarnaut.v1.ServerMessage.chat_rejection:type_name -> sarnaut.v1.ChatRejection
+	0,  // 21: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
+	31, // 22: sarnaut.v1.SpawnEvent.entity:type_name -> sarnaut.v1.EntitySnapshot
+	1,  // 23: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
+	19, // 24: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
+	2,  // 25: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
+	19, // 26: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
+	22, // 27: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
+	3,  // 28: sarnaut.v1.QuestStateUpdate.state:type_name -> sarnaut.v1.QuestState
+	24, // 29: sarnaut.v1.QuestStateUpdate.objectives:type_name -> sarnaut.v1.QuestObjectiveProgress
+	4,  // 30: sarnaut.v1.QuestStateUpdate.refusal:type_name -> sarnaut.v1.QuestRefusal
+	19, // 31: sarnaut.v1.QuestStateUpdate.items:type_name -> sarnaut.v1.LootItem
+	32, // [32:32] is the sub-list for method output_type
+	32, // [32:32] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_v1_envelope_proto_init() }
@@ -2286,6 +2343,7 @@ func file_sarnaut_v1_envelope_proto_init() {
 	if File_sarnaut_v1_envelope_proto != nil {
 		return
 	}
+	file_sarnaut_v1_chat_proto_init()
 	file_sarnaut_v1_movement_proto_init()
 	file_sarnaut_v1_replication_proto_init()
 	file_sarnaut_v1_envelope_proto_msgTypes[0].OneofWrappers = []any{
@@ -2297,6 +2355,7 @@ func file_sarnaut_v1_envelope_proto_init() {
 		(*ClientMessage_QuestTurnIn)(nil),
 		(*ClientMessage_QuestAbandon)(nil),
 		(*ClientMessage_Logout)(nil),
+		(*ClientMessage_ChatSendRequest)(nil),
 	}
 	file_sarnaut_v1_envelope_proto_msgTypes[1].OneofWrappers = []any{
 		(*ServerMessage_SnapshotBatch)(nil),
@@ -2309,6 +2368,8 @@ func file_sarnaut_v1_envelope_proto_init() {
 		(*ServerMessage_Error)(nil),
 		(*ServerMessage_SpawnEvent)(nil),
 		(*ServerMessage_DespawnEvent)(nil),
+		(*ServerMessage_ChatDelivery)(nil),
+		(*ServerMessage_ChatRejection)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
