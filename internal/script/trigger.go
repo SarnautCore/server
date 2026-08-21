@@ -74,6 +74,34 @@ func (evaluator *Evaluator) Fire(ctx context.Context, attachment Attachment, eve
 	return nil
 }
 
+// ActivateAttachment attaches the persistent effects in one resolved trigger
+// in authored order. The host calls it once before publishing the attachment
+// as live. A replay is safe because persistent commands are idempotent by
+// EffectID.
+func (evaluator *Evaluator) ActivateAttachment(ctx context.Context, attachment Attachment) error {
+	if !evaluator.options.Enabled {
+		return ErrDisabled
+	}
+	if attachment.EntityID == "" || attachment.ID == "" {
+		return fmt.Errorf("script: attachment activation requires an entity and attachment id")
+	}
+	if attachment.Trigger == nil {
+		return fmt.Errorf("script: attachment %s carries no resolved trigger", attachment.ID)
+	}
+	frame := evaluator.attachedFrame(attachment)
+	frame.Event = "attach"
+	run, err := evaluator.admit(attachment.Trigger, frame, "trigger is outside the M3 implemented tier")
+	if err != nil || !run {
+		return err
+	}
+	for _, effect := range attachment.Trigger.Nodes("effects") {
+		if err := evaluator.activate(ctx, effect, frame); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Detach ends an attachment. ADR 0036 says a Switch's impactsOff "runs once when
 // it detaches or expires", so the off-branches run here and the detach command
 // follows them.
@@ -95,8 +123,9 @@ func (evaluator *Evaluator) Detach(ctx context.Context, attachment Attachment) e
 			return err
 		}
 		if run {
-			for _, effect := range attachment.Trigger.Nodes("effects") {
-				if err := evaluator.deactivate(ctx, effect, frame); err != nil {
+			effects := attachment.Trigger.Nodes("effects")
+			for index := len(effects) - 1; index >= 0; index-- {
+				if err := evaluator.deactivate(ctx, effects[index], frame); err != nil {
 					return err
 				}
 			}
@@ -116,6 +145,7 @@ func (evaluator *Evaluator) Detach(ctx context.Context, attachment Attachment) e
 func (evaluator *Evaluator) attachedFrame(attachment Attachment) Frame {
 	frame := attachment.Frame
 	frame.Addressee = attachment.EntityID
+	frame.AttachmentID = attachment.ID
 	return frame
 }
 
@@ -144,7 +174,7 @@ func (evaluator *Evaluator) deliver(ctx context.Context, node *Node, frame Frame
 		return evaluator.deliverEquip(ctx, node, frame, event)
 	case "HealthTrigger":
 		return evaluator.deliverHealth(ctx, node, frame, event)
-	case "Switch", "EffectTrigger":
+	case "Switch", "EffectTrigger", "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
 		// A lifecycle effect has no opinion about events; it runs on attach and
 		// detach. Reaching one here means it sat directly under the trigger
 		// rather than under a gate, which is legal and simply not this event.
@@ -279,6 +309,8 @@ func (evaluator *Evaluator) activate(ctx context.Context, node *Node, frame Fram
 	switch node.Opcode {
 	case "Switch", "EffectTrigger":
 		return evaluator.evalAll(ctx, node, "impactsOn", frame)
+	case "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
+		return evaluator.activatePersistentEffect(ctx, node, frame)
 	case "EquipTrigger", "HealthTrigger":
 		// Arming a gate runs nothing. Its impacts wait for an event.
 		return nil
@@ -305,6 +337,8 @@ func (evaluator *Evaluator) deactivate(ctx context.Context, node *Node, frame Fr
 		return evaluator.evalAll(ctx, node, "impactsOff", frame)
 	case "EquipTrigger":
 		return nil
+	case "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
+		return evaluator.deactivatePersistentEffect(ctx, node, frame)
 	default:
 		return &RefusedError{
 			SourceID: frame.SourceID, NodeKey: node.Key,
@@ -428,12 +462,13 @@ func (evaluator *Evaluator) attach(
 	if scope == "" {
 		scope = mobWorld.ID
 	}
+	attachment.ID = frame.EvaluationID + "|" + node.Key + "|" + scope
 	return evaluator.host.Apply(ctx, Command{
 		Kind:         CommandAttachTrigger,
 		EntityID:     bearer,
 		Ref:          attachment.TriggerRef,
 		Attachment:   &attachment,
-		ExecutionKey: frame.EvaluationID + "|" + node.Key + "|" + scope,
+		ExecutionKey: attachment.ID,
 	})
 }
 

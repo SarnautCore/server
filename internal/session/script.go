@@ -79,6 +79,7 @@ type ScriptDriver struct {
 	quests    *quests.Module
 	source    QuestScriptSource
 	evaluator *script.Evaluator
+	effects   *script.EffectRegistry
 
 	// tick is the tick the current evaluation runs in. It is set at every
 	// entry point before the evaluator is invoked and is what the host
@@ -120,6 +121,7 @@ func NewScriptDriver(
 		source:      source,
 		attachments: make(map[uint64][]script.Attachment),
 		tagged:      make(map[uint64]bool),
+		effects:     script.NewEffectRegistry(),
 	}
 	driver.evaluator = script.New(scriptHost{driver: driver}, options)
 	return driver
@@ -211,6 +213,15 @@ func (driver *ScriptDriver) MobKilled(tick *world.Tick, kill combat.Kill) {
 				"victim_entity_id", kill.VictimEntityID, "trigger", attachment.TriggerRef.ID, "error", err)
 		}
 	}
+	// Persistent effects come off in reverse trigger-attachment order; each
+	// trigger then removes its own effects in reverse authored order.
+	for index := len(held) - 1; index >= 0; index-- {
+		if err := driver.evaluator.Detach(context.Background(), held[index]); err != nil {
+			driver.logger.Warn("script trigger failed to detach on death",
+				"victim_entity_id", kill.VictimEntityID,
+				"trigger", held[index].TriggerRef.ID, "error", err)
+		}
+	}
 	// The bearer is dead. Its attachments and its tag go with it: the corpse
 	// fires nothing further, and the placement respawns as a new entity id.
 	delete(driver.attachments, kill.VictimEntityID)
@@ -258,6 +269,16 @@ func (driver *ScriptDriver) materialize(attachment script.Attachment, entityID u
 		attachment.Trigger = document
 	}
 	attachment.EntityID = formatEntityID(entityID)
+	for _, existing := range driver.attachments[entityID] {
+		if existing.ID == attachment.ID {
+			return
+		}
+	}
+	if err := driver.evaluator.ActivateAttachment(context.Background(), attachment); err != nil {
+		driver.logger.Warn("attach trigger effects failed",
+			"trigger", attachment.TriggerRef.ID, "entity_id", entityID, "error", err)
+		return
+	}
 	driver.attachments[entityID] = append(driver.attachments[entityID], attachment)
 }
 
@@ -301,12 +322,44 @@ func (host scriptHost) Query(_ context.Context, query script.Query) (script.Valu
 			return script.Value{}, fmt.Errorf("session: entity %d is not in the zone", entityID)
 		}
 		return script.Value{Kind: script.ValueInteger, Integer: int64(entity.MaxHealth)}, nil
+	case script.QueryIsAvatar:
+		entityID, err := parseEntityID(query.EntityID)
+		if err != nil {
+			return script.Value{}, err
+		}
+		entity := host.driver.tick.Entity(entityID)
+		return script.Value{
+			Kind: script.ValueBool, Bool: entity != nil && entity.Kind == world.EntityKindPlayer,
+		}, nil
 	default:
 		// Class, race, quest-status and item queries wait for the quest-tree
 		// callers that need them; answering them wrongly here would be worse
 		// than refusing.
 		return script.Value{}, fmt.Errorf("session: the script adapter answers no query of kind %d yet", query.Kind)
 	}
+}
+
+// destinationSource is the optional pack adapter for absolute map locators.
+// Quest trees that never evaluate a destination do not need to provide it.
+type destinationSource interface {
+	LocateDestination(script.Ref, string) (script.Position, bool)
+}
+
+func (host scriptHost) Locate(_ context.Context, request script.DestinationRequest) (script.Destination, error) {
+	source, ok := host.driver.source.(destinationSource)
+	if !ok {
+		return script.Destination{}, fmt.Errorf(
+			"session: script source carries no absolute map-locator index for %s/%s",
+			request.Map.ID, request.ScriptID,
+		)
+	}
+	position, ok := source.LocateDestination(request.Map, request.ScriptID)
+	if !ok {
+		return script.Destination{}, fmt.Errorf(
+			"session: map locator %s/%s is absent", request.Map.ID, request.ScriptID,
+		)
+	}
+	return script.Destination{Map: request.Map, Position: position}, nil
 }
 
 // Resolve serves ImpactFindSpawnTable: the source names the table's mob kinds,
@@ -358,7 +411,7 @@ func (host scriptHost) Apply(_ context.Context, command script.Command) error {
 		}
 		kept := driver.attachments[entityID][:0]
 		for _, attachment := range driver.attachments[entityID] {
-			if attachment.TriggerRef.ID != command.Attachment.TriggerRef.ID {
+			if attachment.ID != command.Attachment.ID {
 				kept = append(kept, attachment)
 			}
 		}
@@ -411,6 +464,20 @@ func (host scriptHost) Apply(_ context.Context, command script.Command) error {
 		driver.logger.Warn("script command has no zone wiring yet",
 			"kind", uint8(command.Kind), "entity", command.EntityID)
 		return nil
+
+	case script.CommandAttachGuard, script.CommandDetachGuard,
+		script.CommandAttachDamageModifier, script.CommandDetachDamageModifier:
+		entityID, err := parseEntityID(command.EntityID)
+		if err != nil {
+			return err
+		}
+		entity := driver.tick.Entity(entityID)
+		_, err = driver.effects.Apply(command, script.EffectOwner{
+			Mob: entity != nil && entity.Kind == world.EntityKindNPC,
+			// An entity in this tick's spatial registry is cell-placed.
+			CellPlaced: entity != nil,
+		})
+		return err
 
 	default:
 		return fmt.Errorf("session: the script adapter applies no command of kind %d yet", command.Kind)

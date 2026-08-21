@@ -100,6 +100,20 @@ func (value amount) mul(other amount) (amount, bool) {
 	return result, true
 }
 
+// add sums two exact decimals after aligning their scales.
+func (value amount) add(other amount) (amount, bool) {
+	left, right, ok := align(value, other)
+	if !ok {
+		return amount{}, false
+	}
+	sum := left.mantissa + right.mantissa
+	if (right.mantissa > 0 && sum < left.mantissa) ||
+		(right.mantissa < 0 && sum > left.mantissa) {
+		return amount{}, false
+	}
+	return amount{mantissa: sum, scale: left.scale}.trim(), true
+}
+
 // trim removes trailing decimal zeroes without changing the value, which keeps
 // the scale of a long multiplication chain bounded.
 func (value amount) trim() amount {

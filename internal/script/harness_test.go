@@ -30,12 +30,14 @@ const (
 type fakeHost struct {
 	nowMS int64
 	// class answers QueryCharacterClass per entity.
-	class map[string]string
+	class  map[string]string
+	avatar map[string]bool
 	// maxHealth answers QueryMaxHealth, which is FullHealthCalcer's only input.
 	maxHealth map[string]int64
 	// resolved answers Resolve per finder opcode: a spawn table resolves to its
 	// live mobs, in the bytewise id order ADR 0036 requires.
 	resolved map[string][]string
+	located  map[string]script.Position
 	// scale answers the three per-opcode scale queries with an exact decimal.
 	scale map[script.QueryKind]script.Decimal
 	// applyErr, when set, makes the next Apply fail.
@@ -44,6 +46,7 @@ type fakeHost struct {
 	// an event at exactly the attachment the evaluator created rather than at
 	// one the test invented.
 	attached []script.Attachment
+	commands []script.Command
 
 	trace []string
 }
@@ -54,8 +57,10 @@ func newFakeHost() *fakeHost {
 		// clock would make that flaky for no benefit.
 		nowMS:     1_000_000,
 		class:     map[string]string{playerID: warriorClass},
+		avatar:    map[string]bool{playerID: true},
 		maxHealth: map[string]int64{ratID: 40, playerID: 300},
 		resolved:  map[string][]string{},
+		located:   map[string]script.Position{},
 		// A scale of 2 rather than 1, so that a handler which forgot to
 		// multiply would still be caught.
 		scale: map[script.QueryKind]script.Decimal{
@@ -99,6 +104,10 @@ func (host *fakeHost) Query(_ context.Context, query script.Query) (script.Value
 		got := host.maxHealth[query.EntityID]
 		host.trace = append(host.trace, fmt.Sprintf("query max-health %s -> %d", query.EntityID, got))
 		return script.Value{Kind: script.ValueInteger, Integer: got}, nil
+	case script.QueryIsAvatar:
+		got := host.avatar[query.EntityID]
+		host.trace = append(host.trace, fmt.Sprintf("query is-avatar %s -> %t", query.EntityID, got))
+		return script.Value{Kind: script.ValueBool, Bool: got}, nil
 	case script.QueryPhysicalScale, script.QueryPhysicalRangedScale, script.QueryWeaponSpeedScale:
 		got := host.scale[query.Kind]
 		host.trace = append(host.trace, fmt.Sprintf(
@@ -109,6 +118,18 @@ func (host *fakeHost) Query(_ context.Context, query script.Query) (script.Value
 	default:
 		return script.Value{}, fmt.Errorf("fake host has no answer for query kind %d", query.Kind)
 	}
+}
+
+func (host *fakeHost) Locate(_ context.Context, request script.DestinationRequest) (script.Destination, error) {
+	position, ok := host.located[request.Map.ID+"|"+request.ScriptID]
+	if !ok {
+		return script.Destination{}, fmt.Errorf("fake host has no locator %s/%s", request.Map.ID, request.ScriptID)
+	}
+	host.trace = append(host.trace, fmt.Sprintf(
+		"locate %s/%s -> %.3f,%.3f,%.3f",
+		request.Map.ID, request.ScriptID, position.X, position.Y, position.Z,
+	))
+	return script.Destination{Map: request.Map, Position: position}, nil
 }
 
 func (host *fakeHost) Resolve(_ context.Context, request script.ResolveRequest) ([]string, error) {
@@ -123,6 +144,7 @@ func (host *fakeHost) Apply(_ context.Context, command script.Command) error {
 	if host.applyErr != nil {
 		return host.applyErr
 	}
+	host.commands = append(host.commands, command)
 	switch command.Kind {
 	case script.CommandAttachTrigger:
 		host.attached = append(host.attached, *command.Attachment)
@@ -156,6 +178,28 @@ func (host *fakeHost) Apply(_ context.Context, command script.Command) error {
 		host.trace = append(host.trace, fmt.Sprintf(
 			"apply set-target %s -> %s key=%s",
 			command.EntityID, command.TargetID, command.ExecutionKey,
+		))
+	case script.CommandAttachGuard:
+		host.trace = append(host.trace, fmt.Sprintf(
+			"apply attach-guard %s radius=%s notice=%t key=%s",
+			command.EntityID, decimalText(command.Guard.Radius), command.Guard.NoticeTarget, command.ExecutionKey,
+		))
+	case script.CommandDetachGuard:
+		host.trace = append(host.trace, fmt.Sprintf(
+			"apply detach-guard %s effect=%s key=%s",
+			command.EntityID, command.EffectID, command.ExecutionKey,
+		))
+	case script.CommandAttachDamageModifier:
+		host.trace = append(host.trace, fmt.Sprintf(
+			"apply attach-damage-modifier %s direction=%d coeff=%s stacks=%d key=%s",
+			command.EntityID, command.DamageModifier.Direction,
+			decimalText(command.DamageModifier.Scaler.Coefficient),
+			command.DamageModifier.StackCount, command.ExecutionKey,
+		))
+	case script.CommandDetachDamageModifier:
+		host.trace = append(host.trace, fmt.Sprintf(
+			"apply detach-damage-modifier %s effect=%s key=%s",
+			command.EntityID, command.EffectID, command.ExecutionKey,
 		))
 	default:
 		host.trace = append(host.trace, fmt.Sprintf(

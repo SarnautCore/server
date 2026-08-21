@@ -27,6 +27,9 @@ type Frame struct {
 	// ActivationOrdinal disambiguates repeated activations of the same node for
 	// probability replay. Depth-first node order, never map iteration order.
 	ActivationOrdinal uint64
+	// AttachmentID is set while a trigger attachment activates, fires, or
+	// detaches. Persistent effects derive their stable identity from it.
+	AttachmentID string
 }
 
 // QueryKind and CommandKind are closed unions owned by this package. The host
@@ -56,6 +59,9 @@ const (
 	QueryPhysicalScale
 	QueryPhysicalRangedScale
 	QueryWeaponSpeedScale
+	// QueryIsAvatar answers PredicateIsAvatar. The host decides this from the
+	// entity's runtime kind; the predicate carries no gameplay fields.
+	QueryIsAvatar
 )
 
 type Query struct {
@@ -106,6 +112,12 @@ const (
 	// CommandSetTarget answers ImpactSetTarget, which is where
 	// AddresseeFinderCaster appears in Mechanics/Spells/Warrior.
 	CommandSetTarget
+	// Persistent trigger effects are registered by the host. The evaluator
+	// validates and types their content, while the host owns their lifetime.
+	CommandAttachGuard
+	CommandDetachGuard
+	CommandAttachDamageModifier
+	CommandDetachDamageModifier
 )
 
 type Command struct {
@@ -130,6 +142,11 @@ type Command struct {
 	// Attachment carries the trigger for CommandAttachTrigger and
 	// CommandDetachTrigger. It is nil for every other kind.
 	Attachment *Attachment
+	// EffectID is stable for one attached effect. Replaying an attach with the
+	// same id must not duplicate state; detach removes exactly that id.
+	EffectID       string
+	Guard          *Guard
+	DamageModifier *DamageModifier
 	// ExecutionKey makes a replay idempotent. It is the deferred queue row id
 	// and the node key, so a crash between applying a command and deleting its
 	// queue row cannot double-apply.
@@ -141,6 +158,9 @@ type Command struct {
 // node bytes rather than a pointer: the attachment must survive a restart and
 // must not start executing a different trigger after a pack change.
 type Attachment struct {
+	// ID identifies this attachment independently of its trigger resource. Two
+	// copies of one trigger can coexist on one bearer and detach separately.
+	ID string
 	// TriggerRef names the trigger content row. ImpactAttachTrigger and the
 	// TriggerAgent binders reference a TriggerResource document rather than
 	// inlining it — a trigger is its own content row and ADR 0036 resolves every
@@ -175,6 +195,91 @@ type Attachment struct {
 	// It is the host registry's business, not the evaluator's, so it rides here
 	// rather than becoming behaviour in a handler.
 	DetachesOnDeath bool
+}
+
+// Guard is the persistent state created by a Guard effect.
+type Guard struct {
+	Radius       Decimal
+	NoticeTarget bool
+}
+
+// DamageDirection says which side of a damage event a modifier scales.
+type DamageDirection uint8
+
+const (
+	DamageDirectionUnspecified DamageDirection = iota
+	DamageIncoming
+	DamageOutgoing
+)
+
+// DamagePriority is the ordered channel phase used by damage modifiers.
+type DamagePriority uint8
+
+const (
+	DamagePriorityUnspecified DamagePriority = iota
+	DamagePriorityScaleAll
+)
+
+// LinearScaler is the authored LinearEffectScaler. Its formula is evaluated
+// when damage occurs because StackCount can change while an effect is live.
+type LinearScaler struct {
+	Coefficient Decimal
+}
+
+// DamageModifier is a validated persistent input or output damage scaler.
+type DamageModifier struct {
+	EffectID   string
+	EntityID   string
+	Direction  DamageDirection
+	Priority   DamagePriority
+	Scaler     LinearScaler
+	StackCount int64
+
+	// Incoming-only filters. CapturedOffenderID is set when onlyFromCaster is
+	// authored and captures the attaching frame's caster.
+	CapturedOffenderID string
+	AttackerPredicates []*Node
+	// Outgoing-only filter. Nil means every action group, including damage with
+	// no active spell.
+	ActionGroup *Ref
+}
+
+// DamageEvent is the input to persistent modifier folding.
+type DamageEvent struct {
+	Magnitude Decimal
+	// OwnerID is the bearer of the effect. An absent owner matches the retail
+	// null-owner rule and leaves damage unchanged.
+	OwnerID string
+	// OffenderID may be empty. OffenderResolved distinguishes an absent runtime
+	// replica from a resolved attacker for predicate filtering.
+	OffenderID       string
+	OffenderResolved bool
+	// HasActiveAction and ActionGroup describe the outgoing active spell.
+	HasActiveAction bool
+	ActionGroup     Ref
+}
+
+// Position is an absolute point in the map coordinate frame carried by the
+// compiled pack.
+type Position struct {
+	X float32
+	Y float32
+	Z float32
+}
+
+// DestinationRequest is the typed locator lookup. ScriptID is a non-empty map
+// registry key; no opcode crosses the host seam.
+type DestinationRequest struct {
+	Map      Ref
+	ScriptID string
+	ZoneID   string
+}
+
+// Destination is an absolute map position plus authored yaw.
+type Destination struct {
+	Map      Ref
+	Position Position
+	Yaw      Decimal
 }
 
 // EventKind is the closed set of host events that can fire a trigger. It is
@@ -240,6 +345,7 @@ type Host interface {
 	Now() time.Time
 	Query(context.Context, Query) (Value, error)
 	Resolve(context.Context, ResolveRequest) ([]string, error)
+	Locate(context.Context, DestinationRequest) (Destination, error)
 	Apply(context.Context, Command) error
 	Enqueue(context.Context, Deferred) error
 }

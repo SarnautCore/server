@@ -229,6 +229,39 @@ func (evaluator *Evaluator) Predicate(ctx context.Context, node *Node, frame Fra
 	case "PredicateCharacterRace":
 		return evaluator.queryRefEquals(ctx, node, frame, QueryCharacterRace, "characterRace")
 
+	case "PredicateIsAvatar":
+		// The extracted toLog=false field is source-side residue. Retail's Java
+		// predicate has no fields and tests only whether the addressee is an
+		// AvatarReplica. A true residue value is refused instead of invented.
+		if len(node.Fields) > 1 || len(node.Fields) == 1 && node.Fields[0].Name != "toLog" {
+			return false, &RefusedError{
+				SourceID: frame.SourceID, NodeKey: node.Key,
+				Family: node.Family, Opcode: node.Opcode,
+				Reason: "PredicateIsAvatar carries an unknown field",
+			}
+		}
+		if toLog, ok := node.Field("toLog"); ok && (toLog.Kind != ValueBool || toLog.Bool) {
+			return false, &RefusedError{
+				SourceID: frame.SourceID, NodeKey: node.Key,
+				Family: node.Family, Opcode: node.Opcode,
+				Reason: "field \"toLog\" is non-semantic residue and must be absent or false",
+			}
+		}
+		answer, err := evaluator.host.Query(ctx, Query{
+			Kind: QueryIsAvatar, EntityID: frame.Addressee,
+		})
+		if err != nil {
+			return false, fmt.Errorf("query avatar kind for %s: %w", frame.Addressee, err)
+		}
+		if answer.Kind != ValueBool {
+			return false, &RefusedError{
+				SourceID: frame.SourceID, NodeKey: node.Key,
+				Family: node.Family, Opcode: node.Opcode,
+				Reason: "the host answered is-avatar with a non-boolean value",
+			}
+		}
+		return answer.Bool, nil
+
 	default:
 		return false, &RefusedError{
 			SourceID: frame.SourceID, NodeKey: node.Key,
