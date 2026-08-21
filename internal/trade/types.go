@@ -224,6 +224,7 @@ type ItemView struct {
 
 type View struct {
 	ExchangeID           uuid.UUID
+	Revision             uint64
 	State                State
 	InviterCharacterID   uuid.UUID
 	SelfCharacterID      uuid.UUID

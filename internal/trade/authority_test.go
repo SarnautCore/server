@@ -307,6 +307,27 @@ func TestOnlyInviteeCanAcceptTheExactExchange(t *testing.T) {
 	fixture.accept(exchangeID)
 }
 
+func TestStateReplacementRevisionAdvancesOnlyOnVisibleMutation(t *testing.T) {
+	fixture := newFixture(t, 8, 8)
+	exchangeID := fixture.invite()
+	accepted := fixture.authority.Execute(
+		fixture.ctx, fixture.second, trade.Respond{ExchangeID: exchangeID, Accept: true},
+	)
+	view := requireView(t, accepted, fixture.first)
+	if view.Revision != 2 {
+		t.Fatalf("accepted revision = %d, want 2", view.Revision)
+	}
+	if deliveries := fixture.authority.Execute(
+		fixture.ctx, fixture.first, trade.SetMoney{ExchangeID: exchangeID, Money: 0},
+	); len(deliveries) != 0 {
+		t.Fatalf("no-op money update delivered %+v", deliveries)
+	}
+	view = requireView(t, fixture.offer(fixture.first, exchangeID, 0, 0), fixture.first)
+	if view.Revision != 3 {
+		t.Fatalf("first visible mutation revision = %d, want 3", view.Revision)
+	}
+}
+
 func TestOfferAuthenticatesWholeUnboundBagStacks(t *testing.T) {
 	fixture := newFixture(t, 8, 8)
 	exchangeID := fixture.invite()
@@ -451,8 +472,14 @@ func TestMovementRetargetsUnchangedOfferWithoutReset(t *testing.T) {
 	if err := fixture.repository.MoveItem(fixture.ctx, fixture.first, 0, 2); err != nil {
 		t.Fatal(err)
 	}
-	view := requireView(t, fixture.authority.InventoryMoved(
+	deliveries := fixture.authority.InventoryMoved(
 		fixture.ctx, fixture.first, []trade.SlotMove{{From: 0, To: 2}},
+	)
+	if len(deliveries) != 0 {
+		t.Fatalf("pure bag-slot retarget produced client delivery: %+v", deliveries)
+	}
+	view := requireView(t, fixture.authority.Execute(
+		fixture.ctx, fixture.first, trade.SetFinalConfirmation{ExchangeID: exchangeID, Confirmed: true},
 	), fixture.first)
 	if !view.SelfOffer.PrimaryConfirmed || !view.OtherOffer.PrimaryConfirmed {
 		t.Fatalf("pure slot move reset confirmations: %+v", view)

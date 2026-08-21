@@ -22,13 +22,14 @@ type Authority struct {
 }
 
 type exchange struct {
-	id      uuid.UUID
-	state   State
-	inviter uuid.UUID
-	invitee uuid.UUID
-	end     EndReason
-	first   offer
-	second  offer
+	id       uuid.UUID
+	revision uint64
+	state    State
+	inviter  uuid.UUID
+	invitee  uuid.UUID
+	end      EndReason
+	first    offer
+	second   offer
 }
 
 type offer struct {
@@ -148,6 +149,7 @@ func (authority *Authority) InventoryChanged(
 		return nil
 	}
 	current.resetConfirmations()
+	current.bump()
 	return authority.broadcastLocked(current, nil, nil)
 }
 
@@ -176,7 +178,6 @@ func (authority *Authority) InventoryMoved(
 		bySource[move.From] = move.To
 	}
 	removed := false
-	retargeted := false
 	for index, offered := range own.items {
 		if offered == nil {
 			continue
@@ -192,12 +193,15 @@ func (authority *Authority) InventoryMoved(
 			continue
 		}
 		offered.BagSlot = destination
-		retargeted = true
 	}
 	if removed {
 		current.resetConfirmations()
+		current.bump()
 	}
-	if !removed && !retargeted {
+	if !removed {
+		// Bag slots are server-only in the retail replica. A pure retarget keeps
+		// the offer and confirmations exactly as they were, so there is no client
+		// replacement to send.
 		return nil
 	}
 	return authority.broadcastLocked(current, nil, nil)
@@ -227,6 +231,7 @@ func (authority *Authority) MoneyChanged(
 	}
 	own.money = holdings.Money
 	current.resetConfirmations()
+	current.bump()
 	return authority.broadcastLocked(current, nil, nil)
 }
 
@@ -300,10 +305,11 @@ func (authority *Authority) inviteLocked(actor uuid.UUID, command Invite) []Deli
 	}
 
 	current := &exchange{
-		id:      uuid.New(),
-		state:   StateInvitation,
-		inviter: actor,
-		invitee: command.TargetCharacterID,
+		id:       uuid.New(),
+		revision: 1,
+		state:    StateInvitation,
+		inviter:  actor,
+		invitee:  command.TargetCharacterID,
 	}
 	authority.active[current.id] = current
 	authority.byPlayer[current.inviter] = current.id
@@ -323,6 +329,7 @@ func (authority *Authority) respondLocked(actor uuid.UUID, command Respond) []De
 		return authority.closeLocked(current, StateCanceled, EndReasonDeclined)
 	}
 	current.state = StateInProgress
+	current.bump()
 	return authority.broadcastLocked(current, nil, nil)
 }
 
@@ -363,6 +370,7 @@ func (authority *Authority) setItemLocked(
 	copy := item
 	own.items[command.OfferSlot] = &copy
 	current.resetConfirmations()
+	current.bump()
 	return authority.broadcastLocked(current, nil, nil)
 }
 
@@ -375,10 +383,11 @@ func (authority *Authority) removeItemLocked(actor uuid.UUID, command RemoveOffe
 		return []Delivery{refusal(actor, RefusalOfferSlotOutOfRange)}
 	}
 	if own.items[command.OfferSlot] == nil {
-		return authority.broadcastLocked(current, nil, nil)
+		return nil
 	}
 	own.items[command.OfferSlot] = nil
 	current.resetConfirmations()
+	current.bump()
 	return authority.broadcastLocked(current, nil, nil)
 }
 
@@ -395,7 +404,7 @@ func (authority *Authority) setMoneyLocked(
 		return []Delivery{refusal(actor, RefusalInvalidState)}
 	}
 	if command.Money == own.money {
-		return authority.broadcastLocked(current, nil, nil)
+		return nil
 	}
 	holdings, err := authority.store.Load(ctx, actor)
 	if err != nil {
@@ -406,6 +415,7 @@ func (authority *Authority) setMoneyLocked(
 	}
 	own.money = command.Money
 	current.resetConfirmations()
+	current.bump()
 	return authority.broadcastLocked(current, nil, nil)
 }
 
@@ -429,6 +439,7 @@ func (authority *Authority) setPrimaryLocked(
 	} else {
 		own.primary = true
 	}
+	current.bump()
 	return authority.broadcastLocked(current, nil, nil)
 }
 
@@ -453,6 +464,7 @@ func (authority *Authority) setFinalLocked(
 	}
 	own.final = command.Confirmed
 	if !current.first.final || !current.second.final {
+		current.bump()
 		return authority.broadcastLocked(current, nil, nil)
 	}
 	return authority.commitLocked(ctx, current)
@@ -534,6 +546,7 @@ func (authority *Authority) closeLocked(
 ) []Delivery {
 	current.state = state
 	current.end = reason
+	current.bump()
 	var first, second *Holdings
 	if len(holdings) > 0 {
 		first = holdings[0]
@@ -570,6 +583,7 @@ func (authority *Authority) viewLocked(current *exchange, self uuid.UUID) View {
 	otherName := authority.presences[otherID].Name
 	return View{
 		ExchangeID:           current.id,
+		Revision:             current.revision,
 		State:                current.state,
 		InviterCharacterID:   current.inviter,
 		SelfCharacterID:      self,
@@ -606,6 +620,10 @@ func (current *exchange) resetConfirmations() {
 	current.first.final = false
 	current.second.primary = false
 	current.second.final = false
+}
+
+func (current *exchange) bump() {
+	current.revision++
 }
 
 func (value offer) snapshotItems() []Item {
