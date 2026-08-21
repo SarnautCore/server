@@ -1,8 +1,10 @@
 package social_test
 
 import (
+	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -47,6 +49,61 @@ func TestFriendsPublishCanonicalFullReplacementsAndStopAfterClose(t *testing.T) 
 	}
 	if got := sink.all(); len(got) != 2 || got[1].Revision != 1 {
 		t.Fatalf("closed sink replacements = %+v, want only revisions 0 and 1", got)
+	}
+}
+
+func TestJoinCannotMissAReplacementBetweenSnapshotAndRegistration(t *testing.T) {
+	t.Parallel()
+
+	owner, friend := uuid.New(), uuid.New()
+	inner := social.NewMemoryFriendRepository(map[uuid.UUID]string{friend: "Friend"})
+	repository := &blockingFriendRepository{
+		FriendRepository: inner,
+		snapshotStarted:  make(chan struct{}),
+		releaseSnapshot:  make(chan struct{}),
+	}
+	authority, _ := social.NewFriends(repository)
+	sink := newFriendSink()
+	joined := make(chan *social.FriendsSession, 1)
+	errors := make(chan error, 2)
+	go func() {
+		session, err := authority.Join(t.Context(), owner, sink)
+		if err != nil {
+			errors <- err
+			return
+		}
+		joined <- session
+	}()
+	<-repository.snapshotStarted
+	replaced := make(chan struct{})
+	go func() {
+		if _, err := authority.Replace(t.Context(), owner, []uuid.UUID{friend}); err != nil {
+			errors <- err
+			return
+		}
+		close(replaced)
+	}()
+	select {
+	case <-replaced:
+		t.Fatal("Replace completed before Join registered its sink")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(repository.releaseSnapshot)
+	var session *social.FriendsSession
+	select {
+	case err := <-errors:
+		t.Fatal(err)
+	case session = <-joined:
+	}
+	defer session.Close()
+	select {
+	case err := <-errors:
+		t.Fatal(err)
+	case <-replaced:
+	}
+	deliveries := sink.all()
+	if len(deliveries) != 2 || deliveries[0].Revision != 0 || deliveries[1].Revision != 1 {
+		t.Fatalf("replacements = %+v, want initial then committed replacement", deliveries)
 	}
 }
 
@@ -116,6 +173,26 @@ func TestConcurrentFriendsReplacementsPublishOnlyIncreasingRevisions(t *testing.
 type friendSink struct {
 	mu           sync.Mutex
 	replacements []social.FriendsReplacement
+}
+
+type blockingFriendRepository struct {
+	social.FriendRepository
+	snapshotStarted chan struct{}
+	releaseSnapshot chan struct{}
+	once            sync.Once
+}
+
+func (repository *blockingFriendRepository) Friends(
+	ctx context.Context,
+	owner uuid.UUID,
+) (social.FriendsReplacement, error) {
+	repository.once.Do(func() { close(repository.snapshotStarted) })
+	select {
+	case <-ctx.Done():
+		return social.FriendsReplacement{}, ctx.Err()
+	case <-repository.releaseSnapshot:
+	}
+	return repository.FriendRepository.Friends(ctx, owner)
 }
 
 func newFriendSink() *friendSink { return new(friendSink) }
