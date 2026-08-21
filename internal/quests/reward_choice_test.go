@@ -140,7 +140,12 @@ func TestAFullBagRollsBackTheWholeSelectedReward(t *testing.T) {
 	t.Parallel()
 	mandatoryFits := make([]charstore.InventoryItem, 0, 14)
 	for slot := range int32(14) {
-		mandatoryFits = append(mandatoryFits, charstore.InventoryItem{Slot: slot, ItemID: scaleItem, Quantity: 1})
+		mandatoryFits = append(mandatoryFits, charstore.InventoryItem{
+			Slot:       slot,
+			InstanceID: uint64(slot) + 1,
+			ItemID:     scaleItem,
+			Quantity:   1,
+		})
 	}
 	control := newFixture(t, 1, mandatoryFits)
 	control.accept(t, tallyQuest)
