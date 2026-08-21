@@ -30,6 +30,9 @@ type Frame struct {
 	// AttachmentID is set while a trigger attachment activates, fires, or
 	// detaches. Persistent effects derive their stable identity from it.
 	AttachmentID string
+	// LifecycleAttempt distinguishes effects created by this activation call
+	// from idempotent replays of state left by an earlier attempt.
+	LifecycleAttempt uint64
 }
 
 // QueryKind and CommandKind are closed unions owned by this package. The host
@@ -147,6 +150,13 @@ type Command struct {
 	EffectID       string
 	Guard          *Guard
 	DamageModifier *DamageModifier
+	// Rollback marks a detach that compensates a failed attachment activation.
+	// A host uses it to restore bookkeeping that ordinary retail detach keeps,
+	// such as Guard's last-written notice flag and stable attachment order.
+	Rollback bool
+	// LifecycleAttempt makes rollback remove only state created by the matching
+	// activation call. A replayed attach belongs to its original attempt.
+	LifecycleAttempt uint64
 	// ExecutionKey makes a replay idempotent. It is the deferred queue row id
 	// and the node key, so a crash between applying a command and deleting its
 	// queue row cannot double-apply.

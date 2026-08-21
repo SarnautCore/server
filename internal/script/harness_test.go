@@ -42,6 +42,10 @@ type fakeHost struct {
 	scale map[script.QueryKind]script.Decimal
 	// applyErr, when set, makes the next Apply fail.
 	applyErr error
+	// applyErrors injects failures at exact Apply calls. It lets lifecycle tests
+	// fail a later effect and, independently, its compensation.
+	applyErrors map[int]error
+	applyCalls  int
 	// attached records what CommandAttachTrigger asked for, so a test can fire
 	// an event at exactly the attachment the evaluator created rather than at
 	// one the test invented.
@@ -141,6 +145,10 @@ func (host *fakeHost) Resolve(_ context.Context, request script.ResolveRequest) 
 }
 
 func (host *fakeHost) Apply(_ context.Context, command script.Command) error {
+	host.applyCalls++
+	if err := host.applyErrors[host.applyCalls]; err != nil {
+		return err
+	}
 	if host.applyErr != nil {
 		return host.applyErr
 	}

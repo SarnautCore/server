@@ -36,13 +36,16 @@ type EffectChange struct {
 }
 
 type guardEntry struct {
-	guard Guard
-	order uint64
+	guard                Guard
+	order                uint64
+	lifecycleAttempt     uint64
+	previousNoticeTarget bool
 }
 
 type modifierEntry struct {
-	modifier DamageModifier
-	order    uint64
+	modifier         DamageModifier
+	order            uint64
+	lifecycleAttempt uint64
 }
 
 type guardOwnerState struct {
@@ -77,46 +80,75 @@ func (registry *EffectRegistry) ApplyAtomic(
 	if registry == nil {
 		return EffectChange{}, fmt.Errorf("script: nil effect registry")
 	}
-	beforeSequence := registry.sequence
-	beforeGuards := cloneGuardStates(registry.guards)
-	beforeModifiers := cloneModifierStates(registry.modifiers)
+	before := registry.snapshot(command.EntityID, command.EffectID)
 	change, err := registry.Apply(command, owner)
 	if err != nil || !change.Changed || apply == nil {
 		return change, err
 	}
 	if err := apply(change); err != nil {
-		registry.sequence = beforeSequence
-		registry.guards = beforeGuards
-		registry.modifiers = beforeModifiers
+		registry.restore(command.EntityID, command.EffectID, before)
 		return EffectChange{}, err
 	}
 	return change, nil
 }
 
-func cloneGuardStates(source map[string]*guardOwnerState) map[string]*guardOwnerState {
-	result := make(map[string]*guardOwnerState, len(source))
-	for entityID, state := range source {
-		copyState := &guardOwnerState{
-			entries: make(map[string]guardEntry, len(state.entries)), noticeTarget: state.noticeTarget,
-		}
-		for effectID, entry := range state.entries {
-			copyState.entries[effectID] = entry
-		}
-		result[entityID] = copyState
-	}
-	return result
+type effectSnapshot struct {
+	sequence uint64
+
+	guardState        *guardOwnerState
+	guardStateExists  bool
+	guardEntry        guardEntry
+	guardEntryExists  bool
+	guardNoticeTarget bool
+
+	modifierEntries      map[string]modifierEntry
+	modifierEntriesExist bool
+	modifierEntry        modifierEntry
+	modifierEntryExists  bool
 }
 
-func cloneModifierStates(source map[string]map[string]modifierEntry) map[string]map[string]modifierEntry {
-	result := make(map[string]map[string]modifierEntry, len(source))
-	for entityID, entries := range source {
-		copyEntries := make(map[string]modifierEntry, len(entries))
-		for effectID, entry := range entries {
-			copyEntries[effectID] = entry
-		}
-		result[entityID] = copyEntries
+// snapshot records only the entry one command can mutate. ApplyAtomic used to
+// clone every entity's registry for every effect, making a trigger with N
+// effects pay for the whole live registry N times.
+func (registry *EffectRegistry) snapshot(entityID, effectID string) effectSnapshot {
+	snapshot := effectSnapshot{sequence: registry.sequence}
+	if state, ok := registry.guards[entityID]; ok {
+		snapshot.guardState = state
+		snapshot.guardStateExists = true
+		snapshot.guardNoticeTarget = state.noticeTarget
+		snapshot.guardEntry, snapshot.guardEntryExists = state.entries[effectID]
 	}
-	return result
+	if entries, ok := registry.modifiers[entityID]; ok {
+		snapshot.modifierEntries = entries
+		snapshot.modifierEntriesExist = true
+		snapshot.modifierEntry, snapshot.modifierEntryExists = entries[effectID]
+	}
+	return snapshot
+}
+
+func (registry *EffectRegistry) restore(entityID, effectID string, snapshot effectSnapshot) {
+	registry.sequence = snapshot.sequence
+	if !snapshot.guardStateExists {
+		delete(registry.guards, entityID)
+	} else {
+		registry.guards[entityID] = snapshot.guardState
+		snapshot.guardState.noticeTarget = snapshot.guardNoticeTarget
+		if snapshot.guardEntryExists {
+			snapshot.guardState.entries[effectID] = snapshot.guardEntry
+		} else {
+			delete(snapshot.guardState.entries, effectID)
+		}
+	}
+	if !snapshot.modifierEntriesExist {
+		delete(registry.modifiers, entityID)
+	} else {
+		registry.modifiers[entityID] = snapshot.modifierEntries
+		if snapshot.modifierEntryExists {
+			snapshot.modifierEntries[effectID] = snapshot.modifierEntry
+		} else {
+			delete(snapshot.modifierEntries, effectID)
+		}
+	}
 }
 
 // Apply registers or removes one typed persistent-effect command.
@@ -137,26 +169,36 @@ func (registry *EffectRegistry) Apply(command Command, owner EffectOwner) (Effec
 				"script: guard %s requires a cell-placed mob owner", command.EffectID,
 			)
 		}
-		return registry.attachGuard(command.EntityID, command.EffectID, *command.Guard)
+		return registry.attachGuard(
+			command.EntityID, command.EffectID, *command.Guard, command.LifecycleAttempt,
+		)
 
 	case CommandDetachGuard:
-		return registry.detachGuard(command.EntityID, command.EffectID)
+		return registry.detachGuard(
+			command.EntityID, command.EffectID, command.Rollback, command.LifecycleAttempt,
+		)
 
 	case CommandAttachDamageModifier:
 		if command.DamageModifier == nil {
 			return EffectChange{}, fmt.Errorf("script: attach modifier %s carries no modifier", command.EffectID)
 		}
-		return registry.attachModifier(command.EntityID, command.EffectID, *command.DamageModifier)
+		return registry.attachModifier(
+			command.EntityID, command.EffectID, *command.DamageModifier, command.LifecycleAttempt,
+		)
 
 	case CommandDetachDamageModifier:
-		return registry.detachModifier(command.EntityID, command.EffectID), nil
+		return registry.detachModifier(
+			command.EntityID, command.EffectID, command.Rollback, command.LifecycleAttempt,
+		), nil
 
 	default:
 		return EffectChange{}, fmt.Errorf("script: command kind %d is not a persistent effect", command.Kind)
 	}
 }
 
-func (registry *EffectRegistry) attachGuard(entityID, effectID string, guard Guard) (EffectChange, error) {
+func (registry *EffectRegistry) attachGuard(
+	entityID, effectID string, guard Guard, lifecycleAttempt uint64,
+) (EffectChange, error) {
 	radius, ok := decimalAmount(guard.Radius)
 	if !ok {
 		return EffectChange{}, fmt.Errorf("script: guard %s radius is not representable", effectID)
@@ -176,7 +218,10 @@ func (registry *EffectRegistry) attachGuard(entityID, effectID string, guard Gua
 		return registry.guardChange(entityID, Decimal{}, false), nil
 	}
 	registry.sequence++
-	state.entries[effectID] = guardEntry{guard: guard, order: registry.sequence}
+	state.entries[effectID] = guardEntry{
+		guard: guard, order: registry.sequence, lifecycleAttempt: lifecycleAttempt,
+		previousNoticeTarget: state.noticeTarget,
+	}
 	// Retail stores noticeTarget on the shared GuardPart. A later attach wins;
 	// removing it does not restore an earlier value.
 	state.noticeTarget = guard.NoticeTarget
@@ -188,15 +233,27 @@ func (registry *EffectRegistry) attachGuard(entityID, effectID string, guard Gua
 	return change, nil
 }
 
-func (registry *EffectRegistry) detachGuard(entityID, effectID string) (EffectChange, error) {
+func (registry *EffectRegistry) detachGuard(
+	entityID, effectID string, rollback bool, lifecycleAttempt uint64,
+) (EffectChange, error) {
 	state := registry.guards[entityID]
 	if state == nil {
 		return EffectChange{}, nil
 	}
-	if _, exists := state.entries[effectID]; !exists {
+	entry, exists := state.entries[effectID]
+	if !exists {
+		return registry.guardChange(entityID, Decimal{}, false), nil
+	}
+	if rollback && entry.lifecycleAttempt != lifecycleAttempt {
 		return registry.guardChange(entityID, Decimal{}, false), nil
 	}
 	delete(state.entries, effectID)
+	if rollback {
+		state.noticeTarget = entry.previousNoticeTarget
+		if entry.order == registry.sequence {
+			registry.sequence--
+		}
+	}
 	if len(state.entries) == 0 {
 		delete(registry.guards, entityID)
 		return EffectChange{
@@ -247,7 +304,7 @@ func (registry *EffectRegistry) guardChange(entityID string, sightRadius Decimal
 }
 
 func (registry *EffectRegistry) attachModifier(
-	entityID, effectID string, modifier DamageModifier,
+	entityID, effectID string, modifier DamageModifier, lifecycleAttempt uint64,
 ) (EffectChange, error) {
 	modifier.EntityID = entityID
 	modifier.EffectID = effectID
@@ -272,19 +329,30 @@ func (registry *EffectRegistry) attachModifier(
 		return EffectChange{}, nil
 	}
 	registry.sequence++
-	entries[effectID] = modifierEntry{modifier: modifier, order: registry.sequence}
+	entries[effectID] = modifierEntry{
+		modifier: modifier, order: registry.sequence, lifecycleAttempt: lifecycleAttempt,
+	}
 	return EffectChange{Changed: true}, nil
 }
 
-func (registry *EffectRegistry) detachModifier(entityID, effectID string) EffectChange {
+func (registry *EffectRegistry) detachModifier(
+	entityID, effectID string, rollback bool, lifecycleAttempt uint64,
+) EffectChange {
 	entries := registry.modifiers[entityID]
 	if entries == nil {
 		return EffectChange{}
 	}
-	if _, exists := entries[effectID]; !exists {
+	entry, exists := entries[effectID]
+	if !exists {
+		return EffectChange{}
+	}
+	if rollback && entry.lifecycleAttempt != lifecycleAttempt {
 		return EffectChange{}
 	}
 	delete(entries, effectID)
+	if rollback && entry.order == registry.sequence {
+		registry.sequence--
+	}
 	if len(entries) == 0 {
 		delete(registry.modifiers, entityID)
 	}

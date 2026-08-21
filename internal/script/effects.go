@@ -26,7 +26,8 @@ func (evaluator *Evaluator) activatePersistentEffect(
 		}
 		return evaluator.host.Apply(ctx, Command{
 			Kind: CommandAttachGuard, EntityID: frame.Addressee, EffectID: effectID,
-			Guard: &guard, ExecutionKey: effectID + "|attach",
+			Guard: &guard, LifecycleAttempt: frame.LifecycleAttempt,
+			ExecutionKey: effectID + "|attach",
 		})
 
 	case "ScalerAllInputDamage", "ScalerAllOutputDamage":
@@ -36,7 +37,8 @@ func (evaluator *Evaluator) activatePersistentEffect(
 		}
 		return evaluator.host.Apply(ctx, Command{
 			Kind: CommandAttachDamageModifier, EntityID: frame.Addressee, EffectID: effectID,
-			DamageModifier: &modifier, ExecutionKey: effectID + "|attach",
+			DamageModifier: &modifier, LifecycleAttempt: frame.LifecycleAttempt,
+			ExecutionKey: effectID + "|attach",
 		})
 	default:
 		return &RefusedError{
@@ -47,7 +49,7 @@ func (evaluator *Evaluator) activatePersistentEffect(
 }
 
 func (evaluator *Evaluator) deactivatePersistentEffect(
-	ctx context.Context, node *Node, frame Frame,
+	ctx context.Context, node *Node, frame Frame, rollback bool,
 ) error {
 	effectID, err := persistentEffectID(node, frame)
 	if err != nil {
@@ -59,6 +61,7 @@ func (evaluator *Evaluator) deactivatePersistentEffect(
 	}
 	return evaluator.host.Apply(ctx, Command{
 		Kind: kind, EntityID: frame.Addressee, EffectID: effectID,
+		Rollback: rollback, LifecycleAttempt: frame.LifecycleAttempt,
 		ExecutionKey: effectID + "|detach",
 	})
 }

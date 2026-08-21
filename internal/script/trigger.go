@@ -2,6 +2,7 @@ package script
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -89,17 +90,47 @@ func (evaluator *Evaluator) ActivateAttachment(ctx context.Context, attachment A
 		return fmt.Errorf("script: attachment %s carries no resolved trigger", attachment.ID)
 	}
 	frame := evaluator.attachedFrame(attachment)
+	evaluator.lifecycleOrdinal++
+	frame.LifecycleAttempt = evaluator.lifecycleOrdinal
 	frame.Event = "attach"
 	run, err := evaluator.admit(attachment.Trigger, frame, "trigger is outside the M3 implemented tier")
 	if err != nil || !run {
 		return err
 	}
-	for _, effect := range attachment.Trigger.Nodes("effects") {
+	effects := attachment.Trigger.Nodes("effects")
+	for index, effect := range effects {
 		if err := evaluator.activate(ctx, effect, frame); err != nil {
-			return err
+			failure := &attachmentActivationError{causes: []error{err}}
+			for rollback := index - 1; rollback >= 0; rollback-- {
+				if rollbackErr := evaluator.deactivateForRollback(ctx, effects[rollback], frame); rollbackErr != nil {
+					failure.rollbackIncomplete = true
+					failure.causes = append(failure.causes, fmt.Errorf(
+						"rollback effect %s: %w", effects[rollback].Key, rollbackErr,
+					))
+				}
+			}
+			return failure
 		}
 	}
 	return nil
+}
+
+type attachmentActivationError struct {
+	causes             []error
+	rollbackIncomplete bool
+}
+
+func (failure *attachmentActivationError) Error() string {
+	return errors.Join(failure.causes...).Error()
+}
+func (failure *attachmentActivationError) Unwrap() []error { return failure.causes }
+
+// AttachmentRollbackIncomplete reports whether activation failed and at least
+// one reverse cleanup also failed. The host retains the attachment document so
+// it can finish that cleanup later without publishing the trigger as live.
+func AttachmentRollbackIncomplete(err error) bool {
+	var failure *attachmentActivationError
+	return errors.As(err, &failure) && failure.rollbackIncomplete
 }
 
 // Detach ends an attachment. ADR 0036 says a Switch's impactsOff "runs once when
@@ -325,6 +356,19 @@ func (evaluator *Evaluator) activate(ctx context.Context, node *Node, frame Fram
 
 // deactivate runs an effect's off-branch.
 func (evaluator *Evaluator) deactivate(ctx context.Context, node *Node, frame Frame) error {
+	return evaluator.deactivateWithIntent(ctx, node, frame, false)
+}
+
+// deactivateForRollback compensates an effect that activated earlier in the
+// same attachment attempt. Persistent hosts need to distinguish this from a
+// normal lifecycle detach because rollback restores pre-attempt ordering.
+func (evaluator *Evaluator) deactivateForRollback(ctx context.Context, node *Node, frame Frame) error {
+	return evaluator.deactivateWithIntent(ctx, node, frame, true)
+}
+
+func (evaluator *Evaluator) deactivateWithIntent(
+	ctx context.Context, node *Node, frame Frame, rollback bool,
+) error {
 	run, err := evaluator.admit(node, frame, "effect is outside the M3 implemented tier")
 	if err != nil || !run {
 		return err
@@ -338,7 +382,7 @@ func (evaluator *Evaluator) deactivate(ctx context.Context, node *Node, frame Fr
 	case "EquipTrigger":
 		return nil
 	case "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
-		return evaluator.deactivatePersistentEffect(ctx, node, frame)
+		return evaluator.deactivatePersistentEffect(ctx, node, frame, rollback)
 	default:
 		return &RefusedError{
 			SourceID: frame.SourceID, NodeKey: node.Key,

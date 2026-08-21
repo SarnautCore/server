@@ -70,11 +70,12 @@ type Options struct {
 
 // Evaluator walks a Node tree against a Host.
 type Evaluator struct {
-	host     Host
-	options  Options
-	handlers map[string]handler
-	census   *Census
-	ordinal  uint64
+	host             Host
+	options          Options
+	handlers         map[string]handler
+	census           *Census
+	ordinal          uint64
+	lifecycleOrdinal uint64
 }
 
 type handler func(context.Context, *Evaluator, *Node, Frame) error

@@ -49,6 +49,69 @@ func TestPersistentEffectsAttachInSourceOrderAndDetachInReverse(t *testing.T) {
 	})
 }
 
+func TestPersistentEffectActivationRollsBackPriorEffectsInReverse(t *testing.T) {
+	t.Parallel()
+
+	host := newFakeHost()
+	rejected := errors.New("third effect rejected")
+	host.applyErrors = map[int]error{3: rejected}
+	evaluator := script.New(host, enabled())
+	attachment := script.Attachment{
+		ID: "partial-attach", EntityID: ratID,
+		TriggerRef: script.Ref{ID: "trigger.partial-attach"},
+		Trigger: persistentTrigger("partial-attach",
+			effect("effects/guard", "Guard", field("scanRadius", integer(15))),
+			effect("effects/input", "ScalerAllInputDamage",
+				field("scaler", node(linear("effects/input/scaler", -5, 1))),
+			),
+			effect("effects/output", "ScalerAllOutputDamage",
+				field("scaler", node(linear("effects/output/scaler", 2, 1))),
+			),
+		),
+		Frame: newFrame(),
+	}
+
+	err := evaluator.ActivateAttachment(t.Context(), attachment)
+	if !errors.Is(err, rejected) {
+		t.Fatalf("ActivateAttachment() error = %v, want host rejection", err)
+	}
+	assertTrace(t, host.trace, []string{
+		"apply attach-guard " + ratID + " radius=15 notice=false key=partial-attach|effects/guard|attach",
+		"apply attach-damage-modifier " + ratID + " direction=1 coeff=-0.5 stacks=1 key=partial-attach|effects/input|attach",
+		"apply detach-damage-modifier " + ratID + " effect=partial-attach|effects/input key=partial-attach|effects/input|detach",
+		"apply detach-guard " + ratID + " effect=partial-attach|effects/guard key=partial-attach|effects/guard|detach",
+	})
+	if !host.commands[2].Rollback || !host.commands[3].Rollback {
+		t.Fatalf("compensation commands did not carry rollback intent: %#v", host.commands[2:])
+	}
+}
+
+func TestPersistentEffectActivationJoinsRollbackFailures(t *testing.T) {
+	t.Parallel()
+
+	host := newFakeHost()
+	activationErr := errors.New("second effect rejected")
+	rollbackErr := errors.New("rollback rejected")
+	host.applyErrors = map[int]error{2: activationErr, 3: rollbackErr}
+	evaluator := script.New(host, enabled())
+	attachment := script.Attachment{
+		ID: "rollback-error", EntityID: ratID,
+		TriggerRef: script.Ref{ID: "trigger.rollback-error"},
+		Trigger: persistentTrigger("rollback-error",
+			effect("effects/guard", "Guard"),
+			effect("effects/input", "ScalerAllInputDamage",
+				field("scaler", node(linear("effects/input/scaler", -5, 1))),
+			),
+		),
+		Frame: newFrame(),
+	}
+
+	err := evaluator.ActivateAttachment(t.Context(), attachment)
+	if err == nil || !errors.Is(err, activationErr) || !errors.Is(err, rollbackErr) {
+		t.Fatalf("ActivateAttachment() error = %v, want activation and rollback rejections", err)
+	}
+}
+
 func TestPersistentModifierParsesCasterPredicateGroupAndStackFilters(t *testing.T) {
 	t.Parallel()
 	host := newFakeHost()
@@ -218,6 +281,64 @@ func TestPersistentEffectReplayDoesNotCallTheHost(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("host apply calls = %d, want one for attach and none for replay", calls)
+	}
+}
+
+func TestRollbackDetachRestoresGuardBookkeeping(t *testing.T) {
+	t.Parallel()
+
+	registry := script.NewEffectRegistry()
+	owner := script.EffectOwner{Mob: true, CellPlaced: true}
+	first := script.Command{
+		Kind: script.CommandAttachGuard, EntityID: ratID, EffectID: "first",
+		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 10}},
+	}
+	second := script.Command{
+		Kind: script.CommandAttachGuard, EntityID: ratID, EffectID: "second",
+		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 20}, NoticeTarget: true},
+	}
+	if _, err := registry.Apply(first, owner); err != nil {
+		t.Fatalf("attach first Guard: %v", err)
+	}
+	if _, err := registry.Apply(second, owner); err != nil {
+		t.Fatalf("attach second Guard: %v", err)
+	}
+	if _, err := registry.Apply(script.Command{
+		Kind: script.CommandDetachGuard, EntityID: ratID, EffectID: second.EffectID, Rollback: true,
+	}, owner); err != nil {
+		t.Fatalf("rollback second Guard: %v", err)
+	}
+
+	state := registry.GuardState(ratID, script.Decimal{Mantissa: 50})
+	if !state.GuardActive || state.ObserverRadius != (script.Decimal{Mantissa: 10}) || state.NoticeTarget {
+		t.Fatalf("Guard state after rollback = %#v, want exact first-Guard state", state)
+	}
+}
+
+func TestRollbackDoesNotRemoveAnEffectReplayedFromAnEarlierAttempt(t *testing.T) {
+	t.Parallel()
+
+	registry := script.NewEffectRegistry()
+	owner := script.EffectOwner{Mob: true, CellPlaced: true}
+	guard := script.Command{
+		Kind: script.CommandAttachGuard, EntityID: ratID, EffectID: "replayed-before-failure",
+		Guard: &script.Guard{Radius: script.Decimal{Mantissa: 15}}, LifecycleAttempt: 1,
+	}
+	if _, err := registry.Apply(guard, owner); err != nil {
+		t.Fatalf("first activation: %v", err)
+	}
+	guard.LifecycleAttempt = 2
+	if replay, err := registry.Apply(guard, owner); err != nil || replay.Changed {
+		t.Fatalf("second-attempt replay = %#v, %v, want no-op", replay, err)
+	}
+	if rollback, err := registry.Apply(script.Command{
+		Kind: script.CommandDetachGuard, EntityID: ratID, EffectID: guard.EffectID,
+		Rollback: true, LifecycleAttempt: 2,
+	}, owner); err != nil || rollback.Changed {
+		t.Fatalf("second-attempt rollback = %#v, %v, want no-op", rollback, err)
+	}
+	if state := registry.GuardState(ratID, script.Decimal{Mantissa: 30}); !state.GuardActive {
+		t.Fatal("second-attempt rollback removed the first attempt's Guard")
 	}
 }
 

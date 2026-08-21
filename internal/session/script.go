@@ -82,6 +82,10 @@ type ScriptDriver struct {
 	evaluator *script.Evaluator
 	effects   *script.EffectRegistry
 	combat    *combat.Module
+	// applyGuardUpdate is installed with combat. Keeping the host call as a
+	// function makes rejection behavior testable without weakening combat's
+	// public API.
+	applyGuardUpdate func(gametypes.Tick, uint64, combat.GuardUpdate) error
 
 	// tick is the tick the current evaluation runs in. It is set at every
 	// entry point before the evaluator is invoked and is what the host
@@ -90,6 +94,11 @@ type ScriptDriver struct {
 
 	// attachments maps a bearer entity to the triggers materialized onto it.
 	attachments map[uint64][]script.Attachment
+	// pendingDetaches owns dead-bearer attachments whose cleanup failed. They
+	// are no longer live and therefore cannot fire again, but their metadata is
+	// retained until every persistent effect has detached.
+	pendingDetaches      map[uint64][]script.Attachment
+	detachRetryScheduled map[uint64]bool
 	// scopes holds the spawn-scoped attachments: mobWorld-wide prototypes that
 	// materialize onto matching live mobs now and, for a scope that outlives
 	// this moment, onto later tags. Materializing onto later *spawns* waits
@@ -117,13 +126,15 @@ func NewScriptDriver(
 		logger = slog.Default()
 	}
 	driver := &ScriptDriver{
-		logger:      logger,
-		zone:        zone,
-		quests:      questModule,
-		source:      source,
-		attachments: make(map[uint64][]script.Attachment),
-		tagged:      make(map[uint64]bool),
-		effects:     script.NewEffectRegistry(),
+		logger:               logger,
+		zone:                 zone,
+		quests:               questModule,
+		source:               source,
+		attachments:          make(map[uint64][]script.Attachment),
+		pendingDetaches:      make(map[uint64][]script.Attachment),
+		detachRetryScheduled: make(map[uint64]bool),
+		tagged:               make(map[uint64]bool),
+		effects:              script.NewEffectRegistry(),
 	}
 	driver.evaluator = script.New(scriptHost{driver: driver}, options)
 	return driver
@@ -138,7 +149,10 @@ func (driver *ScriptDriver) BindCombat(module *combat.Module) {
 	}
 	driver.combat = module
 	if module != nil {
+		driver.applyGuardUpdate = module.ApplyGuardUpdate
 		module.SetDamageEffectHost(driver)
+	} else {
+		driver.applyGuardUpdate = nil
 	}
 }
 
@@ -272,19 +286,76 @@ func (driver *ScriptDriver) MobKilled(tick gametypes.Tick, kill combat.Kill) {
 				"victim_entity_id", kill.VictimEntityID, "trigger", attachment.TriggerRef.ID, "error", err)
 		}
 	}
-	// Persistent effects come off in reverse trigger-attachment order; each
-	// trigger then removes its own effects in reverse authored order.
-	for index := len(held) - 1; index >= 0; index-- {
-		if err := driver.evaluator.Detach(context.Background(), held[index]); err != nil {
-			driver.logger.Warn("script trigger failed to detach on death",
-				"victim_entity_id", kill.VictimEntityID,
-				"trigger", held[index].TriggerRef.ID, "error", err)
+	// Stop publishing these attachments before cleanup. A failed detach must
+	// remain retryable, but it must not make a replayed death fire the trigger a
+	// second time.
+	delete(driver.attachments, kill.VictimEntityID)
+	for _, attachment := range held {
+		driver.retainPendingDetach(kill.VictimEntityID, attachment)
+	}
+	driver.retryPendingDetaches(tick, kill.VictimEntityID)
+	// The tag is event-admission state rather than effect-lifetime state.
+	delete(driver.tagged, kill.VictimEntityID)
+}
+
+func (driver *ScriptDriver) retainPendingDetach(entityID uint64, attachment script.Attachment) {
+	for _, existing := range driver.pendingDetaches[entityID] {
+		if existing.ID == attachment.ID {
+			return
 		}
 	}
-	// The bearer is dead. Its attachments and its tag go with it: the corpse
-	// fires nothing further, and the placement respawns as a new entity id.
-	delete(driver.attachments, kill.VictimEntityID)
-	delete(driver.tagged, kill.VictimEntityID)
+	driver.pendingDetaches[entityID] = append(driver.pendingDetaches[entityID], attachment)
+}
+
+// retryPendingDetaches removes unpublished attachments in exact reverse order.
+// Successful entries disappear from the retry set. Failed entries retain the
+// full attachment document and retry on the next simulation tick.
+func (driver *ScriptDriver) retryPendingDetaches(tick gametypes.Tick, entityID uint64) {
+	pending := driver.pendingDetaches[entityID]
+	if len(pending) == 0 {
+		delete(driver.pendingDetaches, entityID)
+		delete(driver.detachRetryScheduled, entityID)
+		return
+	}
+
+	failed := make([]bool, len(pending))
+	failedCount := 0
+	for index := len(pending) - 1; index >= 0; index-- {
+		if err := driver.evaluator.Detach(context.Background(), pending[index]); err != nil {
+			failed[index] = true
+			failedCount++
+			driver.logger.Warn("script trigger cleanup failed",
+				"entity_id", entityID,
+				"trigger", pending[index].TriggerRef.ID, "error", err)
+		}
+	}
+	if failedCount == 0 {
+		delete(driver.pendingDetaches, entityID)
+		delete(driver.detachRetryScheduled, entityID)
+		return
+	}
+
+	kept := make([]script.Attachment, 0, failedCount)
+	for index, attachment := range pending {
+		if failed[index] {
+			kept = append(kept, attachment)
+		}
+	}
+	driver.pendingDetaches[entityID] = kept
+	driver.schedulePendingDetachRetry(tick, entityID)
+}
+
+func (driver *ScriptDriver) schedulePendingDetachRetry(tick gametypes.Tick, entityID uint64) {
+	if driver.detachRetryScheduled[entityID] {
+		return
+	}
+	driver.detachRetryScheduled[entityID] = true
+	tick.After(1, func(later gametypes.Tick) {
+		delete(driver.detachRetryScheduled, entityID)
+		driver.tick = later
+		defer func() { driver.tick = nil }()
+		driver.retryPendingDetaches(later, entityID)
+	})
 }
 
 // EquipChanged delivers shape A's event: the player equipped or removed an
@@ -336,6 +407,10 @@ func (driver *ScriptDriver) materialize(attachment script.Attachment, entityID u
 	if err := driver.evaluator.ActivateAttachment(context.Background(), attachment); err != nil {
 		driver.logger.Warn("attach trigger effects failed",
 			"trigger", attachment.TriggerRef.ID, "entity_id", entityID, "error", err)
+		if script.AttachmentRollbackIncomplete(err) {
+			driver.retainPendingDetach(entityID, attachment)
+			driver.schedulePendingDetachRetry(driver.tick, entityID)
+		}
 		return
 	}
 	driver.attachments[entityID] = append(driver.attachments[entityID], attachment)
@@ -531,7 +606,7 @@ func (host scriptHost) Apply(_ context.Context, command script.Command) error {
 			return err
 		}
 		entity := driver.tick.Entity(entityID)
-		if driver.combat == nil {
+		if driver.combat == nil || driver.applyGuardUpdate == nil {
 			return fmt.Errorf("session: persistent effect %s has no combat host", command.EffectID)
 		}
 		if entity == nil {
@@ -543,7 +618,10 @@ func (host scriptHost) Apply(_ context.Context, command script.Command) error {
 			if !ok {
 				return fmt.Errorf("session: guard owner %d has no combat mob record", entityID)
 			}
-			sightRadius = decimalFromFloat32(mob.AggroRadiusM)
+			sightRadius, err = decimalFromFloat32(mob.AggroRadiusM)
+			if err != nil {
+				return fmt.Errorf("session: guard owner %d sight radius: %w", entityID, err)
+			}
 		}
 		_, err = driver.effects.ApplyAtomic(command, script.EffectOwner{
 			Mob: entity.Kind == gametypes.EntityKindNPC,
@@ -561,7 +639,7 @@ func (host scriptHost) Apply(_ context.Context, command script.Command) error {
 			if err != nil {
 				return fmt.Errorf("session: guard owner %d radius: %w", entityID, err)
 			}
-			return driver.combat.ApplyGuardUpdate(driver.tick, entityID, combat.GuardUpdate{
+			return driver.applyGuardUpdate(driver.tick, entityID, combat.GuardUpdate{
 				Active:           state.GuardActive,
 				ObserverRadius:   radius,
 				NoticeTarget:     state.NoticeTarget,
@@ -619,7 +697,10 @@ func parseEntityID(value string) (uint64, error) {
 	return entityID, nil
 }
 
-func decimalFromFloat32(value float32) script.Decimal {
+func decimalFromFloat32(value float32) (script.Decimal, error) {
+	if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+		return script.Decimal{}, fmt.Errorf("float32 %v is not a finite decimal", value)
+	}
 	text := strconv.FormatFloat(float64(value), 'f', -1, 32)
 	point := -1
 	for index, character := range text {
@@ -634,8 +715,11 @@ func decimalFromFloat32(value float32) script.Decimal {
 		scale = int32(len(text) - point - 1)
 		digits = text[:point] + text[point+1:]
 	}
-	mantissa, _ := strconv.ParseInt(digits, 10, 64)
-	return script.Decimal{Mantissa: mantissa, Scale: scale}
+	mantissa, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil {
+		return script.Decimal{}, fmt.Errorf("float32 %v is not an int64-backed decimal: %w", value, err)
+	}
+	return script.Decimal{Mantissa: mantissa, Scale: scale}, nil
 }
 
 func decimalFloat32(value script.Decimal) (float32, error) {
