@@ -1,0 +1,594 @@
+syntax = "proto3";
+
+package sarnaut.v1;
+
+import "google/protobuf/descriptor.proto";
+import "sarnaut/v1/movement.proto";
+
+option go_package = "github.com/SarnautCore/server/gen/sarnaut/v1;sarnautv1";
+option csharp_namespace = "Sarnaut.Protocol.V1";
+
+// These options make the retail UI collection and scalar limits visible to
+// generated-code consumers. Protobuf itself does not reject values outside a
+// declared option; every ingress validator must enforce them before applying a
+// request or replacement.
+extend google.protobuf.FieldOptions {
+  uint32 max_count = 51001;
+  uint32 exact_count = 51002;
+  uint64 max_uint = 51003;
+  uint64 fixed_uint = 51004;
+  sint64 min_sint = 51005;
+  sint64 max_sint = 51006;
+}
+
+message InventoryPartitionLayout {
+  repeated uint32 capacities = 1;
+}
+
+extend google.protobuf.EnumValueOptions {
+  InventoryPartitionLayout inventory_partition_layout = 51101;
+}
+
+extend google.protobuf.MessageOptions {
+  bool unique_nonzero_instance_ids = 51201;
+  bool equipped_bag_is_reference = 51202;
+}
+
+// InventoryLayoutId is the retail product layout id. Its numeric value is the
+// total capacity. The exact ordered partition capacities are:
+//
+//   12=[12], 16=[16], 18=[12,6], 24=[16,8], 30=[30],
+//   36=[8,8,8,6,6], 42=[30,12], 48=[12,12,12,12],
+//   54=[30,12,12], 60=[30,30].
+//
+// InventoryStateReplacement repeats the selected layout's partition
+// capacities so peers can validate the closed map without a source-data table.
+enum InventoryLayoutId {
+  INVENTORY_LAYOUT_ID_UNSPECIFIED = 0 [(inventory_partition_layout) = { }];
+  INVENTORY_LAYOUT_ID_12 = 12 [(inventory_partition_layout) = { capacities: 12 }];
+  INVENTORY_LAYOUT_ID_16 = 16 [(inventory_partition_layout) = { capacities: 16 }];
+  INVENTORY_LAYOUT_ID_18 = 18 [(inventory_partition_layout) = { capacities: 12 capacities: 6 }];
+  INVENTORY_LAYOUT_ID_24 = 24 [(inventory_partition_layout) = { capacities: 16 capacities: 8 }];
+  INVENTORY_LAYOUT_ID_30 = 30 [(inventory_partition_layout) = { capacities: 30 }];
+  INVENTORY_LAYOUT_ID_36 = 36 [(inventory_partition_layout) = { capacities: 8 capacities: 8 capacities: 8 capacities: 6 capacities: 6 }];
+  INVENTORY_LAYOUT_ID_42 = 42 [(inventory_partition_layout) = { capacities: 30 capacities: 12 }];
+  INVENTORY_LAYOUT_ID_48 = 48 [(inventory_partition_layout) = { capacities: 12 capacities: 12 capacities: 12 capacities: 12 }];
+  INVENTORY_LAYOUT_ID_54 = 54 [(inventory_partition_layout) = { capacities: 30 capacities: 12 capacities: 12 }];
+  INVENTORY_LAYOUT_ID_60 = 60 [(inventory_partition_layout) = { capacities: 30 capacities: 30 }];
+}
+
+// ItemStackState names a server-owned item instance and the baked product item
+// definition used to render it. instance_id remains stable while the instance
+// exists. product_item_id is never an original-format path or identifier.
+message ItemStackState {
+  uint64 instance_id = 1;
+  string product_item_id = 2;
+  uint32 stack_count = 3;
+  int32 counter_value = 4;
+  bool is_bound = 5;
+  bool is_cursed = 6;
+  bool is_quest_operator = 7;
+  // Signed server-world-millisecond deadline. It is not Unix time and may only
+  // be compared with the same server-world clock.
+  int64 remove_time = 8;
+  // Optional indexed resource references use canonical baked product ids.
+  // Original-format resource paths and nested unproven payloads stay off wire.
+  optional string rune_product_resource_id = 9;
+  optional string rune_slot_product_resource_id = 10;
+}
+
+message InventorySlotState {
+  uint32 slot_index = 1 [(max_uint) = 59];
+  ItemStackState item = 2;
+  ItemSlotSpellCooldownState spell_cooldown = 3;
+}
+
+message ItemSlotSpellCooldownState {
+  string product_spell_id = 1;
+  int64 remaining_milliseconds = 2 [(min_sint) = 0];
+  int64 duration_milliseconds = 3 [(min_sint) = 0];
+}
+
+// InventoryMove asks to move the complete stack at from. The server validates
+// both flat, zero-based slots against expected_revision and answers with a
+// full inventory replacement even when it refuses the move.
+message InventoryMove {
+  uint64 request_id = 1;
+  uint64 expected_revision = 2;
+  uint32 from_slot = 3 [(max_uint) = 59];
+  uint32 to_slot = 4 [(max_uint) = 59];
+}
+
+enum InventoryMoveRefusal {
+  INVENTORY_MOVE_REFUSAL_UNSPECIFIED = 0;
+  INVENTORY_MOVE_REFUSAL_NONE = 1;
+  INVENTORY_MOVE_REFUSAL_STALE_REVISION = 2;
+  INVENTORY_MOVE_REFUSAL_INVALID_SOURCE = 3;
+  INVENTORY_MOVE_REFUSAL_INVALID_DESTINATION = 4;
+  INVENTORY_MOVE_REFUSAL_EMPTY_SOURCE = 5;
+  INVENTORY_MOVE_REFUSAL_SAME_SLOT = 6;
+  INVENTORY_MOVE_REFUSAL_STACK_FULL = 7;
+  INVENTORY_MOVE_REFUSAL_INVALID_STATE = 8;
+  INVENTORY_MOVE_REFUSAL_INTERNAL = 9;
+}
+
+message InventoryStateReplacement {
+  option (unique_nonzero_instance_ids) = true;
+  option (equipped_bag_is_reference) = true;
+
+  uint64 revision = 1;
+  InventoryLayoutId layout_id = 2;
+  uint32 capacity = 3 [(max_uint) = 60];
+  int64 currency = 4;
+  // Instance id of retail equipment ordinal BAG20. The same instance appears
+  // in CharacterStateReplacement.bag; its product definition owns layout_id.
+  uint64 equipped_bag_item_id = 5;
+  repeated uint32 partition_sizes = 6 [(max_count) = 5];
+  // One sparse, zero-based vector across the whole capacity. Empty slots are
+  // absent; nested per-partition slot coordinates do not exist on wire.
+  repeated InventorySlotState slots = 7 [(max_count) = 60];
+}
+
+message InventoryMoveResult {
+  uint64 request_id = 1;
+  InventoryMoveRefusal refusal = 2;
+  InventoryStateReplacement replacement = 3;
+}
+
+// InventorySlotCooldownUpdate is a reliable replacement for one flat slot's
+// spell cooldown. An absent spell_cooldown clears the slot cooldown.
+message InventorySlotCooldownUpdate {
+  // Apply only when both inventory_revision and item_instance_id match the
+  // client's current full replacement at slot_index.
+  uint64 inventory_revision = 1;
+  uint32 slot_index = 2 [(max_uint) = 59];
+  uint64 item_instance_id = 3;
+  ItemSlotSpellCooldownState spell_cooldown = 4;
+}
+
+// EquipmentSlotId preserves retail equipment ordinals. Ammo 17 is not a UI
+// equipment slot in this contract. Bag 20 is represented separately by
+// CharacterStateReplacement.bag.
+enum EquipmentSlotId {
+  EQUIPMENT_SLOT_ID_HELM = 0;
+  EQUIPMENT_SLOT_ID_ARMOR = 1;
+  EQUIPMENT_SLOT_ID_PANTS = 2;
+  EQUIPMENT_SLOT_ID_BOOTS = 3;
+  EQUIPMENT_SLOT_ID_MANTLE = 4;
+  EQUIPMENT_SLOT_ID_GLOVES = 5;
+  EQUIPMENT_SLOT_ID_BRACERS = 6;
+  EQUIPMENT_SLOT_ID_BELT = 7;
+  EQUIPMENT_SLOT_ID_RING_1 = 8;
+  EQUIPMENT_SLOT_ID_RING_2 = 9;
+  EQUIPMENT_SLOT_ID_EARRINGS = 10;
+  EQUIPMENT_SLOT_ID_NECKLACE = 11;
+  EQUIPMENT_SLOT_ID_CLOAK = 12;
+  EQUIPMENT_SLOT_ID_SHIRT = 13;
+  EQUIPMENT_SLOT_ID_MAINHAND = 14;
+  EQUIPMENT_SLOT_ID_OFFHAND = 15;
+  EQUIPMENT_SLOT_ID_RANGED = 16;
+  EQUIPMENT_SLOT_ID_TABARD = 18;
+  EQUIPMENT_SLOT_ID_TRINKET = 19;
+  EQUIPMENT_SLOT_ID_DEATH_INSURANCE = 21;
+
+  reserved 17, 20;
+  reserved "EQUIPMENT_SLOT_ID_AMMO", "EQUIPMENT_SLOT_ID_BAG";
+}
+
+message EquipmentSlotState {
+  EquipmentSlotId slot = 1;
+  // Absent when the authored slot is empty.
+  ItemStackState item = 2;
+}
+
+// CharacterStatId preserves the retail stat ordinals used by the authored
+// character panel.
+enum CharacterStatId {
+  CHARACTER_STAT_ID_STRENGTH = 0;
+  CHARACTER_STAT_ID_MIGHT = 1;
+  CHARACTER_STAT_ID_DEXTERITY = 2;
+  CHARACTER_STAT_ID_AGILITY = 3;
+  CHARACTER_STAT_ID_STAMINA = 4;
+  CHARACTER_STAT_ID_PRECISION = 5;
+  CHARACTER_STAT_ID_HARDINESS = 6;
+  CHARACTER_STAT_ID_INTELLECT = 7;
+  CHARACTER_STAT_ID_INTUITION = 8;
+  CHARACTER_STAT_ID_SPIRIT = 9;
+  CHARACTER_STAT_ID_WILL = 10;
+  CHARACTER_STAT_ID_RESOLVE = 11;
+  CHARACTER_STAT_ID_WISDOM = 12;
+  CHARACTER_STAT_ID_LETHALITY = 13;
+}
+
+message CharacterStatState {
+  CharacterStatId stat = 1;
+  // Presence matters. Current compiled chargen authority may have only base;
+  // peers must not manufacture effective or long-term results.
+  optional float base = 2;
+  optional float effective = 3;
+  optional float long_term = 4;
+}
+
+message CharacterStateReplacement {
+  option (unique_nonzero_instance_ids) = true;
+
+  uint64 revision = 1;
+  uint64 character_entity_id = 2;
+  string name = 3;
+  uint32 level = 4;
+  // Exactly one entry for every retail UI equipment ordinal except 17 and 20.
+  // Empty authored slots remain present with no item.
+  repeated EquipmentSlotState equipment = 5 [(exact_count) = 20];
+  // Separate protocol field for retail equipment ordinal 20. Its product
+  // definition controls inventory layout.
+  ItemStackState bag = 6;
+  repeated CharacterStatState stats = 7 [(exact_count) = 14];
+}
+
+// LootTakeItem preserves retail's signed selector. Values 0 through 19 select
+// the current full replacement list; -1 means take all.
+message LootTakeItem {
+  uint64 request_id = 1;
+  uint64 loot_entity_id = 2;
+  uint64 expected_revision = 3;
+  int32 item_index = 4 [(min_sint) = -1, (max_sint) = 19];
+}
+
+// Retail always requests all money. The native amount=-1 sentinel does not
+// become a caller-controlled partial-money operation in the product protocol.
+message LootTakeMoney {
+  uint64 request_id = 1;
+  uint64 loot_entity_id = 2;
+  uint64 expected_revision = 3;
+}
+
+message LootTakeAll {
+  uint64 request_id = 1;
+  uint64 loot_entity_id = 2;
+  uint64 expected_revision = 3;
+}
+
+message LootClose {
+  uint64 request_id = 1;
+  uint64 loot_entity_id = 2;
+  uint64 expected_revision = 3;
+}
+
+message LootItemState {
+  int32 item_index = 1 [(min_sint) = 0, (max_sint) = 19];
+  string product_item_id = 2;
+  uint32 count = 3;
+  bool is_cursed = 4;
+}
+
+// LootUiRefusal mirrors the established LootRefusal numbers without moving
+// that legacy enum out of envelope.proto. Keeping the declaration additive
+// preserves the legacy descriptor while giving hud.proto a non-circular type.
+enum LootUiRefusal {
+  LOOT_UI_REFUSAL_UNSPECIFIED = 0;
+  LOOT_UI_REFUSAL_NONE = 1;
+  LOOT_UI_REFUSAL_NO_CORPSE = 2;
+  LOOT_UI_REFUSAL_NOT_YOUR_LOOT = 3;
+  LOOT_UI_REFUSAL_ALREADY_LOOTED = 4;
+  LOOT_UI_REFUSAL_BAG_FULL = 5;
+  LOOT_UI_REFUSAL_IN_PROGRESS = 6;
+  LOOT_UI_REFUSAL_INTERNAL = 7;
+  LOOT_UI_REFUSAL_INVALID_INDEX = 8;
+}
+
+// LootStateReplacement is the whole open-loot model. Retail renders four
+// entries per page and allows at most five pages, so items and total_count are
+// capped at 20. refusal preserves the established LootRefusal number prefix
+// and adds the retail invalid-index outcome.
+message LootStateReplacement {
+  uint64 revision = 1;
+  uint64 request_id = 2;
+  uint64 loot_entity_id = 3;
+  bool open = 4;
+  LootUiRefusal refusal = 5;
+  int64 money = 6;
+  uint32 total_count = 7 [(max_uint) = 20];
+  uint32 page_size = 8 [(fixed_uint) = 4];
+  repeated LootItemState items = 9 [(max_count) = 20];
+}
+
+// QuestUiState preserves the four retail quest-log states and their ordinals.
+enum QuestUiState {
+  QUEST_UI_STATE_IN_PROGRESS = 0;
+  QUEST_UI_STATE_READY_TO_RETURN = 1;
+  QUEST_UI_STATE_COMPLETED = 2;
+  QUEST_UI_STATE_FAILED = 3;
+}
+
+enum QuestObjectiveType {
+  QUEST_OBJECTIVE_TYPE_KILL = 0;
+  QUEST_OBJECTIVE_TYPE_ITEM = 1;
+  QUEST_OBJECTIVE_TYPE_SPECIAL = 2;
+  QUEST_OBJECTIVE_TYPE_HONOR = 3;
+  QUEST_OBJECTIVE_TYPE_KILL_AVATAR = 4;
+  QUEST_OBJECTIVE_TYPE_MONEY = 5;
+  QUEST_OBJECTIVE_TYPE_SHIP_UPGRADE_MONEY = 6;
+  QUEST_OBJECTIVE_TYPE_UPGRADABLE_SHIP = 7;
+}
+
+message QuestLocation {
+  string zones_map_id = 1;
+  Vec3 position = 2;
+}
+
+// QuestInfo carries the complete retail detail-page definition using product
+// text and map ids. Optional fields retain the retail distinction between an
+// absent value and an authored empty or zero value.
+message QuestInfo {
+  string id = 1;
+  string name = 2;
+  optional string debug_name = 3;
+  uint32 level = 4;
+  bool is_hide_level = 5;
+  uint32 required_level = 6;
+  string goal = 7;
+  string start_text = 8;
+  string check_text = 9;
+  string finish_text = 10;
+  string kick_text = 11;
+  string plot_line = 12;
+  bool shared = 13;
+  bool can_cancel = 14;
+  string type = 15;
+  bool is_pvp = 16;
+  bool is_in_secret_sequence = 17;
+  bool is_tutorial = 18;
+  bool is_repeatable = 19;
+  bool can_repeat = 20;
+  string repeat_period = 21;
+  bool is_secret = 22;
+  string zone_name = 23;
+  optional string zones_map_id = 24;
+  QuestLocation goal_location = 25;
+  QuestLocation return_location = 26;
+  repeated QuestLocation additional_locations = 27;
+}
+
+message QuestObjectiveItem {
+  string product_item_id = 1;
+  int64 amount = 2;
+}
+
+message QuestObjectiveState {
+  string name = 1;
+  optional string sys_debug_name = 2;
+  int64 progress = 3;
+  int64 required = 4;
+  bool is_internal = 5;
+  QuestObjectiveType type = 6;
+  bool show_counter_value = 7;
+  repeated QuestObjectiveItem items = 8;
+}
+
+message QuestProgress {
+  string id = 1;
+  QuestUiState state = 2;
+  optional uint64 timer_duration_milliseconds = 3;
+  optional uint64 timer_time_left_milliseconds = 4;
+  // NPC offer and turn-in detail can author six objectives. Quest-log rows use
+  // their own five-objective projection below.
+  repeated QuestObjectiveState objectives = 5 [(max_count) = 6];
+}
+
+message QuestRewardItem {
+  string product_item_id = 1;
+  uint32 count = 2;
+}
+
+message QuestReputationReward {
+  string faction = 1;
+  int64 value = 2;
+}
+
+message QuestCurrencyReward {
+  string currency_id = 1;
+  int64 value = 2;
+}
+
+message QuestReward {
+  int64 money = 1;
+  int64 experience = 2;
+  int64 honor = 3;
+  repeated QuestRewardItem mandatory_items = 4 [(max_count) = 5];
+  uint32 mandatory_items_count = 5;
+  repeated QuestRewardItem alternative_items = 6 [(max_count) = 5];
+  repeated QuestReputationReward reputations = 7 [(max_count) = 5];
+  repeated QuestCurrencyReward currencies = 8 [(max_count) = 5];
+}
+
+message QuestLogEntry {
+  string quest_id = 1;
+  QuestUiState state = 2;
+  repeated QuestObjectiveState objectives = 3 [(max_count) = 5];
+  string name = 4;
+  uint32 level = 5;
+  bool is_hide_level = 6;
+}
+
+message QuestShare {
+  uint64 request_id = 1;
+  string quest_id = 2;
+  uint64 expected_revision = 3;
+}
+
+message QuestShareResponse {
+  uint64 request_id = 1;
+  uint64 invite_id = 2;
+  bool accept = 3;
+  uint64 expected_revision = 4;
+}
+
+enum QuestShareRefusal {
+  QUEST_SHARE_REFUSAL_UNSPECIFIED = 0;
+  QUEST_SHARE_REFUSAL_NONE = 1;
+  QUEST_SHARE_REFUSAL_UNKNOWN_QUEST = 2;
+  QUEST_SHARE_REFUSAL_NOT_SHAREABLE = 3;
+  QUEST_SHARE_REFUSAL_NO_PARTY = 4;
+  QUEST_SHARE_REFUSAL_TARGET_UNAVAILABLE = 5;
+  QUEST_SHARE_REFUSAL_INVITE_NOT_FOUND = 6;
+  QUEST_SHARE_REFUSAL_LOG_FULL = 7;
+  QUEST_SHARE_REFUSAL_DECLINED = 8;
+  QUEST_SHARE_REFUSAL_INTERNAL = 9;
+  QUEST_SHARE_REFUSAL_STALE_REVISION = 10;
+}
+
+message QuestShareInvite {
+  uint64 invite_id = 1;
+  string quest_id = 2;
+  uint64 sender_entity_id = 3;
+  string sender_name = 4;
+  uint64 remaining_milliseconds = 5;
+}
+
+message QuestShareResult {
+  uint64 request_id = 1;
+  string quest_id = 2;
+  uint64 invite_id = 3;
+  QuestShareRefusal refusal = 4;
+  uint64 recipient_entity_id = 5;
+  string recipient_name = 6;
+}
+
+// QuestInfoRefusal mirrors the established QuestRefusal numbers without
+// moving that legacy enum out of envelope.proto.
+enum QuestInfoRefusal {
+  QUEST_INFO_REFUSAL_UNSPECIFIED = 0;
+  QUEST_INFO_REFUSAL_NONE = 1;
+  QUEST_INFO_REFUSAL_UNKNOWN_QUEST = 2;
+  QUEST_INFO_REFUSAL_UNAVAILABLE = 3;
+  QUEST_INFO_REFUSAL_LOG_FULL = 4;
+  QUEST_INFO_REFUSAL_OUT_OF_RANGE = 5;
+  QUEST_INFO_REFUSAL_WRONG_NPC = 6;
+  QUEST_INFO_REFUSAL_NOT_COMPLETE = 7;
+  QUEST_INFO_REFUSAL_ALREADY_COMPLETE = 8;
+  QUEST_INFO_REFUSAL_BAG_FULL = 9;
+  QUEST_INFO_REFUSAL_CANNOT_CANCEL = 10;
+  QUEST_INFO_REFUSAL_INTERNAL = 11;
+  QUEST_INFO_REFUSAL_STALE_REVISION = 12;
+  QUEST_INFO_REFUSAL_INVALID_REWARD_CHOICE = 13;
+}
+
+enum QuestLogCommandRefusal {
+  QUEST_LOG_COMMAND_REFUSAL_UNSPECIFIED = 0;
+  QUEST_LOG_COMMAND_REFUSAL_NONE = 1;
+  QUEST_LOG_COMMAND_REFUSAL_STALE_REVISION = 2;
+  QUEST_LOG_COMMAND_REFUSAL_UNKNOWN_QUEST = 3;
+  QUEST_LOG_COMMAND_REFUSAL_CANNOT_CANCEL = 4;
+  QUEST_LOG_COMMAND_REFUSAL_INTERNAL = 5;
+}
+
+message QuestLogReplacement {
+  uint64 revision = 1;
+  repeated QuestLogEntry visible_quests = 2 [(max_count) = 20];
+  repeated string bookmark_quest_ids = 3 [(max_count) = 3];
+  repeated QuestShareInvite share_invites = 4;
+  repeated QuestShareResult share_results = 5;
+  string selected_quest_id = 6;
+  uint32 daily_count = 7;
+  uint32 daily_limit = 8;
+  uint64 request_id = 9;
+  string command_quest_id = 10;
+  QuestLogCommandRefusal command_refusal = 11;
+}
+
+enum QuestInfoMode {
+  QUEST_INFO_MODE_NONE = 0;
+  QUEST_INFO_MODE_OFFER = 1;
+  QUEST_INFO_MODE_TURN_IN = 2;
+}
+
+message QuestInfoReplacement {
+  uint64 revision = 1;
+  uint64 request_id = 2;
+  string requested_quest_id = 3;
+  QuestInfoMode mode = 4;
+  uint64 npc_entity_id = 5;
+  QuestInfoRefusal refusal = 6;
+  QuestInfo info = 7;
+  QuestProgress progress = 8;
+  QuestReward reward = 9;
+}
+
+// TargetSelect changes the server-owned selected target. Zero clears it.
+message TargetSelect {
+  uint64 target_entity_id = 1;
+  uint64 request_id = 2;
+}
+
+enum TargetSelectRefusal {
+  TARGET_SELECT_REFUSAL_UNSPECIFIED = 0;
+  TARGET_SELECT_REFUSAL_NONE = 1;
+  TARGET_SELECT_REFUSAL_NO_TARGET = 2;
+  TARGET_SELECT_REFUSAL_INVALID_TARGET = 3;
+  TARGET_SELECT_REFUSAL_TARGET_DEAD = 4;
+}
+
+// TargetStateReplacement carries only selection authority. The existing
+// replication stream supplies visible identity, health, alive state, faction,
+// and the compiled-product ids used by the target plate and world decal.
+message TargetStateReplacement {
+  uint64 revision = 1;
+  uint64 request_id = 2;
+  bool has_authority = 3;
+  uint64 selected_entity_id = 4;
+  TargetSelectRefusal refusal = 5;
+}
+
+message ActivateAction {
+  uint64 request_id = 1;
+  uint32 slot_index = 2 [(max_uint) = 35];
+  // The server uses selected-target authority; clients cannot nominate an
+  // alternate target in an action request.
+  uint64 client_tick = 3;
+  uint64 expected_revision = 4;
+}
+
+enum ActionUnavailableReason {
+  ACTION_UNAVAILABLE_REASON_UNSPECIFIED = 0;
+  ACTION_UNAVAILABLE_REASON_NONE = 1;
+  ACTION_UNAVAILABLE_REASON_EMPTY_SLOT = 2;
+  ACTION_UNAVAILABLE_REASON_ON_COOLDOWN = 3;
+  ACTION_UNAVAILABLE_REASON_NO_TARGET = 4;
+  ACTION_UNAVAILABLE_REASON_INVALID_TARGET = 5;
+  ACTION_UNAVAILABLE_REASON_OUT_OF_RANGE = 6;
+  ACTION_UNAVAILABLE_REASON_ACTOR_DEAD = 7;
+  ACTION_UNAVAILABLE_REASON_DISABLED = 8;
+  ACTION_UNAVAILABLE_REASON_INTERNAL = 9;
+}
+
+enum ActionActivationRefusal {
+  ACTION_ACTIVATION_REFUSAL_UNSPECIFIED = 0;
+  ACTION_ACTIVATION_REFUSAL_NONE = 1;
+  ACTION_ACTIVATION_REFUSAL_STALE_REVISION = 2;
+  ACTION_ACTIVATION_REFUSAL_INVALID_SLOT = 3;
+  ACTION_ACTIVATION_REFUSAL_EMPTY_SLOT = 4;
+  ACTION_ACTIVATION_REFUSAL_INTERNAL = 5;
+}
+
+message ActionBarSlotState {
+  uint32 slot_index = 1 [(max_uint) = 35];
+  // Empty means the authored slot is unbound. Nonempty ids resolve against the
+  // compiled private ability catalog.
+  string ability_id = 2;
+  // Measured at envelope receipt from server tick intervals, never wall time.
+  // The client decrements remaining with a local monotonic clock until the next
+  // authoritative replacement.
+  int64 cooldown_remaining_milliseconds = 3 [(min_sint) = 0];
+  int64 cooldown_duration_milliseconds = 4 [(min_sint) = 0];
+  bool available = 5;
+  ActionUnavailableReason unavailable_reason = 6;
+}
+
+message ActionBarReplacement {
+  uint64 revision = 1;
+  uint64 request_id = 2;
+  ActionActivationRefusal activation_refusal = 3;
+  // Exactly 36 ordered entries, one for every authored action-bar slot. Empty
+  // slots remain present with no binding.
+  repeated ActionBarSlotState slots = 4 [(exact_count) = 36];
+}

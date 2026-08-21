@@ -3,6 +3,7 @@ syntax = "proto3";
 package sarnaut.v1;
 
 import "sarnaut/v1/chat.proto";
+import "sarnaut/v1/hud.proto";
 import "sarnaut/v1/movement.proto";
 import "sarnaut/v1/replication.proto";
 
@@ -30,6 +31,15 @@ message ClientMessage {
     QuestAbandon quest_abandon = 16;
     Logout logout = 17;
     ChatSendRequest chat_send_request = 18;
+    InventoryMove inventory_move = 30;
+    LootTakeItem loot_take_item = 31;
+    LootTakeMoney loot_take_money = 32;
+    LootTakeAll loot_take_all = 33;
+    LootClose loot_close = 34;
+    QuestShare quest_share = 35;
+    QuestShareResponse quest_share_response = 36;
+    TargetSelect target_select = 37;
+    ActivateAction activate_action = 38;
   }
 }
 
@@ -48,6 +58,15 @@ message ServerMessage {
     DespawnEvent despawn_event = 19;
     ChatDelivery chat_delivery = 20;
     ChatRejection chat_rejection = 21;
+    InventoryStateReplacement inventory_state_replacement = 30;
+    InventoryMoveResult inventory_move_result = 31;
+    CharacterStateReplacement character_state_replacement = 32;
+    LootStateReplacement loot_state_replacement = 33;
+    QuestLogReplacement quest_log_replacement = 34;
+    QuestInfoReplacement quest_info_replacement = 35;
+    TargetStateReplacement target_state_replacement = 36;
+    ActionBarReplacement action_bar_replacement = 37;
+    InventorySlotCooldownUpdate inventory_slot_cooldown_update = 38;
   }
 }
 
@@ -114,11 +133,17 @@ message LootTake {
 message QuestAccept {
   string quest_id = 1;
   uint64 starter_entity_id = 2;
+  uint64 request_id = 3;
+  uint64 expected_revision = 4;
 }
 
 message QuestTurnIn {
   string quest_id = 1;
   uint64 finisher_entity_id = 2;
+  // Zero-based alternative reward selection used by retail ReturnQuest.
+  uint32 reward_index = 3;
+  uint64 request_id = 4;
+  uint64 expected_revision = 5;
 }
 
 // QuestAbandon drives mechanics/quests.md transitions T14 and T15, which were
@@ -126,6 +151,8 @@ message QuestTurnIn {
 // ADR 0026).
 message QuestAbandon {
   string quest_id = 1;
+  uint64 request_id = 2;
+  uint64 expected_revision = 3;
 }
 
 // Logout is a clean exit. It exists so the session's save checkpoint runs

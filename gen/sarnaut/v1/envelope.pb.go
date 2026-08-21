@@ -428,6 +428,15 @@ type ClientMessage struct {
 	//	*ClientMessage_QuestAbandon
 	//	*ClientMessage_Logout
 	//	*ClientMessage_ChatSendRequest
+	//	*ClientMessage_InventoryMove
+	//	*ClientMessage_LootTakeItem
+	//	*ClientMessage_LootTakeMoney
+	//	*ClientMessage_LootTakeAll
+	//	*ClientMessage_LootClose
+	//	*ClientMessage_QuestShare
+	//	*ClientMessage_QuestShareResponse
+	//	*ClientMessage_TargetSelect
+	//	*ClientMessage_ActivateAction
 	Payload       isClientMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -558,6 +567,87 @@ func (x *ClientMessage) GetChatSendRequest() *ChatSendRequest {
 	return nil
 }
 
+func (x *ClientMessage) GetInventoryMove() *InventoryMove {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_InventoryMove); ok {
+			return x.InventoryMove
+		}
+	}
+	return nil
+}
+
+func (x *ClientMessage) GetLootTakeItem() *LootTakeItem {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_LootTakeItem); ok {
+			return x.LootTakeItem
+		}
+	}
+	return nil
+}
+
+func (x *ClientMessage) GetLootTakeMoney() *LootTakeMoney {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_LootTakeMoney); ok {
+			return x.LootTakeMoney
+		}
+	}
+	return nil
+}
+
+func (x *ClientMessage) GetLootTakeAll() *LootTakeAll {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_LootTakeAll); ok {
+			return x.LootTakeAll
+		}
+	}
+	return nil
+}
+
+func (x *ClientMessage) GetLootClose() *LootClose {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_LootClose); ok {
+			return x.LootClose
+		}
+	}
+	return nil
+}
+
+func (x *ClientMessage) GetQuestShare() *QuestShare {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_QuestShare); ok {
+			return x.QuestShare
+		}
+	}
+	return nil
+}
+
+func (x *ClientMessage) GetQuestShareResponse() *QuestShareResponse {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_QuestShareResponse); ok {
+			return x.QuestShareResponse
+		}
+	}
+	return nil
+}
+
+func (x *ClientMessage) GetTargetSelect() *TargetSelect {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_TargetSelect); ok {
+			return x.TargetSelect
+		}
+	}
+	return nil
+}
+
+func (x *ClientMessage) GetActivateAction() *ActivateAction {
+	if x != nil {
+		if x, ok := x.Payload.(*ClientMessage_ActivateAction); ok {
+			return x.ActivateAction
+		}
+	}
+	return nil
+}
+
 type isClientMessage_Payload interface {
 	isClientMessage_Payload()
 }
@@ -598,6 +688,42 @@ type ClientMessage_ChatSendRequest struct {
 	ChatSendRequest *ChatSendRequest `protobuf:"bytes,18,opt,name=chat_send_request,json=chatSendRequest,proto3,oneof"`
 }
 
+type ClientMessage_InventoryMove struct {
+	InventoryMove *InventoryMove `protobuf:"bytes,30,opt,name=inventory_move,json=inventoryMove,proto3,oneof"`
+}
+
+type ClientMessage_LootTakeItem struct {
+	LootTakeItem *LootTakeItem `protobuf:"bytes,31,opt,name=loot_take_item,json=lootTakeItem,proto3,oneof"`
+}
+
+type ClientMessage_LootTakeMoney struct {
+	LootTakeMoney *LootTakeMoney `protobuf:"bytes,32,opt,name=loot_take_money,json=lootTakeMoney,proto3,oneof"`
+}
+
+type ClientMessage_LootTakeAll struct {
+	LootTakeAll *LootTakeAll `protobuf:"bytes,33,opt,name=loot_take_all,json=lootTakeAll,proto3,oneof"`
+}
+
+type ClientMessage_LootClose struct {
+	LootClose *LootClose `protobuf:"bytes,34,opt,name=loot_close,json=lootClose,proto3,oneof"`
+}
+
+type ClientMessage_QuestShare struct {
+	QuestShare *QuestShare `protobuf:"bytes,35,opt,name=quest_share,json=questShare,proto3,oneof"`
+}
+
+type ClientMessage_QuestShareResponse struct {
+	QuestShareResponse *QuestShareResponse `protobuf:"bytes,36,opt,name=quest_share_response,json=questShareResponse,proto3,oneof"`
+}
+
+type ClientMessage_TargetSelect struct {
+	TargetSelect *TargetSelect `protobuf:"bytes,37,opt,name=target_select,json=targetSelect,proto3,oneof"`
+}
+
+type ClientMessage_ActivateAction struct {
+	ActivateAction *ActivateAction `protobuf:"bytes,38,opt,name=activate_action,json=activateAction,proto3,oneof"`
+}
+
 func (*ClientMessage_MoveIntent) isClientMessage_Payload() {}
 
 func (*ClientMessage_AbilityUse) isClientMessage_Payload() {}
@@ -616,6 +742,24 @@ func (*ClientMessage_Logout) isClientMessage_Payload() {}
 
 func (*ClientMessage_ChatSendRequest) isClientMessage_Payload() {}
 
+func (*ClientMessage_InventoryMove) isClientMessage_Payload() {}
+
+func (*ClientMessage_LootTakeItem) isClientMessage_Payload() {}
+
+func (*ClientMessage_LootTakeMoney) isClientMessage_Payload() {}
+
+func (*ClientMessage_LootTakeAll) isClientMessage_Payload() {}
+
+func (*ClientMessage_LootClose) isClientMessage_Payload() {}
+
+func (*ClientMessage_QuestShare) isClientMessage_Payload() {}
+
+func (*ClientMessage_QuestShareResponse) isClientMessage_Payload() {}
+
+func (*ClientMessage_TargetSelect) isClientMessage_Payload() {}
+
+func (*ClientMessage_ActivateAction) isClientMessage_Payload() {}
+
 type ServerMessage struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	ServerTick uint64                 `protobuf:"varint,1,opt,name=server_tick,json=serverTick,proto3" json:"server_tick,omitempty"`
@@ -633,6 +777,15 @@ type ServerMessage struct {
 	//	*ServerMessage_DespawnEvent
 	//	*ServerMessage_ChatDelivery
 	//	*ServerMessage_ChatRejection
+	//	*ServerMessage_InventoryStateReplacement
+	//	*ServerMessage_InventoryMoveResult
+	//	*ServerMessage_CharacterStateReplacement
+	//	*ServerMessage_LootStateReplacement
+	//	*ServerMessage_QuestLogReplacement
+	//	*ServerMessage_QuestInfoReplacement
+	//	*ServerMessage_TargetStateReplacement
+	//	*ServerMessage_ActionBarReplacement
+	//	*ServerMessage_InventorySlotCooldownUpdate
 	Payload       isServerMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -790,6 +943,87 @@ func (x *ServerMessage) GetChatRejection() *ChatRejection {
 	return nil
 }
 
+func (x *ServerMessage) GetInventoryStateReplacement() *InventoryStateReplacement {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_InventoryStateReplacement); ok {
+			return x.InventoryStateReplacement
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetInventoryMoveResult() *InventoryMoveResult {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_InventoryMoveResult); ok {
+			return x.InventoryMoveResult
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetCharacterStateReplacement() *CharacterStateReplacement {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_CharacterStateReplacement); ok {
+			return x.CharacterStateReplacement
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetLootStateReplacement() *LootStateReplacement {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_LootStateReplacement); ok {
+			return x.LootStateReplacement
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetQuestLogReplacement() *QuestLogReplacement {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_QuestLogReplacement); ok {
+			return x.QuestLogReplacement
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetQuestInfoReplacement() *QuestInfoReplacement {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_QuestInfoReplacement); ok {
+			return x.QuestInfoReplacement
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetTargetStateReplacement() *TargetStateReplacement {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_TargetStateReplacement); ok {
+			return x.TargetStateReplacement
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetActionBarReplacement() *ActionBarReplacement {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_ActionBarReplacement); ok {
+			return x.ActionBarReplacement
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetInventorySlotCooldownUpdate() *InventorySlotCooldownUpdate {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_InventorySlotCooldownUpdate); ok {
+			return x.InventorySlotCooldownUpdate
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Payload interface {
 	isServerMessage_Payload()
 }
@@ -842,6 +1076,42 @@ type ServerMessage_ChatRejection struct {
 	ChatRejection *ChatRejection `protobuf:"bytes,21,opt,name=chat_rejection,json=chatRejection,proto3,oneof"`
 }
 
+type ServerMessage_InventoryStateReplacement struct {
+	InventoryStateReplacement *InventoryStateReplacement `protobuf:"bytes,30,opt,name=inventory_state_replacement,json=inventoryStateReplacement,proto3,oneof"`
+}
+
+type ServerMessage_InventoryMoveResult struct {
+	InventoryMoveResult *InventoryMoveResult `protobuf:"bytes,31,opt,name=inventory_move_result,json=inventoryMoveResult,proto3,oneof"`
+}
+
+type ServerMessage_CharacterStateReplacement struct {
+	CharacterStateReplacement *CharacterStateReplacement `protobuf:"bytes,32,opt,name=character_state_replacement,json=characterStateReplacement,proto3,oneof"`
+}
+
+type ServerMessage_LootStateReplacement struct {
+	LootStateReplacement *LootStateReplacement `protobuf:"bytes,33,opt,name=loot_state_replacement,json=lootStateReplacement,proto3,oneof"`
+}
+
+type ServerMessage_QuestLogReplacement struct {
+	QuestLogReplacement *QuestLogReplacement `protobuf:"bytes,34,opt,name=quest_log_replacement,json=questLogReplacement,proto3,oneof"`
+}
+
+type ServerMessage_QuestInfoReplacement struct {
+	QuestInfoReplacement *QuestInfoReplacement `protobuf:"bytes,35,opt,name=quest_info_replacement,json=questInfoReplacement,proto3,oneof"`
+}
+
+type ServerMessage_TargetStateReplacement struct {
+	TargetStateReplacement *TargetStateReplacement `protobuf:"bytes,36,opt,name=target_state_replacement,json=targetStateReplacement,proto3,oneof"`
+}
+
+type ServerMessage_ActionBarReplacement struct {
+	ActionBarReplacement *ActionBarReplacement `protobuf:"bytes,37,opt,name=action_bar_replacement,json=actionBarReplacement,proto3,oneof"`
+}
+
+type ServerMessage_InventorySlotCooldownUpdate struct {
+	InventorySlotCooldownUpdate *InventorySlotCooldownUpdate `protobuf:"bytes,38,opt,name=inventory_slot_cooldown_update,json=inventorySlotCooldownUpdate,proto3,oneof"`
+}
+
 func (*ServerMessage_SnapshotBatch) isServerMessage_Payload() {}
 
 func (*ServerMessage_CombatEvent) isServerMessage_Payload() {}
@@ -865,6 +1135,24 @@ func (*ServerMessage_DespawnEvent) isServerMessage_Payload() {}
 func (*ServerMessage_ChatDelivery) isServerMessage_Payload() {}
 
 func (*ServerMessage_ChatRejection) isServerMessage_Payload() {}
+
+func (*ServerMessage_InventoryStateReplacement) isServerMessage_Payload() {}
+
+func (*ServerMessage_InventoryMoveResult) isServerMessage_Payload() {}
+
+func (*ServerMessage_CharacterStateReplacement) isServerMessage_Payload() {}
+
+func (*ServerMessage_LootStateReplacement) isServerMessage_Payload() {}
+
+func (*ServerMessage_QuestLogReplacement) isServerMessage_Payload() {}
+
+func (*ServerMessage_QuestInfoReplacement) isServerMessage_Payload() {}
+
+func (*ServerMessage_TargetStateReplacement) isServerMessage_Payload() {}
+
+func (*ServerMessage_ActionBarReplacement) isServerMessage_Payload() {}
+
+func (*ServerMessage_InventorySlotCooldownUpdate) isServerMessage_Payload() {}
 
 // Error is a typed refusal, never a bare string. It always travels on the
 // reliable channel.
@@ -1183,11 +1471,13 @@ func (x *LootTake) GetCorpseEntityId() uint64 {
 }
 
 type QuestAccept struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	QuestId         string                 `protobuf:"bytes,1,opt,name=quest_id,json=questId,proto3" json:"quest_id,omitempty"`
-	StarterEntityId uint64                 `protobuf:"varint,2,opt,name=starter_entity_id,json=starterEntityId,proto3" json:"starter_entity_id,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	QuestId          string                 `protobuf:"bytes,1,opt,name=quest_id,json=questId,proto3" json:"quest_id,omitempty"`
+	StarterEntityId  uint64                 `protobuf:"varint,2,opt,name=starter_entity_id,json=starterEntityId,proto3" json:"starter_entity_id,omitempty"`
+	RequestId        uint64                 `protobuf:"varint,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ExpectedRevision uint64                 `protobuf:"varint,4,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *QuestAccept) Reset() {
@@ -1234,10 +1524,28 @@ func (x *QuestAccept) GetStarterEntityId() uint64 {
 	return 0
 }
 
+func (x *QuestAccept) GetRequestId() uint64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *QuestAccept) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
 type QuestTurnIn struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	QuestId          string                 `protobuf:"bytes,1,opt,name=quest_id,json=questId,proto3" json:"quest_id,omitempty"`
 	FinisherEntityId uint64                 `protobuf:"varint,2,opt,name=finisher_entity_id,json=finisherEntityId,proto3" json:"finisher_entity_id,omitempty"`
+	// Zero-based alternative reward selection used by retail ReturnQuest.
+	RewardIndex      uint32 `protobuf:"varint,3,opt,name=reward_index,json=rewardIndex,proto3" json:"reward_index,omitempty"`
+	RequestId        uint64 `protobuf:"varint,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ExpectedRevision uint64 `protobuf:"varint,5,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1286,14 +1594,37 @@ func (x *QuestTurnIn) GetFinisherEntityId() uint64 {
 	return 0
 }
 
+func (x *QuestTurnIn) GetRewardIndex() uint32 {
+	if x != nil {
+		return x.RewardIndex
+	}
+	return 0
+}
+
+func (x *QuestTurnIn) GetRequestId() uint64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *QuestTurnIn) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
 // QuestAbandon drives mechanics/quests.md transitions T14 and T15, which were
 // specified before any client verb could reach them (2026-08-20 amendment to
 // ADR 0026).
 type QuestAbandon struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	QuestId       string                 `protobuf:"bytes,1,opt,name=quest_id,json=questId,proto3" json:"quest_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	QuestId          string                 `protobuf:"bytes,1,opt,name=quest_id,json=questId,proto3" json:"quest_id,omitempty"`
+	RequestId        uint64                 `protobuf:"varint,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ExpectedRevision uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *QuestAbandon) Reset() {
@@ -1331,6 +1662,20 @@ func (x *QuestAbandon) GetQuestId() string {
 		return x.QuestId
 	}
 	return ""
+}
+
+func (x *QuestAbandon) GetRequestId() uint64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *QuestAbandon) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
 }
 
 // Logout is a clean exit. It exists so the session's save checkpoint runs
@@ -2074,7 +2419,7 @@ var File_sarnaut_v1_envelope_proto protoreflect.FileDescriptor
 const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\n" +
 	"\x19sarnaut/v1/envelope.proto\x12\n" +
-	"sarnaut.v1\x1a\x15sarnaut/v1/chat.proto\x1a\x19sarnaut/v1/movement.proto\x1a\x1csarnaut/v1/replication.proto\"\xd5\x04\n" +
+	"sarnaut.v1\x1a\x15sarnaut/v1/chat.proto\x1a\x14sarnaut/v1/hud.proto\x1a\x19sarnaut/v1/movement.proto\x1a\x1csarnaut/v1/replication.proto\"\xae\t\n" +
 	"\rClientMessage\x12\x1d\n" +
 	"\n" +
 	"client_seq\x18\x01 \x01(\x04R\tclientSeq\x12?\n" +
@@ -2089,8 +2434,19 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\rquest_turn_in\x18\x0f \x01(\v2\x17.sarnaut.v1.QuestTurnInH\x00R\vquestTurnIn\x12?\n" +
 	"\rquest_abandon\x18\x10 \x01(\v2\x18.sarnaut.v1.QuestAbandonH\x00R\fquestAbandon\x12,\n" +
 	"\x06logout\x18\x11 \x01(\v2\x12.sarnaut.v1.LogoutH\x00R\x06logout\x12I\n" +
-	"\x11chat_send_request\x18\x12 \x01(\v2\x1b.sarnaut.v1.ChatSendRequestH\x00R\x0fchatSendRequestB\t\n" +
-	"\apayload\"\xaf\x06\n" +
+	"\x11chat_send_request\x18\x12 \x01(\v2\x1b.sarnaut.v1.ChatSendRequestH\x00R\x0fchatSendRequest\x12B\n" +
+	"\x0einventory_move\x18\x1e \x01(\v2\x19.sarnaut.v1.InventoryMoveH\x00R\rinventoryMove\x12@\n" +
+	"\x0eloot_take_item\x18\x1f \x01(\v2\x18.sarnaut.v1.LootTakeItemH\x00R\flootTakeItem\x12C\n" +
+	"\x0floot_take_money\x18  \x01(\v2\x19.sarnaut.v1.LootTakeMoneyH\x00R\rlootTakeMoney\x12=\n" +
+	"\rloot_take_all\x18! \x01(\v2\x17.sarnaut.v1.LootTakeAllH\x00R\vlootTakeAll\x126\n" +
+	"\n" +
+	"loot_close\x18\" \x01(\v2\x15.sarnaut.v1.LootCloseH\x00R\tlootClose\x129\n" +
+	"\vquest_share\x18# \x01(\v2\x16.sarnaut.v1.QuestShareH\x00R\n" +
+	"questShare\x12R\n" +
+	"\x14quest_share_response\x18$ \x01(\v2\x1e.sarnaut.v1.QuestShareResponseH\x00R\x12questShareResponse\x12?\n" +
+	"\rtarget_select\x18% \x01(\v2\x18.sarnaut.v1.TargetSelectH\x00R\ftargetSelect\x12E\n" +
+	"\x0factivate_action\x18& \x01(\v2\x1a.sarnaut.v1.ActivateActionH\x00R\x0eactivateActionB\t\n" +
+	"\apayload\"\x8d\r\n" +
 	"\rServerMessage\x12\x1f\n" +
 	"\vserver_tick\x18\x01 \x01(\x04R\n" +
 	"serverTick\x12B\n" +
@@ -2110,7 +2466,16 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"spawnEvent\x12?\n" +
 	"\rdespawn_event\x18\x13 \x01(\v2\x18.sarnaut.v1.DespawnEventH\x00R\fdespawnEvent\x12?\n" +
 	"\rchat_delivery\x18\x14 \x01(\v2\x18.sarnaut.v1.ChatDeliveryH\x00R\fchatDelivery\x12B\n" +
-	"\x0echat_rejection\x18\x15 \x01(\v2\x19.sarnaut.v1.ChatRejectionH\x00R\rchatRejectionB\t\n" +
+	"\x0echat_rejection\x18\x15 \x01(\v2\x19.sarnaut.v1.ChatRejectionH\x00R\rchatRejection\x12g\n" +
+	"\x1binventory_state_replacement\x18\x1e \x01(\v2%.sarnaut.v1.InventoryStateReplacementH\x00R\x19inventoryStateReplacement\x12U\n" +
+	"\x15inventory_move_result\x18\x1f \x01(\v2\x1f.sarnaut.v1.InventoryMoveResultH\x00R\x13inventoryMoveResult\x12g\n" +
+	"\x1bcharacter_state_replacement\x18  \x01(\v2%.sarnaut.v1.CharacterStateReplacementH\x00R\x19characterStateReplacement\x12X\n" +
+	"\x16loot_state_replacement\x18! \x01(\v2 .sarnaut.v1.LootStateReplacementH\x00R\x14lootStateReplacement\x12U\n" +
+	"\x15quest_log_replacement\x18\" \x01(\v2\x1f.sarnaut.v1.QuestLogReplacementH\x00R\x13questLogReplacement\x12X\n" +
+	"\x16quest_info_replacement\x18# \x01(\v2 .sarnaut.v1.QuestInfoReplacementH\x00R\x14questInfoReplacement\x12^\n" +
+	"\x18target_state_replacement\x18$ \x01(\v2\".sarnaut.v1.TargetStateReplacementH\x00R\x16targetStateReplacement\x12X\n" +
+	"\x16action_bar_replacement\x18% \x01(\v2 .sarnaut.v1.ActionBarReplacementH\x00R\x14actionBarReplacement\x12n\n" +
+	"\x1einventory_slot_cooldown_update\x18& \x01(\v2'.sarnaut.v1.InventorySlotCooldownUpdateH\x00R\x1binventorySlotCooldownUpdateB\t\n" +
 	"\apayload\"J\n" +
 	"\x05Error\x12)\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x15.sarnaut.v1.ErrorCodeR\x04code\x12\x16\n" +
@@ -2131,15 +2496,25 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\bInteract\x12(\n" +
 	"\x10target_entity_id\x18\x01 \x01(\x04R\x0etargetEntityId\"4\n" +
 	"\bLootTake\x12(\n" +
-	"\x10corpse_entity_id\x18\x01 \x01(\x04R\x0ecorpseEntityId\"T\n" +
+	"\x10corpse_entity_id\x18\x01 \x01(\x04R\x0ecorpseEntityId\"\xa0\x01\n" +
 	"\vQuestAccept\x12\x19\n" +
 	"\bquest_id\x18\x01 \x01(\tR\aquestId\x12*\n" +
-	"\x11starter_entity_id\x18\x02 \x01(\x04R\x0fstarterEntityId\"V\n" +
+	"\x11starter_entity_id\x18\x02 \x01(\x04R\x0fstarterEntityId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\x04R\trequestId\x12+\n" +
+	"\x11expected_revision\x18\x04 \x01(\x04R\x10expectedRevision\"\xc5\x01\n" +
 	"\vQuestTurnIn\x12\x19\n" +
 	"\bquest_id\x18\x01 \x01(\tR\aquestId\x12,\n" +
-	"\x12finisher_entity_id\x18\x02 \x01(\x04R\x10finisherEntityId\")\n" +
+	"\x12finisher_entity_id\x18\x02 \x01(\x04R\x10finisherEntityId\x12!\n" +
+	"\freward_index\x18\x03 \x01(\rR\vrewardIndex\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x04 \x01(\x04R\trequestId\x12+\n" +
+	"\x11expected_revision\x18\x05 \x01(\x04R\x10expectedRevision\"u\n" +
 	"\fQuestAbandon\x12\x19\n" +
-	"\bquest_id\x18\x01 \x01(\tR\aquestId\"\b\n" +
+	"\bquest_id\x18\x01 \x01(\tR\aquestId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\x04R\trequestId\x12+\n" +
+	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\"\b\n" +
 	"\x06Logout\"\xae\x02\n" +
 	"\vCombatEvent\x12\x1b\n" +
 	"\tcaster_id\x18\x01 \x01(\x04R\bcasterId\x12\x1b\n" +
@@ -2265,38 +2640,56 @@ func file_sarnaut_v1_envelope_proto_rawDescGZIP() []byte {
 var file_sarnaut_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_sarnaut_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_sarnaut_v1_envelope_proto_goTypes = []any{
-	(ErrorCode)(0),                 // 0: sarnaut.v1.ErrorCode
-	(AbilityRejection)(0),          // 1: sarnaut.v1.AbilityRejection
-	(LootRefusal)(0),               // 2: sarnaut.v1.LootRefusal
-	(QuestState)(0),                // 3: sarnaut.v1.QuestState
-	(QuestRefusal)(0),              // 4: sarnaut.v1.QuestRefusal
-	(*ClientMessage)(nil),          // 5: sarnaut.v1.ClientMessage
-	(*ServerMessage)(nil),          // 6: sarnaut.v1.ServerMessage
-	(*Error)(nil),                  // 7: sarnaut.v1.Error
-	(*SpawnEvent)(nil),             // 8: sarnaut.v1.SpawnEvent
-	(*DespawnEvent)(nil),           // 9: sarnaut.v1.DespawnEvent
-	(*AbilityUse)(nil),             // 10: sarnaut.v1.AbilityUse
-	(*Interact)(nil),               // 11: sarnaut.v1.Interact
-	(*LootTake)(nil),               // 12: sarnaut.v1.LootTake
-	(*QuestAccept)(nil),            // 13: sarnaut.v1.QuestAccept
-	(*QuestTurnIn)(nil),            // 14: sarnaut.v1.QuestTurnIn
-	(*QuestAbandon)(nil),           // 15: sarnaut.v1.QuestAbandon
-	(*Logout)(nil),                 // 16: sarnaut.v1.Logout
-	(*CombatEvent)(nil),            // 17: sarnaut.v1.CombatEvent
-	(*DeathEvent)(nil),             // 18: sarnaut.v1.DeathEvent
-	(*LootItem)(nil),               // 19: sarnaut.v1.LootItem
-	(*LootOffer)(nil),              // 20: sarnaut.v1.LootOffer
-	(*LootResult)(nil),             // 21: sarnaut.v1.LootResult
-	(*InventorySlot)(nil),          // 22: sarnaut.v1.InventorySlot
-	(*InventoryUpdate)(nil),        // 23: sarnaut.v1.InventoryUpdate
-	(*QuestObjectiveProgress)(nil), // 24: sarnaut.v1.QuestObjectiveProgress
-	(*QuestStateUpdate)(nil),       // 25: sarnaut.v1.QuestStateUpdate
-	(*ClientMoveIntent)(nil),       // 26: sarnaut.v1.ClientMoveIntent
-	(*ChatSendRequest)(nil),        // 27: sarnaut.v1.ChatSendRequest
-	(*SnapshotBatch)(nil),          // 28: sarnaut.v1.SnapshotBatch
-	(*ChatDelivery)(nil),           // 29: sarnaut.v1.ChatDelivery
-	(*ChatRejection)(nil),          // 30: sarnaut.v1.ChatRejection
-	(*EntitySnapshot)(nil),         // 31: sarnaut.v1.EntitySnapshot
+	(ErrorCode)(0),                      // 0: sarnaut.v1.ErrorCode
+	(AbilityRejection)(0),               // 1: sarnaut.v1.AbilityRejection
+	(LootRefusal)(0),                    // 2: sarnaut.v1.LootRefusal
+	(QuestState)(0),                     // 3: sarnaut.v1.QuestState
+	(QuestRefusal)(0),                   // 4: sarnaut.v1.QuestRefusal
+	(*ClientMessage)(nil),               // 5: sarnaut.v1.ClientMessage
+	(*ServerMessage)(nil),               // 6: sarnaut.v1.ServerMessage
+	(*Error)(nil),                       // 7: sarnaut.v1.Error
+	(*SpawnEvent)(nil),                  // 8: sarnaut.v1.SpawnEvent
+	(*DespawnEvent)(nil),                // 9: sarnaut.v1.DespawnEvent
+	(*AbilityUse)(nil),                  // 10: sarnaut.v1.AbilityUse
+	(*Interact)(nil),                    // 11: sarnaut.v1.Interact
+	(*LootTake)(nil),                    // 12: sarnaut.v1.LootTake
+	(*QuestAccept)(nil),                 // 13: sarnaut.v1.QuestAccept
+	(*QuestTurnIn)(nil),                 // 14: sarnaut.v1.QuestTurnIn
+	(*QuestAbandon)(nil),                // 15: sarnaut.v1.QuestAbandon
+	(*Logout)(nil),                      // 16: sarnaut.v1.Logout
+	(*CombatEvent)(nil),                 // 17: sarnaut.v1.CombatEvent
+	(*DeathEvent)(nil),                  // 18: sarnaut.v1.DeathEvent
+	(*LootItem)(nil),                    // 19: sarnaut.v1.LootItem
+	(*LootOffer)(nil),                   // 20: sarnaut.v1.LootOffer
+	(*LootResult)(nil),                  // 21: sarnaut.v1.LootResult
+	(*InventorySlot)(nil),               // 22: sarnaut.v1.InventorySlot
+	(*InventoryUpdate)(nil),             // 23: sarnaut.v1.InventoryUpdate
+	(*QuestObjectiveProgress)(nil),      // 24: sarnaut.v1.QuestObjectiveProgress
+	(*QuestStateUpdate)(nil),            // 25: sarnaut.v1.QuestStateUpdate
+	(*ClientMoveIntent)(nil),            // 26: sarnaut.v1.ClientMoveIntent
+	(*ChatSendRequest)(nil),             // 27: sarnaut.v1.ChatSendRequest
+	(*InventoryMove)(nil),               // 28: sarnaut.v1.InventoryMove
+	(*LootTakeItem)(nil),                // 29: sarnaut.v1.LootTakeItem
+	(*LootTakeMoney)(nil),               // 30: sarnaut.v1.LootTakeMoney
+	(*LootTakeAll)(nil),                 // 31: sarnaut.v1.LootTakeAll
+	(*LootClose)(nil),                   // 32: sarnaut.v1.LootClose
+	(*QuestShare)(nil),                  // 33: sarnaut.v1.QuestShare
+	(*QuestShareResponse)(nil),          // 34: sarnaut.v1.QuestShareResponse
+	(*TargetSelect)(nil),                // 35: sarnaut.v1.TargetSelect
+	(*ActivateAction)(nil),              // 36: sarnaut.v1.ActivateAction
+	(*SnapshotBatch)(nil),               // 37: sarnaut.v1.SnapshotBatch
+	(*ChatDelivery)(nil),                // 38: sarnaut.v1.ChatDelivery
+	(*ChatRejection)(nil),               // 39: sarnaut.v1.ChatRejection
+	(*InventoryStateReplacement)(nil),   // 40: sarnaut.v1.InventoryStateReplacement
+	(*InventoryMoveResult)(nil),         // 41: sarnaut.v1.InventoryMoveResult
+	(*CharacterStateReplacement)(nil),   // 42: sarnaut.v1.CharacterStateReplacement
+	(*LootStateReplacement)(nil),        // 43: sarnaut.v1.LootStateReplacement
+	(*QuestLogReplacement)(nil),         // 44: sarnaut.v1.QuestLogReplacement
+	(*QuestInfoReplacement)(nil),        // 45: sarnaut.v1.QuestInfoReplacement
+	(*TargetStateReplacement)(nil),      // 46: sarnaut.v1.TargetStateReplacement
+	(*ActionBarReplacement)(nil),        // 47: sarnaut.v1.ActionBarReplacement
+	(*InventorySlotCooldownUpdate)(nil), // 48: sarnaut.v1.InventorySlotCooldownUpdate
+	(*EntitySnapshot)(nil),              // 49: sarnaut.v1.EntitySnapshot
 }
 var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
 	26, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
@@ -2308,34 +2701,52 @@ var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
 	15, // 6: sarnaut.v1.ClientMessage.quest_abandon:type_name -> sarnaut.v1.QuestAbandon
 	16, // 7: sarnaut.v1.ClientMessage.logout:type_name -> sarnaut.v1.Logout
 	27, // 8: sarnaut.v1.ClientMessage.chat_send_request:type_name -> sarnaut.v1.ChatSendRequest
-	28, // 9: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
-	17, // 10: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
-	18, // 11: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
-	20, // 12: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
-	21, // 13: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
-	23, // 14: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
-	25, // 15: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
-	7,  // 16: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
-	8,  // 17: sarnaut.v1.ServerMessage.spawn_event:type_name -> sarnaut.v1.SpawnEvent
-	9,  // 18: sarnaut.v1.ServerMessage.despawn_event:type_name -> sarnaut.v1.DespawnEvent
-	29, // 19: sarnaut.v1.ServerMessage.chat_delivery:type_name -> sarnaut.v1.ChatDelivery
-	30, // 20: sarnaut.v1.ServerMessage.chat_rejection:type_name -> sarnaut.v1.ChatRejection
-	0,  // 21: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
-	31, // 22: sarnaut.v1.SpawnEvent.entity:type_name -> sarnaut.v1.EntitySnapshot
-	1,  // 23: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
-	19, // 24: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
-	2,  // 25: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
-	19, // 26: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
-	22, // 27: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
-	3,  // 28: sarnaut.v1.QuestStateUpdate.state:type_name -> sarnaut.v1.QuestState
-	24, // 29: sarnaut.v1.QuestStateUpdate.objectives:type_name -> sarnaut.v1.QuestObjectiveProgress
-	4,  // 30: sarnaut.v1.QuestStateUpdate.refusal:type_name -> sarnaut.v1.QuestRefusal
-	19, // 31: sarnaut.v1.QuestStateUpdate.items:type_name -> sarnaut.v1.LootItem
-	32, // [32:32] is the sub-list for method output_type
-	32, // [32:32] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	28, // 9: sarnaut.v1.ClientMessage.inventory_move:type_name -> sarnaut.v1.InventoryMove
+	29, // 10: sarnaut.v1.ClientMessage.loot_take_item:type_name -> sarnaut.v1.LootTakeItem
+	30, // 11: sarnaut.v1.ClientMessage.loot_take_money:type_name -> sarnaut.v1.LootTakeMoney
+	31, // 12: sarnaut.v1.ClientMessage.loot_take_all:type_name -> sarnaut.v1.LootTakeAll
+	32, // 13: sarnaut.v1.ClientMessage.loot_close:type_name -> sarnaut.v1.LootClose
+	33, // 14: sarnaut.v1.ClientMessage.quest_share:type_name -> sarnaut.v1.QuestShare
+	34, // 15: sarnaut.v1.ClientMessage.quest_share_response:type_name -> sarnaut.v1.QuestShareResponse
+	35, // 16: sarnaut.v1.ClientMessage.target_select:type_name -> sarnaut.v1.TargetSelect
+	36, // 17: sarnaut.v1.ClientMessage.activate_action:type_name -> sarnaut.v1.ActivateAction
+	37, // 18: sarnaut.v1.ServerMessage.snapshot_batch:type_name -> sarnaut.v1.SnapshotBatch
+	17, // 19: sarnaut.v1.ServerMessage.combat_event:type_name -> sarnaut.v1.CombatEvent
+	18, // 20: sarnaut.v1.ServerMessage.death_event:type_name -> sarnaut.v1.DeathEvent
+	20, // 21: sarnaut.v1.ServerMessage.loot_offer:type_name -> sarnaut.v1.LootOffer
+	21, // 22: sarnaut.v1.ServerMessage.loot_result:type_name -> sarnaut.v1.LootResult
+	23, // 23: sarnaut.v1.ServerMessage.inventory_update:type_name -> sarnaut.v1.InventoryUpdate
+	25, // 24: sarnaut.v1.ServerMessage.quest_state_update:type_name -> sarnaut.v1.QuestStateUpdate
+	7,  // 25: sarnaut.v1.ServerMessage.error:type_name -> sarnaut.v1.Error
+	8,  // 26: sarnaut.v1.ServerMessage.spawn_event:type_name -> sarnaut.v1.SpawnEvent
+	9,  // 27: sarnaut.v1.ServerMessage.despawn_event:type_name -> sarnaut.v1.DespawnEvent
+	38, // 28: sarnaut.v1.ServerMessage.chat_delivery:type_name -> sarnaut.v1.ChatDelivery
+	39, // 29: sarnaut.v1.ServerMessage.chat_rejection:type_name -> sarnaut.v1.ChatRejection
+	40, // 30: sarnaut.v1.ServerMessage.inventory_state_replacement:type_name -> sarnaut.v1.InventoryStateReplacement
+	41, // 31: sarnaut.v1.ServerMessage.inventory_move_result:type_name -> sarnaut.v1.InventoryMoveResult
+	42, // 32: sarnaut.v1.ServerMessage.character_state_replacement:type_name -> sarnaut.v1.CharacterStateReplacement
+	43, // 33: sarnaut.v1.ServerMessage.loot_state_replacement:type_name -> sarnaut.v1.LootStateReplacement
+	44, // 34: sarnaut.v1.ServerMessage.quest_log_replacement:type_name -> sarnaut.v1.QuestLogReplacement
+	45, // 35: sarnaut.v1.ServerMessage.quest_info_replacement:type_name -> sarnaut.v1.QuestInfoReplacement
+	46, // 36: sarnaut.v1.ServerMessage.target_state_replacement:type_name -> sarnaut.v1.TargetStateReplacement
+	47, // 37: sarnaut.v1.ServerMessage.action_bar_replacement:type_name -> sarnaut.v1.ActionBarReplacement
+	48, // 38: sarnaut.v1.ServerMessage.inventory_slot_cooldown_update:type_name -> sarnaut.v1.InventorySlotCooldownUpdate
+	0,  // 39: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
+	49, // 40: sarnaut.v1.SpawnEvent.entity:type_name -> sarnaut.v1.EntitySnapshot
+	1,  // 41: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
+	19, // 42: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
+	2,  // 43: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
+	19, // 44: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
+	22, // 45: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
+	3,  // 46: sarnaut.v1.QuestStateUpdate.state:type_name -> sarnaut.v1.QuestState
+	24, // 47: sarnaut.v1.QuestStateUpdate.objectives:type_name -> sarnaut.v1.QuestObjectiveProgress
+	4,  // 48: sarnaut.v1.QuestStateUpdate.refusal:type_name -> sarnaut.v1.QuestRefusal
+	19, // 49: sarnaut.v1.QuestStateUpdate.items:type_name -> sarnaut.v1.LootItem
+	50, // [50:50] is the sub-list for method output_type
+	50, // [50:50] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_v1_envelope_proto_init() }
@@ -2344,6 +2755,7 @@ func file_sarnaut_v1_envelope_proto_init() {
 		return
 	}
 	file_sarnaut_v1_chat_proto_init()
+	file_sarnaut_v1_hud_proto_init()
 	file_sarnaut_v1_movement_proto_init()
 	file_sarnaut_v1_replication_proto_init()
 	file_sarnaut_v1_envelope_proto_msgTypes[0].OneofWrappers = []any{
@@ -2356,6 +2768,15 @@ func file_sarnaut_v1_envelope_proto_init() {
 		(*ClientMessage_QuestAbandon)(nil),
 		(*ClientMessage_Logout)(nil),
 		(*ClientMessage_ChatSendRequest)(nil),
+		(*ClientMessage_InventoryMove)(nil),
+		(*ClientMessage_LootTakeItem)(nil),
+		(*ClientMessage_LootTakeMoney)(nil),
+		(*ClientMessage_LootTakeAll)(nil),
+		(*ClientMessage_LootClose)(nil),
+		(*ClientMessage_QuestShare)(nil),
+		(*ClientMessage_QuestShareResponse)(nil),
+		(*ClientMessage_TargetSelect)(nil),
+		(*ClientMessage_ActivateAction)(nil),
 	}
 	file_sarnaut_v1_envelope_proto_msgTypes[1].OneofWrappers = []any{
 		(*ServerMessage_SnapshotBatch)(nil),
@@ -2370,6 +2791,15 @@ func file_sarnaut_v1_envelope_proto_init() {
 		(*ServerMessage_DespawnEvent)(nil),
 		(*ServerMessage_ChatDelivery)(nil),
 		(*ServerMessage_ChatRejection)(nil),
+		(*ServerMessage_InventoryStateReplacement)(nil),
+		(*ServerMessage_InventoryMoveResult)(nil),
+		(*ServerMessage_CharacterStateReplacement)(nil),
+		(*ServerMessage_LootStateReplacement)(nil),
+		(*ServerMessage_QuestLogReplacement)(nil),
+		(*ServerMessage_QuestInfoReplacement)(nil),
+		(*ServerMessage_TargetStateReplacement)(nil),
+		(*ServerMessage_ActionBarReplacement)(nil),
+		(*ServerMessage_InventorySlotCooldownUpdate)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
