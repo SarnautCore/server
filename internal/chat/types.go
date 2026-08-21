@@ -133,9 +133,11 @@ type AlternativeCurrency struct {
 	SysName    string
 }
 
-var (
-	WorldChatCurrency   = AlternativeCurrency{ResourceID: 455213071, SysName: "world_chat"}
-	ZoneSpecialCurrency = AlternativeCurrency{ResourceID: 455213063, SysName: "zone_chat_special"}
+const (
+	WorldChatCurrencyResourceID   uint32 = 455213071
+	WorldChatCurrencySysName             = "world_chat"
+	ZoneSpecialCurrencyResourceID uint32 = 455213063
+	ZoneSpecialCurrencySysName           = "zone_chat_special"
 )
 
 // CurrencySpender atomically debits an authored alternative currency. Chat
@@ -225,9 +227,13 @@ type Body struct {
 
 // Delivery is one recipient's server-authored view of an accepted message.
 type Delivery struct {
-	MessageID         uint64
-	Channel           Channel
-	SentAt            time.Time
+	MessageID uint64
+	Channel   Channel
+	SentAt    time.Time
+	// SpamWeight is the authoritative source weight consumed by client bubble
+	// anti-spam. Zero means the authority assigned zero; clients never infer it
+	// from text or channel.
+	SpamWeight        uint32
 	SenderCharacterID uuid.UUID
 	SenderEntityID    uint64
 	SenderName        string

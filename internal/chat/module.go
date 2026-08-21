@@ -254,9 +254,15 @@ func (session *Session) Send(ctx context.Context, request Request) Result {
 		if request.Target.Kind != TargetNone || session.module.currency == nil {
 			return Result{Rejection: RejectionUnsupportedChannel}
 		}
-		currency := WorldChatCurrency
+		currency := AlternativeCurrency{
+			ResourceID: WorldChatCurrencyResourceID,
+			SysName:    WorldChatCurrencySysName,
+		}
 		if request.Channel == ChannelZoneSpecial {
-			currency = ZoneSpecialCurrency
+			currency = AlternativeCurrency{
+				ResourceID: ZoneSpecialCurrencyResourceID,
+				SysName:    ZoneSpecialCurrencySysName,
+			}
 		}
 		spent, err := session.module.currency.Spend(ctx, sender.CharacterID, currency, 1)
 		if err != nil {
@@ -286,6 +292,7 @@ func (session *Session) Send(ctx context.Context, request Request) Result {
 	}
 	targets := make([]*entry, 0, len(module.live))
 	readability := make(map[uuid.UUID]string, len(sayRecipients))
+	seen := make(map[uuid.UUID]struct{}, len(module.live))
 	switch request.Channel {
 	case ChannelWhisper:
 		targetEntry := module.live[whisperTarget.CharacterID]
@@ -307,8 +314,12 @@ func (session *Session) Send(ctx context.Context, request Request) Result {
 			if recipient.CharacterID == sender.CharacterID {
 				continue
 			}
+			if _, duplicate := seen[recipient.CharacterID]; duplicate {
+				continue
+			}
 			if target := module.live[recipient.CharacterID]; target != nil {
 				targets = append(targets, target)
+				seen[recipient.CharacterID] = struct{}{}
 				readability[recipient.CharacterID] = recipient.UnreadableFactionLocalizationID
 			}
 		}
@@ -317,8 +328,12 @@ func (session *Session) Send(ctx context.Context, request Request) Result {
 			if recipientID == sender.CharacterID {
 				continue
 			}
+			if _, duplicate := seen[recipientID]; duplicate {
+				continue
+			}
 			if target := module.live[recipientID]; target != nil {
 				targets = append(targets, target)
+				seen[recipientID] = struct{}{}
 			}
 		}
 	}

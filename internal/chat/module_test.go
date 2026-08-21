@@ -152,7 +152,8 @@ func TestZoneAndPaidWorldFanoutUseExactServerScopes(t *testing.T) {
 		t.Fatalf("world fanout counts = %d/%d/%d, want 0/1/1 without public sender echo",
 			len(paidAliceSink.all()), len(paidBobSink.all()), len(paidCarolSink.all()))
 	}
-	if paid.calls != 1 || paid.lastCurrency != chat.WorldChatCurrency || paid.lastAmount != 1 || paid.lastCharacter != aliceID {
+	if paid.calls != 1 || paid.lastCurrency.ResourceID != chat.WorldChatCurrencyResourceID ||
+		paid.lastCurrency.SysName != chat.WorldChatCurrencySysName || paid.lastAmount != 1 || paid.lastCharacter != aliceID {
 		t.Errorf("paid authorization = %+v, want one World debit for authenticated Alice", paid)
 	}
 }
@@ -165,7 +166,7 @@ func TestMembershipFanoutUsesAuthoritySnapshotsAndIdentityStaysImmutable(t *test
 	bobID := uuid.MustParse("019200f0-0000-7000-8000-00000000c032")
 	carolID := uuid.MustParse("019200f0-0000-7000-8000-00000000c033")
 	daveID := uuid.MustParse("019200f0-0000-7000-8000-00000000c034")
-	group := &testAudience{audience: chat.Audience{RecipientCharacterIDs: []uuid.UUID{bobID}}}
+	group := &testAudience{audience: chat.Audience{RecipientCharacterIDs: []uuid.UUID{bobID, bobID, aliceID}}}
 	guild := &testGuildAudience{audience: chat.Audience{RecipientCharacterIDs: []uuid.UUID{bobID}}}
 	module := chat.New(chat.Options{Clock: clock.Now, GroupAudience: group, GuildAudience: guild})
 

@@ -11,11 +11,14 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/chat"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/loot"
+	"github.com/SarnautCore/server/internal/party"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -312,6 +315,15 @@ type Server struct {
 	// nowhere to save is a session that loses the player's progress silently.
 	Characters CharacterStore
 
+	// Chat is the shard-wide authenticated chat router. Nil keeps chat
+	// fail-closed while preserving typed ChatRejection responses.
+	Chat *chat.Module
+
+	// Party observes authenticated session lifecycles. Group chat consumes the
+	// same authority's audience snapshots, so a connection cannot claim cohort
+	// membership through a client payload or stale teardown.
+	Party PartySessions
+
 	// SaveInterval is checkpoint S2's cadence. Zero means
 	// [DefaultSaveInterval].
 	SaveInterval time.Duration
@@ -326,6 +338,13 @@ type Server struct {
 	// sessions arbitrates two connections for one character. It is created by
 	// Serve, so every handler a Serve call spawns shares one registry.
 	sessions *sessionRegistry
+}
+
+// PartySessions is the narrow authenticated lifecycle seam used by a shard
+// session. The party module supplies the corresponding audience reader to chat.
+type PartySessions interface {
+	Connect(party.Actor) party.Refusal
+	Disconnect(party.Actor) party.Refusal
 }
 
 // ZoneBinding is the set of modules that serve one hosted zone.
@@ -522,6 +541,13 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		// arrived. It wins; this one stops before touching the zone.
 		return sessionCtx.Err()
 	}
+	if server.Party != nil {
+		actor := party.Actor{CharacterID: admission.CharacterID, SessionID: uuid.New()}
+		if refusal := server.Party.Connect(actor); refusal != party.RefusalNone {
+			return fmt.Errorf("connect authenticated party presence: %s", refusal)
+		}
+		defer server.Party.Disconnect(actor)
+	}
 
 	position, heading := character.spawn()
 	entityID, spawn := zone.JoinAt(position, heading)
@@ -617,8 +643,32 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if err := zone.Subscribe(entityID, sender); err != nil {
 		return err
 	}
+	var chatSession *chat.Session
+	var chatEvents *chatSender
+	if server.Chat != nil {
+		chatEvents = newChatSender(connection, writer, span)
+		chatSession, err = server.Chat.Join(chat.Presence{
+			CharacterID: admission.CharacterID,
+			EntityID:    entityID,
+			Name:        admission.CharacterName,
+			ZoneID:      zone.ID(),
+			Observe: func() (chat.Observation, bool) {
+				view, exists := zone.SnapshotCharacter(entityID)
+				return chat.Observation{
+					Position: chat.Position{X: view.Position.X, Y: view.Position.Y, Z: view.Position.Z},
+					Alive:    view.Alive,
+				}, exists
+			},
+		}, chatEvents)
+		if err != nil {
+			return server.refuseEnterZone(connection, sarnautv1.ErrorCode_ERROR_CODE_INTERNAL,
+				"the character could not enter chat")
+		}
+		defer chatSession.Close()
+	}
 
 	reader := &commandReader{
+		ctx:         sessionCtx,
 		connection:  connection,
 		writer:      writer,
 		zone:        zone,
@@ -629,6 +679,8 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		character:   character,
 		entityID:    entityID,
 		characterID: admission.CharacterID,
+		chat:        chatSession,
+		chatEvents:  chatEvents,
 		datagrams:   connection.SupportsUnreliable(),
 		span:        span,
 	}
@@ -636,7 +688,7 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	// not return until it has read all of them: the deferred teardown must not
 	// run while a sender still holds the sink (ADR 0026). The buffer is sized to
 	// the maximum so none of them blocks on a send after the first error.
-	results := make(chan error, 7)
+	results := make(chan error, 8)
 	running := 5
 	go func() { results <- sender.run(sessionCtx) }()
 	go func() { results <- events.run(sessionCtx) }()
@@ -653,8 +705,12 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 			server.logger(),
 		)
 	}()
+	if chatEvents != nil {
+		running++
+		go func() { results <- chatEvents.run(sessionCtx) }()
+	}
 	if reader.datagrams {
-		running = 7
+		running += 2
 		go func() { results <- sender.runTransitions(sessionCtx) }()
 		go func() { results <- reader.readUnreliable(sessionCtx) }()
 	}
