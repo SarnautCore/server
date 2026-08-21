@@ -502,8 +502,14 @@ func (*ChatBody_Localized) isChatBody_Value() {}
 
 func (*ChatBody_UnreadableFaction) isChatBody_Value() {}
 
-// ChatDelivery is server-authoritative. request_id is nonzero only on the
-// sender's echo, where it correlates the delivery with ChatSendRequest.
+// ChatDelivery is a server-authoritative remote delivery. Retail fanout for
+// GROUP, SAY, ZONE, ZONE_SPECIAL, and WORLD excludes the originating session.
+// SarnautCore applies that no-bounce rule to every accepted client-authored
+// channel because every supported sender path projects its message immediately
+// from ChatSendRequest. The sender does not wait for a server round trip. A
+// client must also avoid rendering a second copy if a non-retail peer sends the
+// message back. request_id is zero on delivery; a rejection carries request
+// correlation instead.
 type ChatDelivery struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	MessageId              uint64                 `protobuf:"varint,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
@@ -514,7 +520,6 @@ type ChatDelivery struct {
 	SenderName             string                 `protobuf:"bytes,6,opt,name=sender_name,json=senderName,proto3" json:"sender_name,omitempty"`
 	SenderAlive            bool                   `protobuf:"varint,7,opt,name=sender_alive,json=senderAlive,proto3" json:"sender_alive,omitempty"`
 	Body                   *ChatBody              `protobuf:"bytes,8,opt,name=body,proto3" json:"body,omitempty"`
-	IsEcho                 bool                   `protobuf:"varint,9,opt,name=is_echo,json=isEcho,proto3" json:"is_echo,omitempty"`
 	// Types that are valid to be assigned to Context:
 	//
 	//	*ChatDelivery_WhisperPeerName
@@ -608,13 +613,6 @@ func (x *ChatDelivery) GetBody() *ChatBody {
 		return x.Body
 	}
 	return nil
-}
-
-func (x *ChatDelivery) GetIsEcho() bool {
-	if x != nil {
-		return x.IsEcho
-	}
-	return false
 }
 
 func (x *ChatDelivery) GetContext() isChatDelivery_Context {
@@ -759,7 +757,7 @@ const file_sarnaut_v1_chat_proto_rawDesc = "" +
 	"\tuser_text\x18\x01 \x01(\tH\x00R\buserText\x12=\n" +
 	"\tlocalized\x18\x02 \x01(\v2\x1d.sarnaut.v1.LocalizedChatBodyH\x00R\tlocalized\x12V\n" +
 	"\x12unreadable_faction\x18\x03 \x01(\v2%.sarnaut.v1.UnreadableFactionChatBodyH\x00R\x11unreadableFactionB\a\n" +
-	"\x05value\"\xcb\x03\n" +
+	"\x05value\"\xc1\x03\n" +
 	"\fChatDelivery\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\x04R\tmessageId\x12\x1d\n" +
@@ -771,12 +769,12 @@ const file_sarnaut_v1_chat_proto_rawDesc = "" +
 	"\vsender_name\x18\x06 \x01(\tR\n" +
 	"senderName\x12!\n" +
 	"\fsender_alive\x18\a \x01(\bR\vsenderAlive\x12(\n" +
-	"\x04body\x18\b \x01(\v2\x14.sarnaut.v1.ChatBodyR\x04body\x12\x17\n" +
-	"\ais_echo\x18\t \x01(\bR\x06isEcho\x12,\n" +
+	"\x04body\x18\b \x01(\v2\x14.sarnaut.v1.ChatBodyR\x04body\x12,\n" +
 	"\x11whisper_peer_name\x18\n" +
 	" \x01(\tH\x00R\x0fwhisperPeerName\x12%\n" +
 	"\rnamed_channel\x18\v \x01(\tH\x00R\fnamedChannelB\t\n" +
-	"\acontext\"\x8b\x02\n" +
+	"\acontextJ\x04\b\t\x10\n" +
+	"R\ais_echo\"\x8b\x02\n" +
 	"\rChatRejection\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\x04R\trequestId\x121\n" +

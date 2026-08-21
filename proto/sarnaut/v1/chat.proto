@@ -83,8 +83,14 @@ message ChatBody {
   }
 }
 
-// ChatDelivery is server-authoritative. request_id is nonzero only on the
-// sender's echo, where it correlates the delivery with ChatSendRequest.
+// ChatDelivery is a server-authoritative remote delivery. Retail fanout for
+// GROUP, SAY, ZONE, ZONE_SPECIAL, and WORLD excludes the originating session.
+// SarnautCore applies that no-bounce rule to every accepted client-authored
+// channel because every supported sender path projects its message immediately
+// from ChatSendRequest. The sender does not wait for a server round trip. A
+// client must also avoid rendering a second copy if a non-retail peer sends the
+// message back. request_id is zero on delivery; a rejection carries request
+// correlation instead.
 message ChatDelivery {
   uint64 message_id = 1;
   uint64 request_id = 2;
@@ -94,7 +100,9 @@ message ChatDelivery {
   string sender_name = 6;
   bool sender_alive = 7;
   ChatBody body = 8;
-  bool is_echo = 9;
+
+  reserved 9;
+  reserved "is_echo";
 
   oneof context {
     string whisper_peer_name = 10;
