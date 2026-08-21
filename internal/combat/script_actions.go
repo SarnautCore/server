@@ -118,7 +118,7 @@ func (module *Module) actionProfile(casterID uint64, abilityID string) (ScriptAc
 	if !ok {
 		return ScriptActionProfile{}, false, nil
 	}
-	if profile.AbilityID != abilityID || profile.ActionGroupID == "" || profile.ResourceCostMilli < 0 {
+	if profile.AbilityID != abilityID || profile.ResourceCostMilli < 0 {
 		return ScriptActionProfile{}, false, fmt.Errorf("combat: malformed script action profile for %q", abilityID)
 	}
 	if profile.ResourceCostMilli > 0 && profile.ResourceKind == "" {
@@ -156,8 +156,8 @@ func (module *Module) ApplyScriptDamage(
 	if caster == nil || module.casters[request.CasterID] == nil {
 		return Event{}, gametypes.ErrUnknownEntity
 	}
-	if target == nil || !ok || request.ActionGroupID == "" {
-		return Event{}, fmt.Errorf("combat: script damage names an unknown target, ability, or action group")
+	if target == nil || !ok {
+		return Event{}, fmt.Errorf("combat: script damage names an unknown target or ability")
 	}
 	if request.Damage < 0 || math.IsNaN(request.ThreatMultiplier) ||
 		math.IsInf(request.ThreatMultiplier, 0) || request.ThreatMultiplier < 0 {

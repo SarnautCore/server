@@ -94,11 +94,23 @@ func bindWarriorAction(
 	return driver
 }
 
+func TestActionResourceCostUsesExtractedWeaponSpeedExactly(t *testing.T) {
+	action := WarriorAction{
+		ResourceCost:           script.Decimal{Mantissa: 30},
+		ScaleCostByWeaponSpeed: true,
+		WeaponSpeedScale:       script.Decimal{Mantissa: 15, Scale: 1},
+	}
+	cost, err := actionResourceMilli(action)
+	if err != nil || cost != 45_000 {
+		t.Fatalf("scaled AimedShot cost = %d, %v, want 45000", cost, err)
+	}
+}
+
 func TestExtractedWarriorActionOwnsDamageResourceCooldownAndEvent(t *testing.T) {
 	fixture := newEffectIntegrationFixture(t)
 	action := WarriorAction{
 		AbilityID: effectAbility, ActionGroupID: warriorActionGroup,
-		ResourceKind: "Energy", ResourceCostMilli: 12_500,
+		ResourceKind: "Energy", ResourceCost: script.Decimal{Mantissa: 125, Scale: 1},
 		PhysicalScale:       script.Decimal{Mantissa: 2},
 		PhysicalRangedScale: script.Decimal{Mantissa: 2},
 		WeaponSpeedScale:    script.Decimal{Mantissa: 1},
@@ -159,7 +171,7 @@ func TestWarriorRangeRefusalMutatesNeitherResourceNorTarget(t *testing.T) {
 	fixture := newEffectIntegrationFixture(t)
 	action := WarriorAction{
 		AbilityID: effectAbility, ActionGroupID: warriorActionGroup,
-		ResourceKind: "Energy", ResourceCostMilli: 12_500,
+		ResourceKind: "Energy", ResourceCost: script.Decimal{Mantissa: 125, Scale: 1},
 		PhysicalScale:       script.Decimal{Mantissa: 2},
 		PhysicalRangedScale: script.Decimal{Mantissa: 2},
 		WeaponSpeedScale:    script.Decimal{Mantissa: 1},

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/gametypes"
@@ -13,14 +14,15 @@ import (
 // The private pack adapter owns source parsing; this value has only product
 // ids, typed script nodes, exact scales, and fixed-point resource cost.
 type WarriorAction struct {
-	AbilityID           string
-	ActionGroupID       string
-	ResourceKind        string
-	ResourceCostMilli   int64
-	PhysicalScale       script.Decimal
-	PhysicalRangedScale script.Decimal
-	WeaponSpeedScale    script.Decimal
-	TargetImpacts       []*script.Node
+	AbilityID              string
+	ActionGroupID          string
+	ResourceKind           string
+	ResourceCost           script.Decimal
+	ScaleCostByWeaponSpeed bool
+	PhysicalScale          script.Decimal
+	PhysicalRangedScale    script.Decimal
+	WeaponSpeedScale       script.Decimal
+	TargetImpacts          []*script.Node
 }
 
 // WarriorActionSource resolves extracted actions. Production uses the private
@@ -51,10 +53,46 @@ func (driver *ScriptDriver) Profile(casterID uint64, abilityID string) (combat.S
 	if !ok {
 		return combat.ScriptActionProfile{}, false
 	}
+	cost, err := actionResourceMilli(action)
+	if err != nil {
+		cost = -1
+	}
 	return combat.ScriptActionProfile{
 		AbilityID: abilityID, ActionGroupID: action.ActionGroupID,
-		ResourceKind: action.ResourceKind, ResourceCostMilli: action.ResourceCostMilli,
+		ResourceKind: action.ResourceKind, ResourceCostMilli: cost,
 	}, true
+}
+
+func actionResourceMilli(action WarriorAction) (int64, error) {
+	mantissa := action.ResourceCost.Mantissa
+	scale := action.ResourceCost.Scale
+	if mantissa < 0 || scale < 0 || scale > 9 {
+		return 0, fmt.Errorf("invalid action resource cost %dE-%d", mantissa, scale)
+	}
+	if action.ScaleCostByWeaponSpeed {
+		other := action.WeaponSpeedScale
+		if other.Mantissa <= 0 || other.Scale < 0 || other.Scale > 9 ||
+			other.Mantissa != 0 && (mantissa > math.MaxInt64/other.Mantissa) {
+			return 0, fmt.Errorf("action resource cost times weapon speed is not representable")
+		}
+		mantissa *= other.Mantissa
+		scale += other.Scale
+	}
+	for scale > 3 && mantissa%10 == 0 {
+		mantissa /= 10
+		scale--
+	}
+	if scale > 3 {
+		return 0, fmt.Errorf("action resource cost is not exact to thousandths")
+	}
+	for scale < 3 {
+		if mantissa > math.MaxInt64/10 {
+			return 0, fmt.Errorf("action resource cost exceeds int64 thousandths")
+		}
+		mantissa *= 10
+		scale++
+	}
+	return mantissa, nil
 }
 
 // ExecuteAction implements combat.ScriptActionHost. Combat has already
