@@ -63,7 +63,7 @@ type harness struct {
 }
 
 type harnessOptions struct {
-	// slots is the bag capacity. Zero means inventory.DefaultSlots.
+	// slots is the bag capacity. Zero means inventory.DefaultBagLayout().
 	slots int32
 	// repository replaces the in-memory one, for the abort test.
 	repository charstore.Repository

@@ -25,14 +25,6 @@ import (
 // is why this is one error and not a partial result.
 var ErrBagFull = errors.New("inventory: bag is full")
 
-// DefaultSlots is how many bag slots a character has.
-//
-// It is a curated SarnautCore decision, not a value from reference data: bag
-// capacity in retail is a property of the bags a character has equipped, and no
-// spec covers equipment yet. It lives here so that the one place to change it
-// is the one place that reads it.
-const DefaultSlots = 16
-
 // Stack is one occupied bag slot: `1 <= Count <= item.stack_limit`.
 type Stack struct {
 	Slot   int32

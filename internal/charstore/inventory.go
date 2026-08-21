@@ -28,7 +28,7 @@ func NewInventoryService(repository Repository, limits inventory.Limits, slots i
 		return nil, errors.New("charstore: a stack-limit source is required")
 	}
 	if slots <= 0 {
-		slots = inventory.DefaultSlots
+		slots = inventory.DefaultBagLayout().Capacity()
 	}
 	return &InventoryService{repository: repository, limits: limits, slots: slots}, nil
 }
