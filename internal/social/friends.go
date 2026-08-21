@@ -44,9 +44,10 @@ type FriendRepository interface {
 // failures are returned to the mutation caller; a joined session receives only
 // committed snapshots.
 type Friends struct {
-	mu       sync.Mutex
-	repo     FriendRepository
-	sessions map[uuid.UUID]map[*FriendsSession]struct{}
+	sequenceMu sync.Mutex
+	mu         sync.Mutex
+	repo       FriendRepository
+	sessions   map[uuid.UUID]map[*FriendsSession]struct{}
 }
 
 // FriendsSession is one authenticated recipient subscription.
@@ -82,6 +83,8 @@ func (friends *Friends) Join(
 	if friends == nil || owner == uuid.Nil || sink == nil {
 		return nil, ErrInvalidFriendOwner
 	}
+	friends.sequenceMu.Lock()
+	defer friends.sequenceMu.Unlock()
 	replacement, err := friends.repo.Friends(ctx, owner)
 	if err != nil {
 		return nil, err
@@ -109,8 +112,10 @@ func (friends *Friends) Replace(
 	if friends == nil || owner == uuid.Nil {
 		return FriendsReplacement{}, ErrInvalidFriendOwner
 	}
+	friends.sequenceMu.Lock()
 	replacement, err := friends.repo.ReplaceFriends(ctx, owner, append([]uuid.UUID(nil), friendIDs...))
 	if err != nil {
+		friends.sequenceMu.Unlock()
 		return FriendsReplacement{}, err
 	}
 	friends.mu.Lock()
@@ -119,6 +124,7 @@ func (friends *Friends) Replace(
 		owned = append(owned, session)
 	}
 	friends.mu.Unlock()
+	friends.sequenceMu.Unlock()
 	for _, session := range owned {
 		session.publish(replacement)
 	}
