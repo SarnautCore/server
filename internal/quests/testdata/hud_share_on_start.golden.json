@@ -1,0 +1,15 @@
+{
+  "recipients": [
+    {
+      "recipient_character_id": "22222222-bbbb-bbbb-bbbb-222222222222",
+      "invite": {
+        "share_id": "share.on-start",
+        "quest_id": "quest.test.started",
+        "sharer_name": "Starter",
+        "recipient_character_id": "22222222-bbbb-bbbb-bbbb-222222222222",
+        "on_start": true,
+        "expires_at": "1970-01-01T00:03:30Z"
+      }
+    }
+  ]
+}

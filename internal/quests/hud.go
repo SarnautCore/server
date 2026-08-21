@@ -27,7 +27,6 @@ const (
 	HUDReputationRewardLimit     = 5
 	HUDCurrencyRewardLimit       = 5
 	HUDSecretLimit               = 15
-	HUDConfirmationExpiry        = 30 * time.Second
 	HUDQuestShareRangeM          = 20.0
 	HUDQuestShareOnRequestExpiry = 60 * time.Second
 	HUDQuestShareOnStartExpiry   = 10 * time.Second
@@ -341,19 +340,15 @@ func (book HUDQuestBook) Validate() error {
 	return nil
 }
 
-// HUDQuestConfirmation and HUDQuestShareInvite carry expiries set by the
-// command owner. This package declares the retail lifetime but creates no
-// confirmation or share action on its own.
-type HUDQuestConfirmation struct {
-	QuestID   string    `json:"quest_id"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
-
+// HUDQuestShareInvite is one server-owned offer. OnStart distinguishes the
+// automatic ten-second offer from a manual sixty-second offer. The client's
+// incoming modal timeout is presentation state and is not represented here.
 type HUDQuestShareInvite struct {
 	ShareID              string    `json:"share_id"`
 	QuestID              string    `json:"quest_id"`
 	SharerName           string    `json:"sharer_name"`
 	RecipientCharacterID uuid.UUID `json:"recipient_character_id"`
+	OnStart              bool      `json:"on_start"`
 	ExpiresAt            time.Time `json:"expires_at"`
 }
 
@@ -438,7 +433,7 @@ func NewHUDQuestShareState(
 // quest eligibility checks. Context is server-owned cancellation state. The
 // authenticated wire command supplies only questID and cannot pick recipients.
 func (state *HUDQuestShareState) ShareQuest(ctx context.Context, questID string) HUDQuestShareResult {
-	return state.shareQuest(ctx, questID, HUDQuestShareOnRequestExpiry)
+	return state.shareQuest(ctx, questID, HUDQuestShareOnRequestExpiry, false)
 }
 
 // ShareQuestOnStart creates the automatic invitation with retail's shorter
@@ -448,13 +443,14 @@ func (state *HUDQuestShareState) ShareQuestOnStart(
 	ctx context.Context,
 	questID string,
 ) HUDQuestShareResult {
-	return state.shareQuest(ctx, questID, HUDQuestShareOnStartExpiry)
+	return state.shareQuest(ctx, questID, HUDQuestShareOnStartExpiry, true)
 }
 
 func (state *HUDQuestShareState) shareQuest(
 	ctx context.Context,
 	questID string,
 	expiry time.Duration,
+	onStart bool,
 ) HUDQuestShareResult {
 	if state == nil || state.party == nil {
 		return HUDQuestShareResult{Refusal: HUDQuestShareRefusalNoParty}
@@ -513,6 +509,7 @@ func (state *HUDQuestShareState) shareQuest(
 				QuestID:              questID,
 				SharerName:           state.sharerName,
 				RecipientCharacterID: recipientID,
+				OnStart:              onStart,
 				ExpiresAt:            expiresAt,
 			}
 			state.pending[key] = invite

@@ -388,7 +388,11 @@ func TestShareQuestUsesPartyAuthorityAndSixtySecondExpiry(t *testing.T) {
 		if want := now.Add(HUDQuestShareOnRequestExpiry); !invite.ExpiresAt.Equal(want) {
 			t.Errorf("invite %d expires at %s, want %s", index, invite.ExpiresAt, want)
 		}
+		if invite.OnStart {
+			t.Errorf("invite %d OnStart = true for a manual share", index)
+		}
 	}
+	assertHUDGolden(t, "hud_share_request.golden.json", result)
 	if got := len(state.PendingInvites()); got != 2 {
 		t.Fatalf("pending invites = %d, want 2", got)
 	}
@@ -399,7 +403,7 @@ func TestShareQuestUsesPartyAuthorityAndSixtySecondExpiry(t *testing.T) {
 	}
 	for index, recipient := range repeated.Recipients {
 		if recipient.Invite == nil || recipient.Invite.ShareID != fmt.Sprintf("share.test.%d", index+1) ||
-			!recipient.Invite.ExpiresAt.Equal(now.Add(HUDQuestShareOnRequestExpiry)) {
+			!recipient.Invite.ExpiresAt.Equal(now.Add(HUDQuestShareOnRequestExpiry)) || recipient.Invite.OnStart {
 			t.Errorf("repeated invite %d = %+v, want the unexpired original", index, recipient.Invite)
 		}
 	}
@@ -560,7 +564,7 @@ func TestOnStartQuestShareUsesTenSecondExpiry(t *testing.T) {
 		recipientID: {SameZone: true, DistanceM: 5, Alive: true, CanStartQuest: true},
 	}}
 	state := NewHUDQuestShareState(sharerID, "Starter", partyAuthority, eligibility)
-	now := time.Unix(200, 0)
+	now := time.Unix(200, 0).UTC()
 	state.now = func() time.Time { return now }
 	state.newShareID = func() string { return "share.on-start" }
 
@@ -571,12 +575,13 @@ func TestOnStartQuestShareUsesTenSecondExpiry(t *testing.T) {
 	if got, want := result.Recipients[0].Invite.ExpiresAt, now.Add(HUDQuestShareOnStartExpiry); !got.Equal(want) {
 		t.Errorf("expires at %s, want %s", got, want)
 	}
+	if !result.Recipients[0].Invite.OnStart {
+		t.Error("OnStart = false for an automatic share")
+	}
+	assertHUDGolden(t, "hud_share_on_start.golden.json", result)
 }
 
 func TestRetailQuestHUDTimingAndRangeConstants(t *testing.T) {
-	if HUDConfirmationExpiry != 30*time.Second {
-		t.Errorf("confirmation expiry = %s, want 30s", HUDConfirmationExpiry)
-	}
 	if HUDQuestShareOnRequestExpiry != 60*time.Second {
 		t.Errorf("on-request share expiry = %s, want 60s", HUDQuestShareOnRequestExpiry)
 	}
