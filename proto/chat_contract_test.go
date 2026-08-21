@@ -55,12 +55,11 @@ func TestChatV1WireGolden(t *testing.T) {
 				Text:      utf16Text,
 			}},
 		},
-		"server_delivery": &sarnautv1.ServerMessage{
+		"server_remote_delivery": &sarnautv1.ServerMessage{
 			ServerTick: 900,
 			Payload: &sarnautv1.ServerMessage_ChatDelivery{ChatDelivery: &sarnautv1.ChatDelivery{
 				MessageId:              1001,
-				RequestId:              42,
-				Channel:                sarnautv1.ChatChannel_CHAT_CHANNEL_WHISPER,
+				Channel:                sarnautv1.ChatChannel_CHAT_CHANNEL_SAY,
 				SentAtUnixMilliseconds: 1_700_000_000_123,
 				SenderEntityId:         77,
 				SenderName:             "Ayla",
@@ -68,10 +67,6 @@ func TestChatV1WireGolden(t *testing.T) {
 				Body: &sarnautv1.ChatBody{Value: &sarnautv1.ChatBody_UserText{
 					UserText: "hello",
 				}},
-				IsEcho: true,
-				Context: &sarnautv1.ChatDelivery_WhisperPeerName{
-					WhisperPeerName: "Borin",
-				},
 			}},
 		},
 		"server_localized_delivery": &sarnautv1.ServerMessage{
@@ -172,8 +167,8 @@ func TestChatRequestCarriesNoServerAuthority(t *testing.T) {
 
 func TestChatDeliveryCarriesServerAuthority(t *testing.T) {
 	delivery := (&sarnautv1.ChatDelivery{}).ProtoReflect().Descriptor()
-	if delivery.Fields().Len() != 11 {
-		t.Fatalf("ChatDelivery has %d fields, want exactly 11", delivery.Fields().Len())
+	if delivery.Fields().Len() != 10 {
+		t.Fatalf("ChatDelivery has %d fields, want exactly 10", delivery.Fields().Len())
 	}
 	assertField(t, delivery, "message_id", 1, protoreflect.Uint64Kind)
 	assertField(t, delivery, "request_id", 2, protoreflect.Uint64Kind)
@@ -183,9 +178,14 @@ func TestChatDeliveryCarriesServerAuthority(t *testing.T) {
 	assertField(t, delivery, "sender_name", 6, protoreflect.StringKind)
 	assertField(t, delivery, "sender_alive", 7, protoreflect.BoolKind)
 	assertField(t, delivery, "body", 8, protoreflect.MessageKind)
-	assertField(t, delivery, "is_echo", 9, protoreflect.BoolKind)
 	assertField(t, delivery, "whisper_peer_name", 10, protoreflect.StringKind)
 	assertField(t, delivery, "named_channel", 11, protoreflect.StringKind)
+	if !delivery.ReservedRanges().Has(9) {
+		t.Error("retired ChatDelivery field 9 is not reserved")
+	}
+	if !delivery.ReservedNames().Has("is_echo") {
+		t.Error("retired ChatDelivery field name is_echo is not reserved")
+	}
 	context := delivery.Oneofs().ByName("context")
 	if context == nil || context.Fields().Len() != 2 {
 		t.Fatalf("ChatDelivery.context has %d fields, want 2", oneofFieldCount(context))
