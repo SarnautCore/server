@@ -3,6 +3,7 @@ package worldscript_test
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -379,7 +380,7 @@ func TestTypedClientCueIsIdempotentAndPathFree(t *testing.T) {
 		t.Fatalf("replayed EmitCue() error = %v", err)
 	}
 	got := fixture.module.DrainCues()
-	if len(got) != 1 || got[0] != cue {
+	if len(got) != 1 || !reflect.DeepEqual(got[0], cue) {
 		t.Fatalf("cues = %#v, want one exact typed cue", got)
 	}
 }

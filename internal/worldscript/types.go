@@ -28,6 +28,8 @@ const (
 type DeviceSpec struct {
 	ID             string
 	PlacementID    string
+	MapID          string
+	ScriptID       string
 	PresentationID string
 	Kind           DeviceKind
 	Position       gametypes.Vec3
@@ -116,6 +118,7 @@ type Cue struct {
 	ActorEntityID uint64
 	EntityID      uint64
 	ResourceID    string
+	Destinations  []gametypes.Vec3
 	ExecutionKey  string
 }
 
@@ -129,6 +132,8 @@ type PathRequest struct {
 
 type DeviceQuery struct {
 	ContentID string
+	MapID     string
+	ScriptID  string
 	Permanent bool
 	Origin    gametypes.Vec3
 	Radius    float32

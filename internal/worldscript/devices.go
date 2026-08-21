@@ -33,22 +33,39 @@ func (module *Module) populateDevices(devices []DeviceSpec) error {
 func (module *Module) ResolveDevices(query DeviceQuery) []uint64 {
 	var result []uint64
 	_ = module.zone.GameCommand(func(tick gametypes.Tick) error {
-		for _, entityID := range module.byDevice[query.ContentID] {
-			spec, ok := module.devices[entityID]
-			entity := tick.Entity(entityID)
-			if !ok || entity == nil || module.state.OpenedDevices[spec.PlacementID] {
-				continue
-			}
-			if query.Radius > 0 && gametypes.Distance(query.Origin, tick.Position(entity)) > query.Radius {
-				continue
-			}
-			result = append(result, entityID)
-			if !query.Permanent {
-				break
-			}
-		}
+		result = module.ResolveDevicesAt(tick, query)
 		return nil
 	})
+	return result
+}
+
+// ResolveDevicesAt is the non-reentrant finder path for the script host.
+func (module *Module) ResolveDevicesAt(tick gametypes.Tick, query DeviceQuery) []uint64 {
+	var result []uint64
+	ids := module.byDevice[query.ContentID]
+	if query.ContentID == "" {
+		ids = make([]uint64, 0, len(module.devices))
+		for entityID := range module.devices {
+			ids = append(ids, entityID)
+		}
+		sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
+	}
+	for _, entityID := range ids {
+		spec, ok := module.devices[entityID]
+		entity := tick.Entity(entityID)
+		if !ok || entity == nil || module.state.OpenedDevices[spec.PlacementID] ||
+			(query.MapID != "" && spec.MapID != query.MapID) ||
+			(query.ScriptID != "" && spec.ScriptID != query.ScriptID) {
+			continue
+		}
+		if query.Radius > 0 && gametypes.Distance(query.Origin, tick.Position(entity)) > query.Radius {
+			continue
+		}
+		result = append(result, entityID)
+		if !query.Permanent {
+			break
+		}
+	}
 	return result
 }
 

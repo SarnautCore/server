@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/SarnautCore/server/internal/gametypes"
 )
 
 // State is the complete restart boundary for authored world-script state.
@@ -53,39 +55,58 @@ func (module *Module) Variable(id string) (int64, bool) {
 
 // AddVariable applies one idempotent ImpactScriptZoneVariableSummand command.
 func (module *Module) AddVariable(id string, delta int64, executionKey string) error {
-	return module.zone.GameCommand(func(_ Tick) error {
-		if _, ok := module.state.Variables[id]; !ok {
-			return fmt.Errorf("worldscript: unknown variable %q", id)
-		}
-		if module.alreadyExecuted(executionKey) {
-			return nil
-		}
-		current := module.state.Variables[id]
-		if (delta > 0 && current > math.MaxInt64-delta) || (delta < 0 && current < math.MinInt64-delta) {
-			return fmt.Errorf("worldscript: variable %q would overflow", id)
-		}
-		module.state.Variables[id] = current + delta
-		module.markExecuted(executionKey)
-		return nil
+	return module.UpdateVariable(id, delta, false, executionKey)
+}
+
+// UpdateVariable applies one typed variable command. Reset clears the current
+// value before adding the authored summand.
+func (module *Module) UpdateVariable(id string, delta int64, reset bool, executionKey string) error {
+	return module.zone.GameCommand(func(tick Tick) error {
+		return module.UpdateVariableAt(tick, id, delta, reset, executionKey)
 	})
+}
+
+// UpdateVariableAt is the non-reentrant host path for a caller already inside
+// the world tick lock.
+func (module *Module) UpdateVariableAt(_ Tick, id string, delta int64, reset bool, executionKey string) error {
+	if _, ok := module.state.Variables[id]; !ok {
+		return fmt.Errorf("worldscript: unknown variable %q", id)
+	}
+	if module.alreadyExecuted(executionKey) {
+		return nil
+	}
+	current := module.state.Variables[id]
+	if reset {
+		current = 0
+	}
+	if (delta > 0 && current > math.MaxInt64-delta) || (delta < 0 && current < math.MinInt64-delta) {
+		return fmt.Errorf("worldscript: variable %q would overflow", id)
+	}
+	module.state.Variables[id] = current + delta
+	module.markExecuted(executionKey)
+	return nil
 }
 
 // SetZoneDisabled applies one idempotent ImpactScriptZoneSetDisabled command.
 func (module *Module) SetZoneDisabled(id string, disabled bool, executionKey string) error {
-	return module.zone.GameCommand(func(_ Tick) error {
-		if _, ok := module.zones[id]; !ok {
-			return fmt.Errorf("worldscript: unknown script zone %q", id)
-		}
-		if module.alreadyExecuted(executionKey) {
-			return nil
-		}
-		module.state.DisabledZones[id] = disabled
-		if disabled {
-			delete(module.members, id)
-		}
-		module.markExecuted(executionKey)
-		return nil
+	return module.zone.GameCommand(func(tick Tick) error {
+		return module.SetZoneDisabledAt(tick, id, disabled, executionKey)
 	})
+}
+
+func (module *Module) SetZoneDisabledAt(_ Tick, id string, disabled bool, executionKey string) error {
+	if _, ok := module.zones[id]; !ok {
+		return fmt.Errorf("worldscript: unknown script zone %q", id)
+	}
+	if module.alreadyExecuted(executionKey) {
+		return nil
+	}
+	module.state.DisabledZones[id] = disabled
+	if disabled {
+		delete(module.members, id)
+	}
+	module.markExecuted(executionKey)
+	return nil
 }
 
 // EmitCue is the typed host for ImpactClientData and text messages.
@@ -96,21 +117,35 @@ func (module *Module) EmitCue(cue Cue) error {
 	if cue.ResourceID == "" {
 		return fmt.Errorf("worldscript: cue resource id is required")
 	}
-	return module.zone.GameCommand(func(_ Tick) error {
-		if module.alreadyExecuted(cue.ExecutionKey) {
-			return nil
-		}
-		module.cues = append(module.cues, cue)
-		module.markExecuted(cue.ExecutionKey)
-		return nil
+	return module.zone.GameCommand(func(tick Tick) error {
+		return module.EmitCueAt(tick, cue)
 	})
+}
+
+func (module *Module) EmitCueAt(_ Tick, cue Cue) error {
+	if cue.Kind != CueClientData && cue.Kind != CueTextMessage {
+		return fmt.Errorf("worldscript: unsupported direct cue kind %d", cue.Kind)
+	}
+	if cue.ResourceID == "" {
+		return fmt.Errorf("worldscript: cue resource id is required")
+	}
+	if module.alreadyExecuted(cue.ExecutionKey) {
+		return nil
+	}
+	cue.Destinations = append([]gametypes.Vec3(nil), cue.Destinations...)
+	module.cues = append(module.cues, cue)
+	module.markExecuted(cue.ExecutionKey)
+	return nil
 }
 
 // DrainCues transfers queued product cues in simulation order.
 func (module *Module) DrainCues() []Cue {
 	var result []Cue
 	_ = module.zone.GameCommand(func(_ Tick) error {
-		result = append(result, module.cues...)
+		for _, cue := range module.cues {
+			cue.Destinations = append([]gametypes.Vec3(nil), cue.Destinations...)
+			result = append(result, cue)
+		}
 		module.cues = module.cues[:0]
 		return nil
 	})

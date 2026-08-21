@@ -14,6 +14,46 @@ func (module *Module) StartPath(request PathRequest) error {
 	})
 }
 
+// StartWaypoints runs a GoThroughPath command after the interpreter host has
+// resolved every map locator to an absolute global-frame point.
+func (module *Module) StartWaypoints(
+	entityID uint64,
+	waypoints []gametypes.Vec3,
+	speed float32,
+	executionKey string,
+) error {
+	if executionKey == "" {
+		return fmt.Errorf("worldscript: inline path execution key is required")
+	}
+	if len(waypoints) == 0 {
+		return fmt.Errorf("worldscript: inline path has no waypoints")
+	}
+	for _, waypoint := range waypoints {
+		if !waypoint.Finite() {
+			return fmt.Errorf("worldscript: inline path has a non-finite waypoint")
+		}
+	}
+	return module.zone.GameCommand(func(tick gametypes.Tick) error {
+		return module.StartWaypointsAt(tick, entityID, waypoints, speed, executionKey)
+	})
+}
+
+func (module *Module) StartWaypointsAt(
+	tick gametypes.Tick,
+	entityID uint64,
+	waypoints []gametypes.Vec3,
+	speed float32,
+	executionKey string,
+) error {
+	pathID := "inline|" + executionKey
+	module.paths[pathID] = PathSpec{
+		ID: pathID, Waypoints: append([]gametypes.Vec3(nil), waypoints...), DefaultSpeed: speed,
+	}
+	return module.startPath(tick, PathRequest{
+		EntityID: entityID, PathID: pathID, Speed: speed, ExecutionKey: executionKey,
+	})
+}
+
 func (module *Module) startPath(tick gametypes.Tick, request PathRequest) error {
 	entity := tick.Entity(request.EntityID)
 	path, ok := module.paths[request.PathID]

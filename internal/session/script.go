@@ -14,6 +14,7 @@ import (
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/script"
+	"github.com/SarnautCore/server/internal/worldscript"
 )
 
 // This file is the impact interpreter's session adapter: the one place
@@ -76,13 +77,14 @@ func (driver *ScriptDriver) Census() *script.Census {
 // quest module's logs live under, and it is what lets the driver hold no
 // mutex of its own.
 type ScriptDriver struct {
-	logger    *slog.Logger
-	zone      gametypes.Zone
-	quests    *quests.Module
-	source    QuestScriptSource
-	evaluator *script.Evaluator
-	effects   *script.EffectRegistry
-	combat    *combat.Module
+	logger       *slog.Logger
+	zone         gametypes.Zone
+	quests       *quests.Module
+	source       QuestScriptSource
+	evaluator    *script.Evaluator
+	effects      *script.EffectRegistry
+	combat       *combat.Module
+	worldscripts *worldscript.Module
 	// applyGuardUpdate is installed with combat. Keeping the host call as a
 	// function makes rejection behavior testable without weakening combat's
 	// public API.
@@ -531,6 +533,9 @@ func (host scriptHost) Locate(_ context.Context, request script.DestinationReque
 // the registry supplies the living. Ids return in bytewise order, as the
 // evaluator requires for deterministic iteration.
 func (host scriptHost) Resolve(_ context.Context, request script.ResolveRequest) ([]string, error) {
+	if found, handled, err := host.driver.resolveWorldEntities(request); handled {
+		return found, err
+	}
 	if request.Finder != "ImpactFindSpawnTable" {
 		return nil, fmt.Errorf("session: the script adapter resolves no finder %q yet", request.Finder)
 	}
@@ -551,6 +556,9 @@ func (host scriptHost) Resolve(_ context.Context, request script.ResolveRequest)
 
 func (host scriptHost) Apply(ctx context.Context, command script.Command) error {
 	driver := host.driver
+	if handled, err := driver.applyWorldCommand(command); handled {
+		return err
+	}
 	switch command.Kind {
 	case script.CommandAttachTrigger:
 		attachment := *command.Attachment
