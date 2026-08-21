@@ -22,6 +22,7 @@ import (
 	"github.com/SarnautCore/server/internal/observability"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
+	"github.com/SarnautCore/server/internal/script"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
@@ -219,8 +220,14 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	// cannot play stops the boot and names the quest. The content opt-in skips
 	// only unsupported objective kinds; invalid prerequisites and rewards still
 	// stop startup.
+	if settings.Content.EnableImpactInterpreter {
+		if err := content.ValidateQuestScriptCoverage(); err != nil {
+			return fmt.Errorf("validate quest script coverage: %w", err)
+		}
+	}
 	catalog, err := quests.CatalogFromPack(content, quests.CatalogOptions{
 		SkipUnsupportedQuests: settings.Content.SkipUnsupportedQuests,
+		AllowCountSpecial:     settings.Content.EnableImpactInterpreter,
 		Logger:                logger,
 	})
 	if err != nil {
@@ -235,6 +242,16 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		Combat: combatModule,
 		Loot:   lootModule,
 		Quests: questModule,
+	}
+	if settings.Content.EnableImpactInterpreter {
+		binding.Scripts = session.NewScriptDriver(
+			logger,
+			zone,
+			questModule,
+			session.NewPackQuestScriptSource(content),
+			script.Options{Enabled: true},
+		)
+		logger.Info("zone quest scripts wired", "quest_scripts", len(content.QuestScriptIDs()))
 	}
 	// One death, two consumers, and neither of them knows the other exists
 	// (mechanics/combat.md rules 5.9.3 and 5.9.4).

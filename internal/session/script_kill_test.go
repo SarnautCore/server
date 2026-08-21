@@ -1,14 +1,24 @@
 package session_test
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zeebo/blake3"
+	"google.golang.org/protobuf/proto"
 
+	contentv1 "github.com/SarnautCore/server/gen/sarnaut/content/v1"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
@@ -34,8 +44,7 @@ const (
 )
 
 // scriptNode builds a fixture node. The trees below mirror the authored
-// documents; the pack does not carry script rows yet (M3-09), which is exactly
-// why the source seam exists.
+// documents and are also compiled into .sptbl rows by the pack-backed test.
 func scriptNode(family script.Family, key, opcode string, fields ...script.Field) *script.Node {
 	return &script.Node{
 		Key: key, Family: family, Opcode: opcode,
@@ -197,6 +206,15 @@ type scriptZoneFixture struct {
 
 func newScriptZoneFixture(t *testing.T) *scriptZoneFixture {
 	t.Helper()
+	return newScriptZoneFixtureWith(t, countSpecialDefinitions(), fixtureScripts{})
+}
+
+func newScriptZoneFixtureWith(
+	t *testing.T,
+	definitions []pack.Quest,
+	source session.QuestScriptSource,
+) *scriptZoneFixture {
+	t.Helper()
 
 	zone, err := world.NewZone(world.ZoneConfig{
 		ID:               "ScriptIntegration",
@@ -209,14 +227,14 @@ func newScriptZoneFixture(t *testing.T) *scriptZoneFixture {
 	}
 
 	catalog, err := quests.NewCatalogWithOptions(
-		countSpecialDefinitions(), nil, quests.CatalogOptions{AllowCountSpecial: true},
+		definitions, nil, quests.CatalogOptions{AllowCountSpecial: true},
 	)
 	if err != nil {
 		t.Fatalf("NewCatalogWithOptions() error = %v", err)
 	}
 	questModule := quests.New(slog.New(slog.DiscardHandler), zone, catalog, nil)
 	driver := session.NewScriptDriver(
-		slog.New(slog.DiscardHandler), zone, questModule, fixtureScripts{}, script.Options{Enabled: true},
+		slog.New(slog.DiscardHandler), zone, questModule, source, script.Options{Enabled: true},
 	)
 	binding := session.ZoneBinding{World: zone, Quests: questModule, Scripts: driver}
 
@@ -332,6 +350,50 @@ func TestACountSpecialQuestProgressesFromAKillChainFlagOn(t *testing.T) {
 	}
 }
 
+// TestACompiledPackDrivesCountSpecialOneTwoThree proves the production source
+// path. The test writes protobuf rows into real .sptbl containers, loads them
+// through pack.Load, then uses PackQuestScriptSource without fixture lookups.
+func TestACompiledPackDrivesCountSpecialOneTwoThree(t *testing.T) {
+	t.Parallel()
+
+	content := loadCompiledScriptPack(t)
+	if err := content.ValidateQuestScriptCoverage(); err != nil {
+		t.Fatalf("ValidateQuestScriptCoverage() error = %v", err)
+	}
+	definitions := make([]pack.Quest, 0, len(content.QuestIDs()))
+	for _, id := range content.QuestIDs() {
+		definition, _ := content.Quest(id)
+		definitions = append(definitions, definition)
+	}
+	source := session.NewPackQuestScriptSource(content)
+	binding, ok := source.Counter(script.Ref{ID: scriptCountID})
+	if !ok || binding.ObjectiveID != scriptQuestID+".objective."+strings.Repeat("a", 64) || binding.ObjectiveIndex != 0 {
+		t.Fatalf("compiled counter binding = %#v, %v", binding, ok)
+	}
+	fixture := newScriptZoneFixtureWith(t, definitions, source)
+	characterID := uuid.New()
+	fixture.admit(t, characterID)
+	fixture.driver.QuestActivated(fixture.playerID, scriptQuestID)
+
+	for index, ratID := range fixture.ratIDs {
+		fixture.kill(t, ratID)
+		_, counters := fixture.questRow(t, characterID, scriptQuestID)
+		if len(counters) != 1 || counters[0] != int32(index+1) {
+			t.Fatalf("compiled-pack counters after kill %d = %v, want [%d]", index+1, counters, index+1)
+		}
+	}
+	if state, counters := fixture.questRow(t, characterID, scriptQuestID); state != "completable" || counters[0] != 3 {
+		t.Fatalf("compiled-pack state = %q counters = %v, want completable [3]", state, counters)
+	}
+	census := fixture.driver.Census()
+	if census.Inert["FutureAmbientImpact"] != 1 {
+		t.Errorf("inert census = %v, want FutureAmbientImpact:1", census.Inert)
+	}
+	if census.Refused["FutureAuthoritativeImpact"] != 1 {
+		t.Errorf("refused census = %v, want FutureAuthoritativeImpact:1", census.Refused)
+	}
+}
+
 // TestAnEquipTriggerCountsThroughTheAdapterFlagOn walks shape A across the
 // same seam: TriggerAgentSelf binds DressTrigger to the player at activation,
 // and the equip event — delivered through the driver's seam, since no
@@ -371,5 +433,297 @@ func TestCountSpecialStaysRefusedFlagOff(t *testing.T) {
 	}
 	if unsupported.Kind != pack.QuestObjectiveCountSpecial {
 		t.Errorf("refused kind = %v, want count-special", unsupported.Kind)
+	}
+}
+
+type compiledManifest struct {
+	SchemaVersion int                     `json:"schema_version"`
+	Ruleset       string                  `json:"ruleset"`
+	Zone          string                  `json:"zone"`
+	PackID        string                  `json:"pack_id"`
+	Builder       json.RawMessage         `json:"builder"`
+	Source        json.RawMessage         `json:"source"`
+	KeepExtra     bool                    `json:"keep_extra"`
+	Tables        []compiledManifestTable `json:"tables"`
+}
+
+type compiledManifestTable struct {
+	Name    string `json:"name"`
+	File    string `json:"file"`
+	RowType string `json:"row_type"`
+	Rows    uint32 `json:"rows"`
+	Bytes   uint64 `json:"bytes"`
+	Blake3  string `json:"blake3"`
+}
+
+type compiledPackRow struct {
+	id      string
+	message proto.Message
+}
+
+func loadCompiledScriptPack(t *testing.T) *pack.Pack {
+	t.Helper()
+	directory := filepath.Join(t.TempDir(), "pack")
+	source := filepath.Join("..", "..", "testdata", "packs", "demo")
+	if err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(directory, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, payload, 0o600)
+	}); err != nil {
+		t.Fatalf("copy fixture pack: %v", err)
+	}
+
+	definitions := countSpecialDefinitions()
+	questRows := make([]compiledPackRow, 0, len(definitions))
+	for _, definition := range definitions {
+		wire := &contentv1.Quest{Id: definition.ID, ZoneId: "zone.inst-league1", Level: 1, Rewards: &contentv1.QuestRewards{}}
+		for _, objective := range definition.Objectives {
+			wire.Objectives = append(wire.Objectives, &contentv1.QuestObjective{
+				Kind:  contentv1.QuestObjectiveKind_QUEST_OBJECTIVE_KIND_COUNT_SPECIAL,
+				Limit: objective.Limit, Internal: objective.Internal, ShowCount: objective.ShowCount,
+			})
+		}
+		questRows = append(questRows, compiledPackRow{id: wire.GetId(), message: wire})
+	}
+	replaceSessionPackTable(t, directory, "quests", contentv1.RowType_ROW_TYPE_QUEST, questRows)
+
+	spawn := &contentv1.SpawnTable{Id: scriptTableID, Entries: []*contentv1.SpawnTableEntry{{
+		ObjectId: scriptRatWorldID, Group: "commons", Chance: 1,
+	}}}
+	replaceSessionPackTable(t, directory, "spawn-tables", contentv1.RowType_ROW_TYPE_SPAWN_TABLE,
+		[]compiledPackRow{{id: spawn.GetId(), message: spawn}})
+
+	scriptRows := make([]compiledPackRow, 0, 2)
+	for _, questID := range []string{scriptQuestID, scriptEquipQuest} {
+		activation, _ := (fixtureScripts{}).QuestActivation(questID)
+		row := &contentv1.QuestScript{Id: "script." + questID, QuestId: questID}
+		if questID == scriptQuestID {
+			row.Counters = []*contentv1.QuestCounterBinding{{
+				CountId: scriptCountID, ObjectiveIndex: 0,
+				ObjectiveId: scriptQuestID + ".objective." + strings.Repeat("a", 64),
+			}}
+			activation.StartImpacts = append(activation.StartImpacts,
+				&script.Node{Key: "future/inert", Family: script.FamilyImpact, Opcode: "FutureAmbientImpact", Tier: script.TierInert},
+				&script.Node{Key: "future/refused", Family: script.FamilyImpact, Opcode: "FutureAuthoritativeImpact", Tier: script.TierRefused},
+			)
+		} else {
+			row.Counters = []*contentv1.QuestCounterBinding{{
+				CountId: scriptEquipCount, ObjectiveIndex: 0,
+				ObjectiveId: scriptEquipQuest + ".objective." + strings.Repeat("b", 64),
+			}}
+		}
+		for _, node := range activation.StartImpacts {
+			row.StartImpacts = append(row.StartImpacts, scriptNodeToProto(node))
+		}
+		for _, node := range activation.TriggerAgents {
+			row.TriggerAgents = append(row.TriggerAgents, scriptNodeToProto(node))
+		}
+		scriptRows = append(scriptRows, compiledPackRow{id: row.GetId(), message: row})
+	}
+	replaceSessionPackTable(t, directory, "quest-scripts", contentv1.RowType_ROW_TYPE_QUEST_SCRIPT, scriptRows)
+
+	triggerRows := []compiledPackRow{
+		{id: scriptTriggerID, message: &contentv1.ScriptTrigger{Id: scriptTriggerID, Root: scriptNodeToProto(ratKillerDocument())}},
+		{id: scriptDressID, message: &contentv1.ScriptTrigger{Id: scriptDressID, Root: scriptNodeToProto(dressTriggerDocument())}},
+	}
+	replaceSessionPackTable(t, directory, "script-triggers", contentv1.RowType_ROW_TYPE_SCRIPT_TRIGGER, triggerRows)
+	resealSessionPack(t, directory)
+
+	content, err := pack.Load(directory, pack.Options{})
+	if err != nil {
+		t.Fatalf("pack.Load(compiled scripts) error = %v", err)
+	}
+	return content
+}
+
+func scriptNodeToProto(node *script.Node) *contentv1.ScriptNode {
+	wire := &contentv1.ScriptNode{
+		NodeKey: node.Key, Family: string(node.Family), Opcode: node.Opcode,
+		Tier: contentv1.CoverageTier(int32(node.Tier) + 1),
+	}
+	for _, field := range node.Fields {
+		wire.Fields = append(wire.Fields, &contentv1.ScriptField{Name: field.Name, Value: scriptValueToProto(field.Value)})
+	}
+	sort.Slice(wire.Fields, func(left, right int) bool { return wire.Fields[left].GetName() < wire.Fields[right].GetName() })
+	return wire
+}
+
+func scriptValueToProto(value script.Value) *contentv1.ScriptValue {
+	switch value.Kind {
+	case script.ValueInteger:
+		return &contentv1.ScriptValue{Value: &contentv1.ScriptValue_Integer{Integer: value.Integer}}
+	case script.ValueDecimal:
+		return &contentv1.ScriptValue{Value: &contentv1.ScriptValue_Decimal{Decimal: &contentv1.Decimal{Mantissa: value.Mantissa, Scale: value.Scale}}}
+	case script.ValueBool:
+		return &contentv1.ScriptValue{Value: &contentv1.ScriptValue_Boolean{Boolean: value.Bool}}
+	case script.ValueText:
+		return &contentv1.ScriptValue{Value: &contentv1.ScriptValue_Text{Text: value.Text}}
+	case script.ValueRef:
+		return &contentv1.ScriptValue{Value: &contentv1.ScriptValue_Reference{Reference: &contentv1.ContentRef{Id: value.Ref.ID, RowType: value.Ref.RowType}}}
+	case script.ValueDurationMS:
+		return &contentv1.ScriptValue{Value: &contentv1.ScriptValue_DurationMs{DurationMs: value.DurationMS}}
+	case script.ValueNode:
+		return &contentv1.ScriptValue{Value: &contentv1.ScriptValue_Node{Node: scriptNodeToProto(value.Node)}}
+	case script.ValueList:
+		list := &contentv1.ScriptValueList{}
+		for _, entry := range value.List {
+			list.Values = append(list.Values, scriptValueToProto(entry))
+		}
+		return &contentv1.ScriptValue{Value: &contentv1.ScriptValue_List{List: list}}
+	default:
+		panic("test script contains an unspecified value")
+	}
+}
+
+func replaceSessionPackTable(
+	t *testing.T,
+	directory, name string,
+	rowType contentv1.RowType,
+	rows []compiledPackRow,
+) {
+	t.Helper()
+	payload := encodeSessionPackTable(t, rowType, rows)
+	file := filepath.ToSlash(filepath.Join("tables", name+".sptbl"))
+	if err := os.WriteFile(filepath.Join(directory, filepath.FromSlash(file)), payload, 0o600); err != nil {
+		t.Fatalf("write table %s: %v", name, err)
+	}
+	document := readCompiledManifest(t, directory)
+	entry := compiledManifestTable{Name: name, File: file, RowType: rowType.String(), Rows: uint32(len(rows))}
+	replaced := false
+	for index := range document.Tables {
+		if document.Tables[index].Name == name {
+			document.Tables[index] = entry
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		document.Tables = append(document.Tables, entry)
+	}
+	writeCompiledManifest(t, directory, document)
+}
+
+func encodeSessionPackTable(t *testing.T, rowType contentv1.RowType, rows []compiledPackRow) []byte {
+	t.Helper()
+	const headerBytes, keyBytes = 40, 12
+	encoded := make([][]byte, len(rows))
+	dataBytes := 0
+	for index, row := range rows {
+		payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(row.message)
+		if err != nil {
+			t.Fatalf("marshal row %s: %v", row.id, err)
+		}
+		encoded[index] = payload
+		dataBytes += len(payload)
+	}
+	keyOffset := uint32(headerBytes)
+	rowOffset := keyOffset + uint32(keyBytes*len(rows))
+	dataOffset := rowOffset + uint32(4*(len(rows)+1))
+	payload := make([]byte, int(dataOffset)+dataBytes)
+	copy(payload, "SPK1")
+	binary.LittleEndian.PutUint16(payload[4:], 1)
+	binary.LittleEndian.PutUint16(payload[6:], 1)
+	binary.LittleEndian.PutUint32(payload[8:], uint32(rowType))
+	binary.LittleEndian.PutUint32(payload[12:], uint32(len(rows)))
+	binary.LittleEndian.PutUint32(payload[16:], keyOffset)
+	binary.LittleEndian.PutUint32(payload[20:], rowOffset)
+	binary.LittleEndian.PutUint32(payload[24:], dataOffset)
+	binary.LittleEndian.PutUint32(payload[28:], uint32(dataBytes))
+
+	type key struct {
+		hash    uint64
+		ordinal uint32
+	}
+	keys := make([]key, len(rows))
+	for index, row := range rows {
+		sum := blake3.Sum256([]byte(row.id))
+		keys[index] = key{hash: binary.LittleEndian.Uint64(sum[:8]), ordinal: uint32(index)}
+	}
+	sort.Slice(keys, func(left, right int) bool {
+		return keys[left].hash < keys[right].hash || keys[left].hash == keys[right].hash && keys[left].ordinal < keys[right].ordinal
+	})
+	for index, entry := range keys {
+		base := int(keyOffset) + index*keyBytes
+		binary.LittleEndian.PutUint64(payload[base:], entry.hash)
+		binary.LittleEndian.PutUint32(payload[base+8:], entry.ordinal)
+	}
+	offset := 0
+	for index, row := range encoded {
+		binary.LittleEndian.PutUint32(payload[int(rowOffset)+index*4:], uint32(offset))
+		copy(payload[int(dataOffset)+offset:], row)
+		offset += len(row)
+	}
+	binary.LittleEndian.PutUint32(payload[int(rowOffset)+len(rows)*4:], uint32(offset))
+	return payload
+}
+
+func resealSessionPack(t *testing.T, directory string) {
+	t.Helper()
+	document := readCompiledManifest(t, directory)
+	type named struct {
+		name    string
+		payload []byte
+	}
+	namedTables := make([]named, 0, len(document.Tables))
+	for index, table := range document.Tables {
+		payload, err := os.ReadFile(filepath.Join(directory, filepath.FromSlash(table.File)))
+		if err != nil {
+			t.Fatalf("read table %s: %v", table.Name, err)
+		}
+		sum := blake3.Sum256(payload)
+		document.Tables[index].Bytes = uint64(len(payload))
+		document.Tables[index].Blake3 = hex.EncodeToString(sum[:])
+		namedTables = append(namedTables, named{name: table.Name, payload: payload})
+	}
+	sort.Slice(namedTables, func(left, right int) bool { return namedTables[left].name < namedTables[right].name })
+	hasher := blake3.New()
+	scratch := make([]byte, 8)
+	for _, table := range namedTables {
+		binary.LittleEndian.PutUint32(scratch[:4], uint32(len(table.name)))
+		_, _ = hasher.Write(scratch[:4])
+		_, _ = hasher.Write([]byte(table.name))
+		binary.LittleEndian.PutUint64(scratch, uint64(len(table.payload)))
+		_, _ = hasher.Write(scratch)
+		_, _ = hasher.Write(table.payload)
+	}
+	document.PackID = hex.EncodeToString(hasher.Sum(nil))
+	writeCompiledManifest(t, directory, document)
+}
+
+func readCompiledManifest(t *testing.T, directory string) compiledManifest {
+	t.Helper()
+	payload, err := os.ReadFile(filepath.Join(directory, "manifest.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	var document compiledManifest
+	if err := json.Unmarshal(payload, &document); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	return document
+}
+
+func writeCompiledManifest(t *testing.T, directory string, document compiledManifest) {
+	t.Helper()
+	path := filepath.Join(directory, "manifest.json")
+	payload, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		t.Fatalf("encode manifest: %v", err)
+	}
+	if err := os.WriteFile(path, append(payload, '\n'), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
 	}
 }

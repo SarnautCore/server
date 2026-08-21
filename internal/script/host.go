@@ -77,7 +77,7 @@ const (
 	// CommandIncreaseQuestCount is the whole of quest-count-special. The host
 	// adapter clamps at the objective's limit and is idempotent under
 	// ExecutionKey, because Quest_1_20/CountId_1 has two independent
-	// incrementers and a limit of 1.
+	// increment paths and a limit of 1.
 	CommandIncreaseQuestCount
 	// CommandGiveItem answers ImpactGiveItem (54 uses).
 	CommandGiveItem

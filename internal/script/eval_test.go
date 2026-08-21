@@ -32,7 +32,7 @@ func TestTheInterpreterIsInertUntilItsFlagIsSet(t *testing.T) {
 // execution key.
 //
 // The key matters more than it looks. Quest_1_20/CountId_1 has two independent
-// incrementers — DressTrigger, when the player equips a weapon in MAINHAND or
+// increment paths — DressTrigger, when the player equips a weapon in MAINHAND or
 // TWOHANDED, and BrokenDoorExploit, when the player interacts with the door —
 // against a limit of 1. The host clamps, and the key is what lets it tell a
 // replay of one increment from a genuine second one.

@@ -120,18 +120,21 @@ type Options struct {
 
 // Pack is a loaded, fully validated content pack.
 type Pack struct {
-	id         string
-	directory  string
-	keepExtra  bool
-	zone       Zone
-	npcs       []NPCSpawn
-	abilities  map[string]Ability
-	abilityIDs []string
-	factions   map[string]Faction
-	mobs       map[string]Mob
-	chargen    []ChargenOption
-	lootTables map[string]LootTable
-	quests     map[string]Quest
+	id             string
+	directory      string
+	keepExtra      bool
+	zone           Zone
+	npcs           []NPCSpawn
+	abilities      map[string]Ability
+	abilityIDs     []string
+	factions       map[string]Faction
+	mobs           map[string]Mob
+	chargen        []ChargenOption
+	lootTables     map[string]LootTable
+	quests         map[string]Quest
+	questScripts   map[string]QuestScript
+	scriptTriggers map[string]ScriptTrigger
+	spawnTableMobs map[string][]string
 	// items is the table handle, not its contents. See Pack.Item: the item
 	// tree is the one table this reader never materializes.
 	items *table
@@ -222,6 +225,10 @@ func Load(directory string, options Options) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	spawnTableMobs, err := readSpawnTableMobs(tables)
+	if err != nil {
+		return nil, err
+	}
 	abilities, abilityIDs, err := readAbilities(tables)
 	if err != nil {
 		return nil, err
@@ -246,24 +253,35 @@ func Load(directory string, options Options) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	questScripts, err := readQuestScripts(tables)
+	if err != nil {
+		return nil, err
+	}
+	scriptTriggers, err := readScriptTriggers(tables)
+	if err != nil {
+		return nil, err
+	}
 	items, err := readItems(tables)
 	if err != nil {
 		return nil, err
 	}
 	return &Pack{
-		id:         document.PackID,
-		directory:  directory,
-		keepExtra:  document.KeepExtra,
-		zone:       zone,
-		npcs:       npcs,
-		abilities:  abilities,
-		abilityIDs: abilityIDs,
-		factions:   factions,
-		mobs:       mobs,
-		chargen:    chargen,
-		lootTables: lootTables,
-		quests:     quests,
-		items:      items,
+		id:             document.PackID,
+		directory:      directory,
+		keepExtra:      document.KeepExtra,
+		zone:           zone,
+		npcs:           npcs,
+		abilities:      abilities,
+		abilityIDs:     abilityIDs,
+		factions:       factions,
+		mobs:           mobs,
+		chargen:        chargen,
+		lootTables:     lootTables,
+		quests:         quests,
+		questScripts:   questScripts,
+		scriptTriggers: scriptTriggers,
+		spawnTableMobs: spawnTableMobs,
+		items:          items,
 	}, nil
 }
 
@@ -286,6 +304,19 @@ func (p *Pack) NPCSpawns() []NPCSpawn {
 	result := make([]NPCSpawn, len(p.npcs))
 	copy(result, p.npcs)
 	return result
+}
+
+// SpawnTableMobs lists the active mob kinds referenced by one compiled spawn
+// table. A direct mob id resolves to itself, matching placement resolution.
+func (p *Pack) SpawnTableMobs(id string) []string {
+	if id == "" {
+		return nil
+	}
+	if strings.HasPrefix(id, mobIDPrefix) {
+		return []string{id}
+	}
+	mobs := p.spawnTableMobs[id]
+	return append([]string(nil), mobs...)
 }
 
 // ChargenOptions lists every character-creation option the pack carries, in

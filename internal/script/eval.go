@@ -379,7 +379,7 @@ func evalImpactIfRole(ctx context.Context, evaluator *Evaluator, node *Node, fra
 // evalImpactIncreaseQuestCount is the entire quest-count-special mechanism.
 // The command is idempotent under its execution key and the host clamps at the
 // objective's limit, because Quest_1_20/CountId_1 has two independent
-// incrementers (DressTrigger and BrokenDoorExploit) against a limit of 1.
+// increment paths (DressTrigger and BrokenDoorExploit) against a limit of 1.
 func evalImpactIncreaseQuestCount(ctx context.Context, evaluator *Evaluator, node *Node, frame Frame) error {
 	id, ok := node.Field("id")
 	if !ok || id.Kind != ValueRef {
