@@ -77,6 +77,7 @@ func implementedOpcode(opcode string) bool {
 	case "TriggerResource",
 		"PredicateAnd", "PredicateOr", "PredicateNot", "PredicateCharacterClass",
 		"PredicateCharacterRace", "PredicateIsAvatar",
+		"PredicateRemote", "PredicateEquipped",
 		"Switch", "EffectTrigger", "HealthTrigger", "EquipTrigger", "CombatStateTrigger",
 		"Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage",
 		"AddresseeFinderCaster", "AddresseeFinderSelf", "AddresseeFinderTarget",

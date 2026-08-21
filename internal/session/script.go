@@ -84,6 +84,7 @@ type ScriptDriver struct {
 	effects             *script.EffectRegistry
 	combat              *combat.Module
 	activeWarriorAction *activeWarriorAction
+	warriorCombatants   map[uint64]WarriorCombatant
 	// applyGuardUpdate is installed with combat. Keeping the host call as a
 	// function makes rejection behavior testable without weakening combat's
 	// public API.
@@ -140,6 +141,7 @@ func NewScriptDriver(
 		detachRetryScheduled: make(map[uint64]bool),
 		tagged:               make(map[uint64]bool),
 		summons:              make(map[string]uint64),
+		warriorCombatants:    make(map[uint64]WarriorCombatant),
 		effects:              script.NewEffectRegistry(),
 	}
 	driver.evaluator = script.New(scriptHost{driver: driver}, options)
@@ -480,6 +482,33 @@ func (host scriptHost) Query(_ context.Context, query script.Query) (script.Valu
 		return script.Value{
 			Kind: script.ValueBool, Bool: entity != nil && entity.Kind == gametypes.EntityKindPlayer,
 		}, nil
+	case script.QueryDistance:
+		entityID, err := parseEntityID(query.EntityID)
+		if err != nil {
+			return script.Value{}, err
+		}
+		otherID, err := parseEntityID(query.OtherEntityID)
+		if err != nil {
+			return script.Value{}, err
+		}
+		entity, other := host.driver.tick.Entity(entityID), host.driver.tick.Entity(otherID)
+		if entity == nil || other == nil {
+			return script.Value{}, gametypes.ErrUnknownEntity
+		}
+		millimetres := math.Round(float64(gametypes.Distance(
+			host.driver.tick.Position(entity), host.driver.tick.Position(other),
+		)) * 1000)
+		if millimetres > math.MaxInt64 {
+			return script.Value{}, fmt.Errorf("session: entity distance exceeds exact script range")
+		}
+		return script.Value{Kind: script.ValueDecimal, Mantissa: int64(millimetres), Scale: 3}, nil
+	case script.QueryEquipped:
+		entityID, err := parseEntityID(query.EntityID)
+		if err != nil {
+			return script.Value{}, err
+		}
+		actor, ok := host.driver.warriorCombatants[entityID]
+		return script.Value{Kind: script.ValueBool, Bool: ok && actor.EquippedDressTypes[query.Slot]}, nil
 	default:
 		// Class, race, quest-status and item queries wait for the quest-tree
 		// callers that need them; answering them wrongly here would be worse
@@ -712,6 +741,7 @@ func (host scriptHost) Apply(ctx context.Context, command script.Command) error 
 			CasterID: active.invocation.CasterID, TargetID: targetID,
 			AbilityID: active.invocation.AbilityID, ActionGroupID: active.invocation.ActionGroupID,
 			Damage: damage, ThreatMultiplier: threat, CanBeAvoided: command.CanBeAvoided,
+			ExecutionKey: command.ExecutionKey,
 		})
 		if err != nil {
 			return err
@@ -733,7 +763,7 @@ func (host scriptHost) Apply(ctx context.Context, command script.Command) error 
 		if err != nil {
 			return err
 		}
-		if err := driver.combat.SetScriptTarget(driver.tick, actorID, targetID); err != nil {
+		if err := driver.combat.SetScriptTarget(driver.tick, actorID, targetID, command.ExecutionKey); err != nil {
 			return err
 		}
 		if driver.activeWarriorAction != nil {

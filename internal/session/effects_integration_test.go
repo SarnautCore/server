@@ -73,8 +73,16 @@ func newEffectIntegrationFixtureWithGuardRange(
 	t *testing.T,
 	guardRange bool,
 ) *effectIntegrationFixture {
+	return newEffectIntegrationFixtureFromPack(t, guardRange, "demo")
+}
+
+func newEffectIntegrationFixtureFromPack(
+	t *testing.T,
+	guardRange bool,
+	packName string,
+) *effectIntegrationFixture {
 	t.Helper()
-	content, err := pack.Load(filepath.Join("..", "..", "testdata", "packs", "demo"), pack.Options{})
+	content, err := pack.Load(filepath.Join("..", "..", "testdata", "packs", packName), pack.Options{})
 	if err != nil {
 		t.Fatalf("pack.Load() error = %v", err)
 	}

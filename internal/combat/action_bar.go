@@ -164,22 +164,40 @@ func (module *Module) actionSlotState(
 		result.UnavailableReason = ActionUnavailableDisabled
 		return result
 	}
+	profile, scripted, err := module.actionProfile(caster.ID, ability.ID)
+	if err != nil {
+		result.UnavailableReason = ActionUnavailableDisabled
+		return result
+	}
+	var effectiveProfile *ScriptActionProfile
+	if scripted {
+		effectiveProfile = &profile
+	}
 	result.CooldownRemainingMS, result.CooldownDurationMS = module.cooldownMilliseconds(
-		tick, state, ability,
+		tick, state, ability, effectiveProfile,
 	)
 	if !caster.Alive {
 		result.UnavailableReason = ActionUnavailableActorDead
 		return result
 	}
-	rejection := module.validate(tick, caster, ability, selected)
+	rejection := module.validate(tick, caster, ability, selected, effectiveProfile)
 	if rejection == RejectionNone {
-		profile, scripted, err := module.actionProfile(caster.ID, ability.ID)
-		if err != nil {
-			result.UnavailableReason = ActionUnavailableDisabled
-			return result
-		}
 		if scripted {
-			rejection = validateActionResourceCost(state, profile)
+			invocation := ScriptActionInvocation{
+				CasterID: caster.ID, TargetID: selected, AbilityID: ability.ID,
+				ActionGroupID:     profile.ActionGroupID,
+				ActivationOrdinal: state.actionOrdinal + 1,
+				DefinitionDigest:  profile.DefinitionDigest,
+			}
+			var err error
+			rejection, err = module.scriptActions.ValidateAction(tick, invocation)
+			if err != nil {
+				result.UnavailableReason = ActionUnavailableDisabled
+				return result
+			}
+			if rejection == RejectionNone {
+				rejection = validateActionResourceCost(state, profile)
+			}
 		}
 	}
 	result.UnavailableReason = actionUnavailableReason(rejection)
@@ -243,15 +261,26 @@ func (module *Module) cooldownMilliseconds(
 	tick gametypes.Tick,
 	state *casterState,
 	ability gametypes.Ability,
+	profile *ScriptActionProfile,
 ) (remainingMS, durationMS int64) {
 	current := tick.Number()
 	var readyTick, durationTicks uint64
-	if ability.TriggersGCD {
+	triggersGCD := ability.TriggersGCD
+	ignoresGCD := false
+	cooldown := ability.Cooldown
+	readyKey := module.actionCooldownKey(ability.ID, ScriptActionProfile{}, false)
+	if profile != nil {
+		triggersGCD = profile.TriggersGlobalCooldown
+		ignoresGCD = profile.IgnoresGlobalCooldown
+		cooldown = profile.Cooldown
+		readyKey = module.actionCooldownKey(ability.ID, *profile, true)
+	}
+	if triggersGCD && !ignoresGCD {
 		readyTick = state.gcdReadyTick
 		durationTicks = module.gcdTicks(tick)
 	}
-	abilityReady := state.readyTick[ability.ID]
-	abilityDuration := ticksIn(ability.Cooldown, tick.Interval())
+	abilityReady := state.readyTick[readyKey]
+	abilityDuration := ticksIn(cooldown, tick.Interval())
 	if abilityReady > readyTick {
 		readyTick = abilityReady
 		durationTicks = abilityDuration

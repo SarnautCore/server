@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/SarnautCore/server/internal/gametypes"
 )
@@ -28,10 +29,16 @@ type ActionLoadout struct {
 // ScriptActionProfile is the combat projection of an extracted action. The
 // interpreter tree and character-stat scalers stay hidden in its adapter.
 type ScriptActionProfile struct {
-	AbilityID         string
-	ActionGroupID     string
-	ResourceKind      string
-	ResourceCostMilli int64
+	AbilityID              string
+	ActionGroupID          string
+	ResourceKind           string
+	ResourceCostMilli      int64
+	PrepareDuration        time.Duration
+	Cooldown               time.Duration
+	CooldownGroupID        string
+	TriggersGlobalCooldown bool
+	IgnoresGlobalCooldown  bool
+	DefinitionDigest       string
 }
 
 // ScriptActionInvocation is one action combat has admitted and paid for.
@@ -41,12 +48,18 @@ type ScriptActionInvocation struct {
 	AbilityID     string
 	ActionGroupID string
 	Sequence      uint64
+	// ActivationOrdinal is allocated by combat even when the client sends an
+	// unsequenced command. It is the stable probability/idempotency identity for
+	// this accepted activation.
+	ActivationOrdinal uint64
+	DefinitionDigest  string
 }
 
 // ScriptActionHost executes extracted action trees. It runs under the zone
 // lock and must not retain the tick or block.
 type ScriptActionHost interface {
 	Profile(casterID uint64, abilityID string) (ScriptActionProfile, bool)
+	ValidateAction(gametypes.Tick, ScriptActionInvocation) (Rejection, error)
 	ExecuteAction(gametypes.Tick, ScriptActionInvocation) (Event, error)
 }
 
@@ -60,6 +73,7 @@ type ScriptDamageRequest struct {
 	Damage           int32
 	ThreatMultiplier float64
 	CanBeAvoided     bool
+	ExecutionKey     string
 }
 
 type actionResource struct {
@@ -118,7 +132,8 @@ func (module *Module) actionProfile(casterID uint64, abilityID string) (ScriptAc
 	if !ok {
 		return ScriptActionProfile{}, false, nil
 	}
-	if profile.AbilityID != abilityID || profile.ResourceCostMilli < 0 {
+	if profile.AbilityID != abilityID || profile.DefinitionDigest == "" || profile.ResourceCostMilli < 0 ||
+		profile.PrepareDuration < 0 || profile.Cooldown < 0 {
 		return ScriptActionProfile{}, false, fmt.Errorf("combat: malformed script action profile for %q", abilityID)
 	}
 	if profile.ResourceCostMilli > 0 && profile.ResourceKind == "" {
@@ -150,6 +165,12 @@ func (module *Module) ApplyScriptDamage(
 	if tick == nil {
 		return Event{}, errors.New("combat: script damage has no active tick")
 	}
+	if request.ExecutionKey == "" {
+		return Event{}, errors.New("combat: script damage has no execution key")
+	}
+	if prior, ok := module.scriptDamageEvents[request.ExecutionKey]; ok {
+		return prior, nil
+	}
 	caster := tick.Entity(request.CasterID)
 	target := tick.Entity(request.TargetID)
 	ability, ok := module.rules.Ability(request.AbilityID)
@@ -177,9 +198,11 @@ func (module *Module) ApplyScriptDamage(
 			return Event{}, err
 		}
 	}
-	return module.applyDamage(
+	event := module.applyDamage(
 		tick, caster, target, ability, damage, request.ActionGroupID, request.ThreatMultiplier,
-	), nil
+	)
+	module.scriptDamageEvents[request.ExecutionKey] = event
+	return event, nil
 }
 
 // CompleteScriptAction publishes a successfully evaluated action that dealt
@@ -201,9 +224,15 @@ func (module *Module) CompleteScriptAction(
 }
 
 // SetScriptTarget applies ImpactSetTarget to a live combat actor.
-func (module *Module) SetScriptTarget(tick gametypes.Tick, actorID, targetID uint64) error {
+func (module *Module) SetScriptTarget(tick gametypes.Tick, actorID, targetID uint64, executionKey string) error {
 	if tick == nil {
 		return errors.New("combat: script target change has no active tick")
+	}
+	if executionKey == "" {
+		return errors.New("combat: script target change has no execution key")
+	}
+	if _, ok := module.scriptTargetExecutions[executionKey]; ok {
+		return nil
 	}
 	actor := tick.Entity(actorID)
 	target := tick.Entity(targetID)
@@ -215,11 +244,13 @@ func (module *Module) SetScriptTarget(tick gametypes.Tick, actorID, targetID uin
 	}
 	if state := module.casters[actorID]; state != nil {
 		state.selected = targetID
+		module.scriptTargetExecutions[executionKey] = struct{}{}
 		return nil
 	}
 	if state := module.mobs[actorID]; state != nil {
 		state.phase = phaseAggro
 		state.aggroTarget = targetID
+		module.scriptTargetExecutions[executionKey] = struct{}{}
 		return nil
 	}
 	return gametypes.ErrUnknownEntity

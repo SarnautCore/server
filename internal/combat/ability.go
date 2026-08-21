@@ -52,17 +52,28 @@ func (module *Module) useAbility(
 	if request.Seq != 0 && state.hasSeq && request.Seq <= state.lastSeq {
 		return Event{}, ErrDuplicateCommand
 	}
+	var err error
 
 	abilityID := request.AbilityID
 	if abilityID == "" {
 		abilityID = state.defaultAbility()
 	}
 	ability, ok := module.rules.Ability(abilityID)
+	var profile ScriptActionProfile
+	var scripted bool
 	rejected := RejectionNone
 	if !ok || !state.knows(abilityID) {
 		rejected = RejectionUnknownAbility
 	} else {
-		rejected = module.validate(tick, caster, ability, request.TargetID)
+		profile, scripted, err = module.actionProfile(casterID, ability.ID)
+		if err != nil {
+			return Event{}, err
+		}
+		if scripted {
+			rejected = module.validate(tick, caster, ability, request.TargetID, &profile)
+		} else {
+			rejected = module.validate(tick, caster, ability, request.TargetID, nil)
+		}
 	}
 
 	if rejected != RejectionNone {
@@ -80,19 +91,25 @@ func (module *Module) useAbility(
 		return event, rejected.err()
 	}
 
-	profile, scripted, err := module.actionProfile(casterID, ability.ID)
-	if err != nil {
-		return Event{}, err
+	activationOrdinal := state.actionOrdinal + 1
+	invocation := ScriptActionInvocation{
+		CasterID: casterID, TargetID: request.TargetID, AbilityID: ability.ID,
+		ActionGroupID: profile.ActionGroupID, Sequence: request.Seq,
+		ActivationOrdinal: activationOrdinal,
+		DefinitionDigest:  profile.DefinitionDigest,
 	}
 	if scripted {
+		rejected, err = module.scriptActions.ValidateAction(tick, invocation)
+		if err != nil {
+			return Event{}, err
+		}
+		if rejected != RejectionNone {
+			event := module.rejectAbility(tick, invocation, rejected)
+			return event, rejected.err()
+		}
 		rejected = validateActionResourceCost(state, profile)
 		if rejected != RejectionNone {
-			event := Event{
-				Kind: EventKindAbility, ServerTick: tick.Number(), ZoneID: tick.ZoneID(),
-				CasterID: casterID, TargetID: request.TargetID, AbilityID: abilityID,
-				ActionGroupID: profile.ActionGroupID, Rejection: rejected, PrivateTo: casterID,
-			}
-			module.publish(event)
+			event := module.rejectAbility(tick, invocation, rejected)
 			return event, rejected.err()
 		}
 	}
@@ -116,32 +133,55 @@ func (module *Module) useAbility(
 	previousHasSeq, previousLastSeq := state.hasSeq, state.lastSeq
 	state.hasSeq, state.lastSeq = true, request.Seq
 	previousGCD := state.gcdReadyTick
+	previousCast := state.castReadyTick
+	previousOrdinal := state.actionOrdinal
 	previousResource := state.resource.currentMilli
-	previousReady, hadPreviousReady := state.readyTick[ability.ID]
+	readyKey := module.actionCooldownKey(ability.ID, profile, scripted)
+	previousReady, hadPreviousReady := state.readyTick[readyKey]
 
 	// Rule 5.4.3: the cooldown is consumed before damage resolves, so an
 	// ability that kills its target still costs the caster its turn.
-	state.gcdReadyTick = tick.Number() + module.gcdTicks(tick)
-	if ability.Cooldown > 0 {
+	if (!scripted && ability.TriggersGCD) || scripted && profile.TriggersGlobalCooldown {
+		state.gcdReadyTick = tick.Number() + module.gcdTicks(tick)
+	}
+	cooldown := ability.Cooldown
+	if scripted {
+		cooldown = profile.Cooldown
+	}
+	if cooldown > 0 {
 		if state.readyTick == nil {
 			state.readyTick = make(map[string]uint64)
 		}
-		state.readyTick[ability.ID] = tick.Number() + ticksIn(ability.Cooldown, tick.Interval())
+		state.readyTick[readyKey] = tick.Number() + ticksIn(cooldown, tick.Interval())
 	}
 	if scripted {
+		state.actionOrdinal = activationOrdinal
 		consumeActionResource(state, profile)
-		event, executeErr := module.scriptActions.ExecuteAction(tick, ScriptActionInvocation{
-			CasterID: casterID, TargetID: request.TargetID, AbilityID: ability.ID,
-			ActionGroupID: profile.ActionGroupID, Sequence: request.Seq,
-		})
+		if profile.PrepareDuration > 0 {
+			prepareTicks := ticksIn(profile.PrepareDuration, tick.Interval())
+			state.castReadyTick = tick.Number() + prepareTicks
+			startEvent := Event{
+				Kind: EventKindAbility, ServerTick: tick.Number(), ZoneID: tick.ZoneID(),
+				CasterID: casterID, TargetID: request.TargetID, AbilityID: ability.ID,
+				ActionGroupID: profile.ActionGroupID,
+			}
+			module.publish(startEvent)
+			tick.After(prepareTicks, func(later gametypes.Tick) {
+				module.finishScriptAction(later, ability, profile, invocation)
+			})
+			return startEvent, nil
+		}
+		event, executeErr := module.scriptActions.ExecuteAction(tick, invocation)
 		if executeErr != nil && event.Kind == EventKindUnspecified {
 			state.hasSeq, state.lastSeq = previousHasSeq, previousLastSeq
 			state.gcdReadyTick = previousGCD
+			state.castReadyTick = previousCast
+			state.actionOrdinal = previousOrdinal
 			state.resource.currentMilli = previousResource
 			if hadPreviousReady {
-				state.readyTick[ability.ID] = previousReady
+				state.readyTick[readyKey] = previousReady
 			} else {
-				delete(state.readyTick, ability.ID)
+				delete(state.readyTick, readyKey)
 			}
 		}
 		return event, executeErr
@@ -154,6 +194,37 @@ func (module *Module) useAbility(
 // validate runs rules 5.2 to 5.4 in the order the spec states them, because
 // the order decides which reason a use that breaks two rules comes back with.
 func (module *Module) validate(
+	tick gametypes.Tick,
+	caster *gametypes.EntityData,
+	ability gametypes.Ability,
+	targetID uint64,
+	profile *ScriptActionProfile,
+) Rejection {
+	if rejected := module.validateTarget(tick, caster, ability, targetID); rejected != RejectionNone {
+		return rejected
+	}
+	state := module.casters[caster.ID]
+	if tick.Number() < state.castReadyTick {
+		return RejectionOnCooldown
+	}
+	triggersGCD := ability.TriggersGCD
+	ignoresGCD := false
+	readyKey := module.actionCooldownKey(ability.ID, ScriptActionProfile{}, false)
+	if profile != nil {
+		triggersGCD = profile.TriggersGlobalCooldown
+		ignoresGCD = profile.IgnoresGlobalCooldown
+		readyKey = module.actionCooldownKey(ability.ID, *profile, true)
+	}
+	if triggersGCD && !ignoresGCD && tick.Number() < state.gcdReadyTick {
+		return RejectionOnCooldown
+	}
+	if ready, ok := state.readyTick[readyKey]; ok && tick.Number() < ready {
+		return RejectionOnCooldown
+	}
+	return RejectionNone
+}
+
+func (module *Module) validateTarget(
 	tick gametypes.Tick,
 	caster *gametypes.EntityData,
 	ability gametypes.Ability,
@@ -187,15 +258,61 @@ func (module *Module) validate(
 	if gametypes.Distance(tick.Position(caster), tick.Position(target)) > ability.RangeM+rangeTolerance {
 		return RejectionOutOfRange
 	}
-	// Rule 5.4.1, plus the per-ability cooldown the pack may carry.
-	state := module.casters[caster.ID]
-	if ability.TriggersGCD && tick.Number() < state.gcdReadyTick {
-		return RejectionOnCooldown
-	}
-	if ready, ok := state.readyTick[ability.ID]; ok && tick.Number() < ready {
-		return RejectionOnCooldown
-	}
 	return RejectionNone
+}
+
+func (module *Module) actionCooldownKey(
+	abilityID string, profile ScriptActionProfile, scripted bool,
+) string {
+	if scripted && profile.CooldownGroupID != "" {
+		return "group:" + profile.CooldownGroupID
+	}
+	return "ability:" + abilityID
+}
+
+func (module *Module) rejectAbility(
+	tick gametypes.Tick, invocation ScriptActionInvocation, rejection Rejection,
+) Event {
+	event := Event{
+		Kind: EventKindAbility, ServerTick: tick.Number(), ZoneID: tick.ZoneID(),
+		CasterID: invocation.CasterID, TargetID: invocation.TargetID,
+		AbilityID: invocation.AbilityID, ActionGroupID: invocation.ActionGroupID,
+		Rejection: rejection, PrivateTo: invocation.CasterID,
+	}
+	module.publish(event)
+	return event
+}
+
+func (module *Module) finishScriptAction(
+	tick gametypes.Tick,
+	ability gametypes.Ability,
+	profile ScriptActionProfile,
+	invocation ScriptActionInvocation,
+) {
+	caster := tick.Entity(invocation.CasterID)
+	state := module.casters[invocation.CasterID]
+	if caster == nil || state == nil || !caster.Alive {
+		module.rejectAbility(tick, invocation, RejectionInvalidTarget)
+		return
+	}
+	if rejected := module.validateTarget(tick, caster, ability, invocation.TargetID); rejected != RejectionNone {
+		module.rejectAbility(tick, invocation, rejected)
+		return
+	}
+	if current, ok, err := module.actionProfile(invocation.CasterID, invocation.AbilityID); err != nil || !ok || current != profile {
+		module.rejectAbility(tick, invocation, RejectionUnknownAbility)
+		return
+	}
+	if rejected, err := module.scriptActions.ValidateAction(tick, invocation); err != nil || rejected != RejectionNone {
+		if rejected == RejectionNone {
+			rejected = RejectionInvalidTarget
+		}
+		module.rejectAbility(tick, invocation, rejected)
+		return
+	}
+	if event, err := module.scriptActions.ExecuteAction(tick, invocation); err != nil && event.Kind == EventKindUnspecified {
+		module.rejectAbility(tick, invocation, RejectionInvalidTarget)
+	}
 }
 
 // hostile answers rule 5.2.5: is the target's faction hostile to the caster's?

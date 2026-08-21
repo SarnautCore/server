@@ -67,7 +67,9 @@ type Module struct {
 	// scriptActions is the session-owned adapter that executes extracted
 	// action trees. Combat still owns admission, targets, resource, cooldown,
 	// damage, death, and events.
-	scriptActions ScriptActionHost
+	scriptActions          ScriptActionHost
+	scriptDamageEvents     map[string]Event
+	scriptTargetExecutions map[string]struct{}
 
 	events  chan Event
 	dropped atomic.Uint64
@@ -88,16 +90,18 @@ func New(logger *slog.Logger, zone gametypes.Zone, rules Rules, options Options)
 		faction = rules.PlayerFaction()
 	}
 	module := &Module{
-		logger:  logger,
-		zone:    zone,
-		rules:   rules,
-		level:   level,
-		faction: faction,
-		mobs:    make(map[uint64]*mobState),
-		casters: make(map[uint64]*casterState),
-		stream:  newSpawnStream(options.Seed),
-		events:  make(chan Event, eventQueueSize),
-		sinks:   make(map[uint64]EventSink),
+		logger:                 logger,
+		zone:                   zone,
+		rules:                  rules,
+		level:                  level,
+		faction:                faction,
+		mobs:                   make(map[uint64]*mobState),
+		casters:                make(map[uint64]*casterState),
+		stream:                 newSpawnStream(options.Seed),
+		events:                 make(chan Event, eventQueueSize),
+		sinks:                  make(map[uint64]EventSink),
+		scriptDamageEvents:     make(map[string]Event),
+		scriptTargetExecutions: make(map[string]struct{}),
 	}
 	zone.GameAddSystem(module)
 	return module
@@ -319,14 +323,16 @@ func (module *Module) publish(event Event) {
 
 // casterState is one entity's ability bookkeeping, in ticks.
 type casterState struct {
-	abilities    []string
-	actionBar    [ActionBarSlotCount]string
-	selected     uint64
-	gcdReadyTick uint64
-	readyTick    map[string]uint64
-	lastSeq      uint64
-	hasSeq       bool
-	resource     actionResource
+	abilities     []string
+	actionBar     [ActionBarSlotCount]string
+	selected      uint64
+	gcdReadyTick  uint64
+	readyTick     map[string]uint64
+	castReadyTick uint64
+	actionOrdinal uint64
+	lastSeq       uint64
+	hasSeq        bool
+	resource      actionResource
 }
 
 func (state *casterState) knows(abilityID string) bool {
