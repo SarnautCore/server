@@ -29,6 +29,7 @@ func TestItemBagLayoutContentFieldsPreserveTheContractNumbers(t *testing.T) {
 		"bag_layout_id":       10,
 		"bag_capacity":        11,
 		"bag_partition_sizes": 12,
+		"curse_eligible":      13,
 		"extra":               15,
 	}
 	for name, number := range want {
@@ -40,6 +41,25 @@ func TestItemBagLayoutContentFieldsPreserveTheContractNumbers(t *testing.T) {
 		if got := int32(field.Number()); got != number {
 			t.Errorf("Item.%s field number = %d, want %d", name, got, number)
 		}
+	}
+}
+
+func TestItemReturnsBakedCurseEligibility(t *testing.T) {
+	t.Parallel()
+
+	directory := rewriteItem(t, "item.consumable.harbor-tonic", func(row *contentv1.Item) {
+		row.CurseEligible = true
+	})
+	loaded, err := Load(directory, Options{})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	item, ok := loaded.Item("item.consumable.harbor-tonic")
+	if !ok {
+		t.Fatal("Item() rejected a row with baked curse eligibility")
+	}
+	if !item.CurseEligible {
+		t.Error("Item().CurseEligible = false, want the baked true value")
 	}
 }
 

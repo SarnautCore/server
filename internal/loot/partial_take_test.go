@@ -125,9 +125,9 @@ func TestTakeItemUsesOrderedIndexIdentityForDuplicateIDs(t *testing.T) {
 	module := newPartialTakeModule(Drop{
 		Money: 9,
 		Items: []ItemGrant{
-			{ItemID: "item.same", Count: 1},
-			{ItemID: "item.same", Count: 7},
-			{ItemID: "item.tail", Count: 3},
+			{ItemID: "item.same", Count: 1, IsCursed: false},
+			{ItemID: "item.same", Count: 7, IsCursed: false},
+			{ItemID: "item.tail", Count: 3, IsCursed: false},
 		},
 	}, awarder)
 
@@ -135,11 +135,11 @@ func TestTakeItemUsesOrderedIndexIdentityForDuplicateIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TakeItem() error = %v", err)
 	}
-	if want := []ItemGrant{{ItemID: "item.same", Count: 7}}; !reflect.DeepEqual(result.Items, want) {
+	if want := []ItemGrant{{ItemID: "item.same", Count: 7, IsCursed: false}}; !reflect.DeepEqual(result.Items, want) {
 		t.Fatalf("TakeItem() items = %+v, want %+v", result.Items, want)
 	}
 	if got, want := awarder.snapshot(), []inventory.Award{{
-		Grants: []inventory.Grant{{ItemID: "item.same", Count: 7}},
+		Grants: []inventory.Grant{{ItemID: "item.same", Count: 7, Cursed: false}},
 	}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("awards = %+v, want %+v", got, want)
 	}
@@ -149,8 +149,8 @@ func TestTakeItemUsesOrderedIndexIdentityForDuplicateIDs(t *testing.T) {
 		t.Fatalf("Look() refusal = %s", refusal)
 	}
 	wantRemaining := []ItemGrant{
-		{ItemID: "item.same", Count: 1},
-		{ItemID: "item.tail", Count: 3},
+		{ItemID: "item.same", Count: 1, IsCursed: false},
+		{ItemID: "item.tail", Count: 3, IsCursed: false},
 	}
 	if offer.Money != 9 || !reflect.DeepEqual(offer.Items, wantRemaining) {
 		t.Fatalf("remaining offer = money %d, items %+v; want 9, %+v", offer.Money, offer.Items, wantRemaining)
@@ -159,7 +159,7 @@ func TestTakeItemUsesOrderedIndexIdentityForDuplicateIDs(t *testing.T) {
 
 func TestInvalidItemIndexIsTypedAndCannotMutate(t *testing.T) {
 	awarder := &recordingAwarder{}
-	original := Drop{Money: 5, Items: []ItemGrant{{ItemID: "item.one", Count: 2}}}
+	original := Drop{Money: 5, Items: []ItemGrant{{ItemID: "item.one", Count: 2, IsCursed: false}}}
 	module := newPartialTakeModule(original, awarder)
 
 	for _, index := range []int32{-2, 1, 20} {
@@ -182,7 +182,10 @@ func TestFailedPartialAwardReleasesTheWholeCorpseUnchanged(t *testing.T) {
 	awarder := &recordingAwarder{err: injected}
 	original := Drop{
 		Money: 13,
-		Items: []ItemGrant{{ItemID: "item.a", Count: 1}, {ItemID: "item.b", Count: 2}},
+		Items: []ItemGrant{
+			{ItemID: "item.a", Count: 1, IsCursed: false},
+			{ItemID: "item.b", Count: 2, IsCursed: true},
+		},
 	}
 	module := newPartialTakeModule(original, awarder)
 
@@ -205,7 +208,7 @@ func TestTakeMoneyCreditsOnlyMoneyAndLastComponentMarksLooted(t *testing.T) {
 	awarder := &recordingAwarder{}
 	module := newPartialTakeModule(Drop{
 		Money: 17,
-		Items: []ItemGrant{{ItemID: "item.left", Count: 4}},
+		Items: []ItemGrant{{ItemID: "item.left", Count: 4, IsCursed: false}},
 	}, awarder)
 
 	money, err := module.TakeMoney(context.Background(), partialTakeActor, partialTakeCorpse)
@@ -235,7 +238,10 @@ func TestEveryConcurrentTakeVerbRefusesWhileAwardIsInProgress(t *testing.T) {
 	awarder := &recordingAwarder{started: make(chan struct{}), release: make(chan struct{})}
 	module := newPartialTakeModule(Drop{
 		Money: 23,
-		Items: []ItemGrant{{ItemID: "item.a", Count: 1}, {ItemID: "item.b", Count: 2}},
+		Items: []ItemGrant{
+			{ItemID: "item.a", Count: 1, IsCursed: false},
+			{ItemID: "item.b", Count: 2, IsCursed: false},
+		},
 	}, awarder)
 
 	done := make(chan error, 1)
@@ -275,7 +281,7 @@ func TestEveryConcurrentTakeVerbRefusesWhileAwardIsInProgress(t *testing.T) {
 	}
 	offer, refusal := module.Look(partialTakeActor, partialTakeCorpse)
 	if refusal != RefusalNone || offer.Money != 23 || !reflect.DeepEqual(offer.Items,
-		[]ItemGrant{{ItemID: "item.b", Count: 2}}) {
+		[]ItemGrant{{ItemID: "item.b", Count: 2, IsCursed: false}}) {
 		t.Fatalf("remaining offer = %+v, refusal %s", offer, refusal)
 	}
 }
@@ -291,7 +297,7 @@ func TestTakeAndMinusOneSelectorRemainTakeAllCompatible(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			awarder := &recordingAwarder{}
-			original := Drop{Money: 3, Items: []ItemGrant{{ItemID: "item.all", Count: 2}}}
+			original := Drop{Money: 3, Items: []ItemGrant{{ItemID: "item.all", Count: 2, IsCursed: false}}}
 			module := newPartialTakeModule(original, awarder)
 			result, err := take(module)
 			if err != nil || result.Money != original.Money || !reflect.DeepEqual(result.Items, original.Items) {

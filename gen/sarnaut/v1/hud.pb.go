@@ -376,6 +376,7 @@ const (
 	LootUiRefusal_LOOT_UI_REFUSAL_IN_PROGRESS    LootUiRefusal = 6
 	LootUiRefusal_LOOT_UI_REFUSAL_INTERNAL       LootUiRefusal = 7
 	LootUiRefusal_LOOT_UI_REFUSAL_INVALID_INDEX  LootUiRefusal = 8
+	LootUiRefusal_LOOT_UI_REFUSAL_STALE_REVISION LootUiRefusal = 9
 )
 
 // Enum value maps for LootUiRefusal.
@@ -390,6 +391,7 @@ var (
 		6: "LOOT_UI_REFUSAL_IN_PROGRESS",
 		7: "LOOT_UI_REFUSAL_INTERNAL",
 		8: "LOOT_UI_REFUSAL_INVALID_INDEX",
+		9: "LOOT_UI_REFUSAL_STALE_REVISION",
 	}
 	LootUiRefusal_value = map[string]int32{
 		"LOOT_UI_REFUSAL_UNSPECIFIED":    0,
@@ -401,6 +403,7 @@ var (
 		"LOOT_UI_REFUSAL_IN_PROGRESS":    6,
 		"LOOT_UI_REFUSAL_INTERNAL":       7,
 		"LOOT_UI_REFUSAL_INVALID_INDEX":  8,
+		"LOOT_UI_REFUSAL_STALE_REVISION": 9,
 	}
 )
 
@@ -880,21 +883,23 @@ const (
 	ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_ACTOR_DEAD     ActionUnavailableReason = 7
 	ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_DISABLED       ActionUnavailableReason = 8
 	ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_INTERNAL       ActionUnavailableReason = 9
+	ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_NO_RESOURCE    ActionUnavailableReason = 10
 )
 
 // Enum value maps for ActionUnavailableReason.
 var (
 	ActionUnavailableReason_name = map[int32]string{
-		0: "ACTION_UNAVAILABLE_REASON_UNSPECIFIED",
-		1: "ACTION_UNAVAILABLE_REASON_NONE",
-		2: "ACTION_UNAVAILABLE_REASON_EMPTY_SLOT",
-		3: "ACTION_UNAVAILABLE_REASON_ON_COOLDOWN",
-		4: "ACTION_UNAVAILABLE_REASON_NO_TARGET",
-		5: "ACTION_UNAVAILABLE_REASON_INVALID_TARGET",
-		6: "ACTION_UNAVAILABLE_REASON_OUT_OF_RANGE",
-		7: "ACTION_UNAVAILABLE_REASON_ACTOR_DEAD",
-		8: "ACTION_UNAVAILABLE_REASON_DISABLED",
-		9: "ACTION_UNAVAILABLE_REASON_INTERNAL",
+		0:  "ACTION_UNAVAILABLE_REASON_UNSPECIFIED",
+		1:  "ACTION_UNAVAILABLE_REASON_NONE",
+		2:  "ACTION_UNAVAILABLE_REASON_EMPTY_SLOT",
+		3:  "ACTION_UNAVAILABLE_REASON_ON_COOLDOWN",
+		4:  "ACTION_UNAVAILABLE_REASON_NO_TARGET",
+		5:  "ACTION_UNAVAILABLE_REASON_INVALID_TARGET",
+		6:  "ACTION_UNAVAILABLE_REASON_OUT_OF_RANGE",
+		7:  "ACTION_UNAVAILABLE_REASON_ACTOR_DEAD",
+		8:  "ACTION_UNAVAILABLE_REASON_DISABLED",
+		9:  "ACTION_UNAVAILABLE_REASON_INTERNAL",
+		10: "ACTION_UNAVAILABLE_REASON_NO_RESOURCE",
 	}
 	ActionUnavailableReason_value = map[string]int32{
 		"ACTION_UNAVAILABLE_REASON_UNSPECIFIED":    0,
@@ -907,6 +912,7 @@ var (
 		"ACTION_UNAVAILABLE_REASON_ACTOR_DEAD":     7,
 		"ACTION_UNAVAILABLE_REASON_DISABLED":       8,
 		"ACTION_UNAVAILABLE_REASON_INTERNAL":       9,
+		"ACTION_UNAVAILABLE_REASON_NO_RESOURCE":    10,
 	}
 )
 
@@ -2274,34 +2280,36 @@ func (x *QuestLocation) GetPosition() *Vec3 {
 // text and map ids. Optional fields retain the retail distinction between an
 // absent value and an authored empty or zero value.
 type QuestInfo struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Id                  string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name                string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	DebugName           *string                `protobuf:"bytes,3,opt,name=debug_name,json=debugName,proto3,oneof" json:"debug_name,omitempty"`
-	Level               uint32                 `protobuf:"varint,4,opt,name=level,proto3" json:"level,omitempty"`
-	IsHideLevel         bool                   `protobuf:"varint,5,opt,name=is_hide_level,json=isHideLevel,proto3" json:"is_hide_level,omitempty"`
-	RequiredLevel       uint32                 `protobuf:"varint,6,opt,name=required_level,json=requiredLevel,proto3" json:"required_level,omitempty"`
-	Goal                string                 `protobuf:"bytes,7,opt,name=goal,proto3" json:"goal,omitempty"`
-	StartText           string                 `protobuf:"bytes,8,opt,name=start_text,json=startText,proto3" json:"start_text,omitempty"`
-	CheckText           string                 `protobuf:"bytes,9,opt,name=check_text,json=checkText,proto3" json:"check_text,omitempty"`
-	FinishText          string                 `protobuf:"bytes,10,opt,name=finish_text,json=finishText,proto3" json:"finish_text,omitempty"`
-	KickText            string                 `protobuf:"bytes,11,opt,name=kick_text,json=kickText,proto3" json:"kick_text,omitempty"`
-	PlotLine            string                 `protobuf:"bytes,12,opt,name=plot_line,json=plotLine,proto3" json:"plot_line,omitempty"`
-	Shared              bool                   `protobuf:"varint,13,opt,name=shared,proto3" json:"shared,omitempty"`
-	CanCancel           bool                   `protobuf:"varint,14,opt,name=can_cancel,json=canCancel,proto3" json:"can_cancel,omitempty"`
-	Type                string                 `protobuf:"bytes,15,opt,name=type,proto3" json:"type,omitempty"`
-	IsPvp               bool                   `protobuf:"varint,16,opt,name=is_pvp,json=isPvp,proto3" json:"is_pvp,omitempty"`
-	IsInSecretSequence  bool                   `protobuf:"varint,17,opt,name=is_in_secret_sequence,json=isInSecretSequence,proto3" json:"is_in_secret_sequence,omitempty"`
-	IsTutorial          bool                   `protobuf:"varint,18,opt,name=is_tutorial,json=isTutorial,proto3" json:"is_tutorial,omitempty"`
-	IsRepeatable        bool                   `protobuf:"varint,19,opt,name=is_repeatable,json=isRepeatable,proto3" json:"is_repeatable,omitempty"`
-	CanRepeat           bool                   `protobuf:"varint,20,opt,name=can_repeat,json=canRepeat,proto3" json:"can_repeat,omitempty"`
-	RepeatPeriod        string                 `protobuf:"bytes,21,opt,name=repeat_period,json=repeatPeriod,proto3" json:"repeat_period,omitempty"`
-	IsSecret            bool                   `protobuf:"varint,22,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
-	ZoneName            string                 `protobuf:"bytes,23,opt,name=zone_name,json=zoneName,proto3" json:"zone_name,omitempty"`
-	ZonesMapId          *string                `protobuf:"bytes,24,opt,name=zones_map_id,json=zonesMapId,proto3,oneof" json:"zones_map_id,omitempty"`
-	GoalLocation        *QuestLocation         `protobuf:"bytes,25,opt,name=goal_location,json=goalLocation,proto3" json:"goal_location,omitempty"`
-	ReturnLocation      *QuestLocation         `protobuf:"bytes,26,opt,name=return_location,json=returnLocation,proto3" json:"return_location,omitempty"`
-	AdditionalLocations []*QuestLocation       `protobuf:"bytes,27,rep,name=additional_locations,json=additionalLocations,proto3" json:"additional_locations,omitempty"`
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name               string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	DebugName          *string                `protobuf:"bytes,3,opt,name=debug_name,json=debugName,proto3,oneof" json:"debug_name,omitempty"`
+	Level              uint32                 `protobuf:"varint,4,opt,name=level,proto3" json:"level,omitempty"`
+	IsHideLevel        bool                   `protobuf:"varint,5,opt,name=is_hide_level,json=isHideLevel,proto3" json:"is_hide_level,omitempty"`
+	RequiredLevel      uint32                 `protobuf:"varint,6,opt,name=required_level,json=requiredLevel,proto3" json:"required_level,omitempty"`
+	Goal               string                 `protobuf:"bytes,7,opt,name=goal,proto3" json:"goal,omitempty"`
+	StartText          string                 `protobuf:"bytes,8,opt,name=start_text,json=startText,proto3" json:"start_text,omitempty"`
+	CheckText          string                 `protobuf:"bytes,9,opt,name=check_text,json=checkText,proto3" json:"check_text,omitempty"`
+	FinishText         string                 `protobuf:"bytes,10,opt,name=finish_text,json=finishText,proto3" json:"finish_text,omitempty"`
+	KickText           string                 `protobuf:"bytes,11,opt,name=kick_text,json=kickText,proto3" json:"kick_text,omitempty"`
+	PlotLine           string                 `protobuf:"bytes,12,opt,name=plot_line,json=plotLine,proto3" json:"plot_line,omitempty"`
+	Shared             bool                   `protobuf:"varint,13,opt,name=shared,proto3" json:"shared,omitempty"`
+	CanCancel          bool                   `protobuf:"varint,14,opt,name=can_cancel,json=canCancel,proto3" json:"can_cancel,omitempty"`
+	Type               string                 `protobuf:"bytes,15,opt,name=type,proto3" json:"type,omitempty"`
+	IsPvp              bool                   `protobuf:"varint,16,opt,name=is_pvp,json=isPvp,proto3" json:"is_pvp,omitempty"`
+	IsInSecretSequence bool                   `protobuf:"varint,17,opt,name=is_in_secret_sequence,json=isInSecretSequence,proto3" json:"is_in_secret_sequence,omitempty"`
+	IsTutorial         bool                   `protobuf:"varint,18,opt,name=is_tutorial,json=isTutorial,proto3" json:"is_tutorial,omitempty"`
+	IsRepeatable       bool                   `protobuf:"varint,19,opt,name=is_repeatable,json=isRepeatable,proto3" json:"is_repeatable,omitempty"`
+	CanRepeat          bool                   `protobuf:"varint,20,opt,name=can_repeat,json=canRepeat,proto3" json:"can_repeat,omitempty"`
+	// Raw authored QuestResource.cooldown units. Projection clamps negatives to
+	// zero; this field deliberately does not invent a millisecond unit.
+	RepeatPeriod        int32            `protobuf:"varint,21,opt,name=repeat_period,json=repeatPeriod,proto3" json:"repeat_period,omitempty"`
+	IsSecret            bool             `protobuf:"varint,22,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
+	ZoneName            string           `protobuf:"bytes,23,opt,name=zone_name,json=zoneName,proto3" json:"zone_name,omitempty"`
+	ZonesMapId          *string          `protobuf:"bytes,24,opt,name=zones_map_id,json=zonesMapId,proto3,oneof" json:"zones_map_id,omitempty"`
+	GoalLocation        *QuestLocation   `protobuf:"bytes,25,opt,name=goal_location,json=goalLocation,proto3" json:"goal_location,omitempty"`
+	ReturnLocation      *QuestLocation   `protobuf:"bytes,26,opt,name=return_location,json=returnLocation,proto3" json:"return_location,omitempty"`
+	AdditionalLocations []*QuestLocation `protobuf:"bytes,27,rep,name=additional_locations,json=additionalLocations,proto3" json:"additional_locations,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -2476,11 +2484,11 @@ func (x *QuestInfo) GetCanRepeat() bool {
 	return false
 }
 
-func (x *QuestInfo) GetRepeatPeriod() string {
+func (x *QuestInfo) GetRepeatPeriod() int32 {
 	if x != nil {
 		return x.RepeatPeriod
 	}
-	return ""
+	return 0
 }
 
 func (x *QuestInfo) GetIsSecret() bool {
@@ -3986,6 +3994,114 @@ func (x *ActionBarReplacement) GetSlots() []*ActionBarSlotState {
 	return nil
 }
 
+type SocialFriend struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical lowercase character UUID, stable across reconnects.
+	CharacterId   string `protobuf:"bytes,1,opt,name=character_id,json=characterId,proto3" json:"character_id,omitempty"`
+	DisplayName   string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SocialFriend) Reset() {
+	*x = SocialFriend{}
+	mi := &file_sarnaut_v1_hud_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SocialFriend) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SocialFriend) ProtoMessage() {}
+
+func (x *SocialFriend) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_v1_hud_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SocialFriend.ProtoReflect.Descriptor instead.
+func (*SocialFriend) Descriptor() ([]byte, []int) {
+	return file_sarnaut_v1_hud_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *SocialFriend) GetCharacterId() string {
+	if x != nil {
+		return x.CharacterId
+	}
+	return ""
+}
+
+func (x *SocialFriend) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+// SocialFriendsReplacement carries stable character identity and the current
+// display name only. Anti-spam scoring is client-local and recipient-specific;
+// the server remains unaware of that score.
+type SocialFriendsReplacement struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Revision      uint64                 `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	Friends       []*SocialFriend        `protobuf:"bytes,2,rep,name=friends,proto3" json:"friends,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SocialFriendsReplacement) Reset() {
+	*x = SocialFriendsReplacement{}
+	mi := &file_sarnaut_v1_hud_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SocialFriendsReplacement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SocialFriendsReplacement) ProtoMessage() {}
+
+func (x *SocialFriendsReplacement) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_v1_hud_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SocialFriendsReplacement.ProtoReflect.Descriptor instead.
+func (*SocialFriendsReplacement) Descriptor() ([]byte, []int) {
+	return file_sarnaut_v1_hud_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *SocialFriendsReplacement) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *SocialFriendsReplacement) GetFriends() []*SocialFriend {
+	if x != nil {
+		return x.Friends
+	}
+	return nil
+}
+
 var file_sarnaut_v1_hud_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
@@ -4244,7 +4360,7 @@ const file_sarnaut_v1_hud_proto_rawDesc = "" +
 	"\ris_repeatable\x18\x13 \x01(\bR\fisRepeatable\x12\x1d\n" +
 	"\n" +
 	"can_repeat\x18\x14 \x01(\bR\tcanRepeat\x12#\n" +
-	"\rrepeat_period\x18\x15 \x01(\tR\frepeatPeriod\x12\x1b\n" +
+	"\rrepeat_period\x18\x15 \x01(\x05R\frepeatPeriod\x12\x1b\n" +
 	"\tis_secret\x18\x16 \x01(\bR\bisSecret\x12\x1b\n" +
 	"\tzone_name\x18\x17 \x01(\tR\bzoneName\x12%\n" +
 	"\fzones_map_id\x18\x18 \x01(\tH\x01R\n" +
@@ -4398,7 +4514,13 @@ const file_sarnaut_v1_hud_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x02 \x01(\x04R\trequestId\x12R\n" +
 	"\x12activation_refusal\x18\x03 \x01(\x0e2#.sarnaut.v1.ActionActivationRefusalR\x11activationRefusal\x12:\n" +
-	"\x05slots\x18\x04 \x03(\v2\x1e.sarnaut.v1.ActionBarSlotStateB\x04\xd0\xf3\x18$R\x05slots*\xbd\x03\n" +
+	"\x05slots\x18\x04 \x03(\v2\x1e.sarnaut.v1.ActionBarSlotStateB\x04\xd0\xf3\x18$R\x05slots\"T\n" +
+	"\fSocialFriend\x12!\n" +
+	"\fcharacter_id\x18\x01 \x01(\tR\vcharacterId\x12!\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\"j\n" +
+	"\x18SocialFriendsReplacement\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\x04R\brevision\x122\n" +
+	"\afriends\x18\x02 \x03(\v2\x18.sarnaut.v1.SocialFriendR\afriends*\xbd\x03\n" +
 	"\x11InventoryLayoutId\x12)\n" +
 	"\x1fINVENTORY_LAYOUT_ID_UNSPECIFIED\x10\x00\x1a\x04\xea\xf9\x18\x00\x12#\n" +
 	"\x16INVENTORY_LAYOUT_ID_12\x10\f\x1a\a\xea\xf9\x18\x03\n" +
@@ -4470,7 +4592,7 @@ const file_sarnaut_v1_hud_proto_rawDesc = "" +
 	"\x12\x1d\n" +
 	"\x19CHARACTER_STAT_ID_RESOLVE\x10\v\x12\x1c\n" +
 	"\x18CHARACTER_STAT_ID_WISDOM\x10\f\x12\x1f\n" +
-	"\x1bCHARACTER_STAT_ID_LETHALITY\x10\r*\xb0\x02\n" +
+	"\x1bCHARACTER_STAT_ID_LETHALITY\x10\r*\xd4\x02\n" +
 	"\rLootUiRefusal\x12\x1f\n" +
 	"\x1bLOOT_UI_REFUSAL_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14LOOT_UI_REFUSAL_NONE\x10\x01\x12\x1d\n" +
@@ -4480,7 +4602,8 @@ const file_sarnaut_v1_hud_proto_rawDesc = "" +
 	"\x18LOOT_UI_REFUSAL_BAG_FULL\x10\x05\x12\x1f\n" +
 	"\x1bLOOT_UI_REFUSAL_IN_PROGRESS\x10\x06\x12\x1c\n" +
 	"\x18LOOT_UI_REFUSAL_INTERNAL\x10\a\x12!\n" +
-	"\x1dLOOT_UI_REFUSAL_INVALID_INDEX\x10\b*\x8b\x01\n" +
+	"\x1dLOOT_UI_REFUSAL_INVALID_INDEX\x10\b\x12\"\n" +
+	"\x1eLOOT_UI_REFUSAL_STALE_REVISION\x10\t*\x8b\x01\n" +
 	"\fQuestUiState\x12\x1e\n" +
 	"\x1aQUEST_UI_STATE_IN_PROGRESS\x10\x00\x12\"\n" +
 	"\x1eQUEST_UI_STATE_READY_TO_RETURN\x10\x01\x12\x1c\n" +
@@ -4540,7 +4663,7 @@ const file_sarnaut_v1_hud_proto_rawDesc = "" +
 	"\x1aTARGET_SELECT_REFUSAL_NONE\x10\x01\x12#\n" +
 	"\x1fTARGET_SELECT_REFUSAL_NO_TARGET\x10\x02\x12(\n" +
 	"$TARGET_SELECT_REFUSAL_INVALID_TARGET\x10\x03\x12%\n" +
-	"!TARGET_SELECT_REFUSAL_TARGET_DEAD\x10\x04*\xba\x03\n" +
+	"!TARGET_SELECT_REFUSAL_TARGET_DEAD\x10\x04*\xe5\x03\n" +
 	"\x17ActionUnavailableReason\x12)\n" +
 	"%ACTION_UNAVAILABLE_REASON_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eACTION_UNAVAILABLE_REASON_NONE\x10\x01\x12(\n" +
@@ -4551,7 +4674,9 @@ const file_sarnaut_v1_hud_proto_rawDesc = "" +
 	"&ACTION_UNAVAILABLE_REASON_OUT_OF_RANGE\x10\x06\x12(\n" +
 	"$ACTION_UNAVAILABLE_REASON_ACTOR_DEAD\x10\a\x12&\n" +
 	"\"ACTION_UNAVAILABLE_REASON_DISABLED\x10\b\x12&\n" +
-	"\"ACTION_UNAVAILABLE_REASON_INTERNAL\x10\t*\x94\x02\n" +
+	"\"ACTION_UNAVAILABLE_REASON_INTERNAL\x10\t\x12)\n" +
+	"%ACTION_UNAVAILABLE_REASON_NO_RESOURCE\x10\n" +
+	"*\x94\x02\n" +
 	"\x17ActionActivationRefusal\x12)\n" +
 	"%ACTION_ACTIVATION_REFUSAL_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eACTION_ACTIVATION_REFUSAL_NONE\x10\x01\x12,\n" +
@@ -4584,7 +4709,7 @@ func file_sarnaut_v1_hud_proto_rawDescGZIP() []byte {
 }
 
 var file_sarnaut_v1_hud_proto_enumTypes = make([]protoimpl.EnumInfo, 14)
-var file_sarnaut_v1_hud_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_sarnaut_v1_hud_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_sarnaut_v1_hud_proto_goTypes = []any{
 	(InventoryLayoutId)(0),                // 0: sarnaut.v1.InventoryLayoutId
 	(InventoryMoveRefusal)(0),             // 1: sarnaut.v1.InventoryMoveRefusal
@@ -4638,10 +4763,12 @@ var file_sarnaut_v1_hud_proto_goTypes = []any{
 	(*ActivateAction)(nil),                // 49: sarnaut.v1.ActivateAction
 	(*ActionBarSlotState)(nil),            // 50: sarnaut.v1.ActionBarSlotState
 	(*ActionBarReplacement)(nil),          // 51: sarnaut.v1.ActionBarReplacement
-	(*Vec3)(nil),                          // 52: sarnaut.v1.Vec3
-	(*descriptorpb.FieldOptions)(nil),     // 53: google.protobuf.FieldOptions
-	(*descriptorpb.EnumValueOptions)(nil), // 54: google.protobuf.EnumValueOptions
-	(*descriptorpb.MessageOptions)(nil),   // 55: google.protobuf.MessageOptions
+	(*SocialFriend)(nil),                  // 52: sarnaut.v1.SocialFriend
+	(*SocialFriendsReplacement)(nil),      // 53: sarnaut.v1.SocialFriendsReplacement
+	(*Vec3)(nil),                          // 54: sarnaut.v1.Vec3
+	(*descriptorpb.FieldOptions)(nil),     // 55: google.protobuf.FieldOptions
+	(*descriptorpb.EnumValueOptions)(nil), // 56: google.protobuf.EnumValueOptions
+	(*descriptorpb.MessageOptions)(nil),   // 57: google.protobuf.MessageOptions
 }
 var file_sarnaut_v1_hud_proto_depIdxs = []int32{
 	15, // 0: sarnaut.v1.InventorySlotState.item:type_name -> sarnaut.v1.ItemStackState
@@ -4659,7 +4786,7 @@ var file_sarnaut_v1_hud_proto_depIdxs = []int32{
 	23, // 12: sarnaut.v1.CharacterStateReplacement.stats:type_name -> sarnaut.v1.CharacterStatState
 	4,  // 13: sarnaut.v1.LootStateReplacement.refusal:type_name -> sarnaut.v1.LootUiRefusal
 	29, // 14: sarnaut.v1.LootStateReplacement.items:type_name -> sarnaut.v1.LootItemState
-	52, // 15: sarnaut.v1.QuestLocation.position:type_name -> sarnaut.v1.Vec3
+	54, // 15: sarnaut.v1.QuestLocation.position:type_name -> sarnaut.v1.Vec3
 	31, // 16: sarnaut.v1.QuestInfo.goal_location:type_name -> sarnaut.v1.QuestLocation
 	31, // 17: sarnaut.v1.QuestInfo.return_location:type_name -> sarnaut.v1.QuestLocation
 	31, // 18: sarnaut.v1.QuestInfo.additional_locations:type_name -> sarnaut.v1.QuestLocation
@@ -4687,21 +4814,22 @@ var file_sarnaut_v1_hud_proto_depIdxs = []int32{
 	12, // 40: sarnaut.v1.ActionBarSlotState.unavailable_reason:type_name -> sarnaut.v1.ActionUnavailableReason
 	13, // 41: sarnaut.v1.ActionBarReplacement.activation_refusal:type_name -> sarnaut.v1.ActionActivationRefusal
 	50, // 42: sarnaut.v1.ActionBarReplacement.slots:type_name -> sarnaut.v1.ActionBarSlotState
-	53, // 43: sarnaut.v1.max_count:extendee -> google.protobuf.FieldOptions
-	53, // 44: sarnaut.v1.exact_count:extendee -> google.protobuf.FieldOptions
-	53, // 45: sarnaut.v1.max_uint:extendee -> google.protobuf.FieldOptions
-	53, // 46: sarnaut.v1.fixed_uint:extendee -> google.protobuf.FieldOptions
-	53, // 47: sarnaut.v1.min_sint:extendee -> google.protobuf.FieldOptions
-	53, // 48: sarnaut.v1.max_sint:extendee -> google.protobuf.FieldOptions
-	54, // 49: sarnaut.v1.inventory_partition_layout:extendee -> google.protobuf.EnumValueOptions
-	55, // 50: sarnaut.v1.unique_nonzero_instance_ids:extendee -> google.protobuf.MessageOptions
-	55, // 51: sarnaut.v1.equipped_bag_is_reference:extendee -> google.protobuf.MessageOptions
-	14, // 52: sarnaut.v1.inventory_partition_layout:type_name -> sarnaut.v1.InventoryPartitionLayout
-	53, // [53:53] is the sub-list for method output_type
-	53, // [53:53] is the sub-list for method input_type
-	52, // [52:53] is the sub-list for extension type_name
-	43, // [43:52] is the sub-list for extension extendee
-	0,  // [0:43] is the sub-list for field type_name
+	52, // 43: sarnaut.v1.SocialFriendsReplacement.friends:type_name -> sarnaut.v1.SocialFriend
+	55, // 44: sarnaut.v1.max_count:extendee -> google.protobuf.FieldOptions
+	55, // 45: sarnaut.v1.exact_count:extendee -> google.protobuf.FieldOptions
+	55, // 46: sarnaut.v1.max_uint:extendee -> google.protobuf.FieldOptions
+	55, // 47: sarnaut.v1.fixed_uint:extendee -> google.protobuf.FieldOptions
+	55, // 48: sarnaut.v1.min_sint:extendee -> google.protobuf.FieldOptions
+	55, // 49: sarnaut.v1.max_sint:extendee -> google.protobuf.FieldOptions
+	56, // 50: sarnaut.v1.inventory_partition_layout:extendee -> google.protobuf.EnumValueOptions
+	57, // 51: sarnaut.v1.unique_nonzero_instance_ids:extendee -> google.protobuf.MessageOptions
+	57, // 52: sarnaut.v1.equipped_bag_is_reference:extendee -> google.protobuf.MessageOptions
+	14, // 53: sarnaut.v1.inventory_partition_layout:type_name -> sarnaut.v1.InventoryPartitionLayout
+	54, // [54:54] is the sub-list for method output_type
+	54, // [54:54] is the sub-list for method input_type
+	53, // [53:54] is the sub-list for extension type_name
+	44, // [44:53] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_v1_hud_proto_init() }
@@ -4721,7 +4849,7 @@ func file_sarnaut_v1_hud_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_v1_hud_proto_rawDesc), len(file_sarnaut_v1_hud_proto_rawDesc)),
 			NumEnums:      14,
-			NumMessages:   38,
+			NumMessages:   40,
 			NumExtensions: 9,
 			NumServices:   0,
 		},

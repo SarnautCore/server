@@ -274,6 +274,7 @@ enum LootUiRefusal {
   LOOT_UI_REFUSAL_IN_PROGRESS = 6;
   LOOT_UI_REFUSAL_INTERNAL = 7;
   LOOT_UI_REFUSAL_INVALID_INDEX = 8;
+  LOOT_UI_REFUSAL_STALE_REVISION = 9;
 }
 
 // LootStateReplacement is the whole open-loot model. Retail renders four
@@ -340,7 +341,9 @@ message QuestInfo {
   bool is_tutorial = 18;
   bool is_repeatable = 19;
   bool can_repeat = 20;
-  string repeat_period = 21;
+  // Raw authored QuestResource.cooldown units. Projection clamps negatives to
+  // zero; this field deliberately does not invent a millisecond unit.
+  int32 repeat_period = 21;
   bool is_secret = 22;
   string zone_name = 23;
   optional string zones_map_id = 24;
@@ -562,6 +565,7 @@ enum ActionUnavailableReason {
   ACTION_UNAVAILABLE_REASON_ACTOR_DEAD = 7;
   ACTION_UNAVAILABLE_REASON_DISABLED = 8;
   ACTION_UNAVAILABLE_REASON_INTERNAL = 9;
+  ACTION_UNAVAILABLE_REASON_NO_RESOURCE = 10;
 }
 
 enum ActionActivationRefusal {
@@ -594,4 +598,18 @@ message ActionBarReplacement {
   // Exactly 36 ordered entries, one for every authored action-bar slot. Empty
   // slots remain present with no binding.
   repeated ActionBarSlotState slots = 4 [(exact_count) = 36];
+}
+
+message SocialFriend {
+  // Canonical lowercase character UUID, stable across reconnects.
+  string character_id = 1;
+  string display_name = 2;
+}
+
+// SocialFriendsReplacement carries stable character identity and the current
+// display name only. Anti-spam scoring is client-local and recipient-specific;
+// the server remains unaware of that score.
+message SocialFriendsReplacement {
+  uint64 revision = 1;
+  repeated SocialFriend friends = 2;
 }

@@ -67,6 +67,7 @@ message ServerMessage {
     TargetStateReplacement target_state_replacement = 36;
     ActionBarReplacement action_bar_replacement = 37;
     InventorySlotCooldownUpdate inventory_slot_cooldown_update = 38;
+    SocialFriendsReplacement social_friends_replacement = 39;
   }
 }
 
@@ -182,6 +183,8 @@ enum AbilityRejection {
   ABILITY_REJECTION_ON_COOLDOWN = 6;
   // The caster does not know the ability, or the pack does not carry it.
   ABILITY_REJECTION_UNKNOWN_ABILITY = 7;
+  // The caster cannot pay the ability's authoritative resource cost.
+  ABILITY_REJECTION_NO_RESOURCE = 8;
 }
 
 // CombatEvent reports one resolved or refused ability use

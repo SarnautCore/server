@@ -180,7 +180,7 @@ func (module *Module) zoneCommit(corpseEntityID uint64, selection takeSelection)
 			// after the durable award has committed.
 			if index >= 0 && index < len(held.drop.Items) {
 				copy(held.drop.Items[index:], held.drop.Items[index+1:])
-				held.drop.Items[len(held.drop.Items)-1] = ItemGrant{}
+				clear(held.drop.Items[len(held.drop.Items)-1:])
 				held.drop.Items = held.drop.Items[:len(held.drop.Items)-1]
 			}
 		case takeAllMoney:

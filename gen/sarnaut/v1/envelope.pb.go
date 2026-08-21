@@ -109,6 +109,8 @@ const (
 	AbilityRejection_ABILITY_REJECTION_ON_COOLDOWN AbilityRejection = 6
 	// The caster does not know the ability, or the pack does not carry it.
 	AbilityRejection_ABILITY_REJECTION_UNKNOWN_ABILITY AbilityRejection = 7
+	// The caster cannot pay the ability's authoritative resource cost.
+	AbilityRejection_ABILITY_REJECTION_NO_RESOURCE AbilityRejection = 8
 )
 
 // Enum value maps for AbilityRejection.
@@ -122,6 +124,7 @@ var (
 		5: "ABILITY_REJECTION_OUT_OF_RANGE",
 		6: "ABILITY_REJECTION_ON_COOLDOWN",
 		7: "ABILITY_REJECTION_UNKNOWN_ABILITY",
+		8: "ABILITY_REJECTION_NO_RESOURCE",
 	}
 	AbilityRejection_value = map[string]int32{
 		"ABILITY_REJECTION_UNSPECIFIED":     0,
@@ -132,6 +135,7 @@ var (
 		"ABILITY_REJECTION_OUT_OF_RANGE":    5,
 		"ABILITY_REJECTION_ON_COOLDOWN":     6,
 		"ABILITY_REJECTION_UNKNOWN_ABILITY": 7,
+		"ABILITY_REJECTION_NO_RESOURCE":     8,
 	}
 )
 
@@ -786,6 +790,7 @@ type ServerMessage struct {
 	//	*ServerMessage_TargetStateReplacement
 	//	*ServerMessage_ActionBarReplacement
 	//	*ServerMessage_InventorySlotCooldownUpdate
+	//	*ServerMessage_SocialFriendsReplacement
 	Payload       isServerMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1024,6 +1029,15 @@ func (x *ServerMessage) GetInventorySlotCooldownUpdate() *InventorySlotCooldownU
 	return nil
 }
 
+func (x *ServerMessage) GetSocialFriendsReplacement() *SocialFriendsReplacement {
+	if x != nil {
+		if x, ok := x.Payload.(*ServerMessage_SocialFriendsReplacement); ok {
+			return x.SocialFriendsReplacement
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Payload interface {
 	isServerMessage_Payload()
 }
@@ -1112,6 +1126,10 @@ type ServerMessage_InventorySlotCooldownUpdate struct {
 	InventorySlotCooldownUpdate *InventorySlotCooldownUpdate `protobuf:"bytes,38,opt,name=inventory_slot_cooldown_update,json=inventorySlotCooldownUpdate,proto3,oneof"`
 }
 
+type ServerMessage_SocialFriendsReplacement struct {
+	SocialFriendsReplacement *SocialFriendsReplacement `protobuf:"bytes,39,opt,name=social_friends_replacement,json=socialFriendsReplacement,proto3,oneof"`
+}
+
 func (*ServerMessage_SnapshotBatch) isServerMessage_Payload() {}
 
 func (*ServerMessage_CombatEvent) isServerMessage_Payload() {}
@@ -1153,6 +1171,8 @@ func (*ServerMessage_TargetStateReplacement) isServerMessage_Payload() {}
 func (*ServerMessage_ActionBarReplacement) isServerMessage_Payload() {}
 
 func (*ServerMessage_InventorySlotCooldownUpdate) isServerMessage_Payload() {}
+
+func (*ServerMessage_SocialFriendsReplacement) isServerMessage_Payload() {}
 
 // Error is a typed refusal, never a bare string. It always travels on the
 // reliable channel.
@@ -2446,7 +2466,7 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x14quest_share_response\x18$ \x01(\v2\x1e.sarnaut.v1.QuestShareResponseH\x00R\x12questShareResponse\x12?\n" +
 	"\rtarget_select\x18% \x01(\v2\x18.sarnaut.v1.TargetSelectH\x00R\ftargetSelect\x12E\n" +
 	"\x0factivate_action\x18& \x01(\v2\x1a.sarnaut.v1.ActivateActionH\x00R\x0eactivateActionB\t\n" +
-	"\apayload\"\x8d\r\n" +
+	"\apayload\"\xf3\r\n" +
 	"\rServerMessage\x12\x1f\n" +
 	"\vserver_tick\x18\x01 \x01(\x04R\n" +
 	"serverTick\x12B\n" +
@@ -2475,7 +2495,8 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x16quest_info_replacement\x18# \x01(\v2 .sarnaut.v1.QuestInfoReplacementH\x00R\x14questInfoReplacement\x12^\n" +
 	"\x18target_state_replacement\x18$ \x01(\v2\".sarnaut.v1.TargetStateReplacementH\x00R\x16targetStateReplacement\x12X\n" +
 	"\x16action_bar_replacement\x18% \x01(\v2 .sarnaut.v1.ActionBarReplacementH\x00R\x14actionBarReplacement\x12n\n" +
-	"\x1einventory_slot_cooldown_update\x18& \x01(\v2'.sarnaut.v1.InventorySlotCooldownUpdateH\x00R\x1binventorySlotCooldownUpdateB\t\n" +
+	"\x1einventory_slot_cooldown_update\x18& \x01(\v2'.sarnaut.v1.InventorySlotCooldownUpdateH\x00R\x1binventorySlotCooldownUpdate\x12d\n" +
+	"\x1asocial_friends_replacement\x18' \x01(\v2$.sarnaut.v1.SocialFriendsReplacementH\x00R\x18socialFriendsReplacementB\t\n" +
 	"\apayload\"J\n" +
 	"\x05Error\x12)\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x15.sarnaut.v1.ErrorCodeR\x04code\x12\x16\n" +
@@ -2581,7 +2602,7 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x16ERROR_CODE_NOT_IN_ZONE\x10\x04\x12\x1b\n" +
 	"\x17ERROR_CODE_RATE_LIMITED\x10\x05\x12\x1c\n" +
 	"\x18ERROR_CODE_PACK_MISMATCH\x10\x06\x12\x17\n" +
-	"\x13ERROR_CODE_INTERNAL\x10\a*\xa9\x02\n" +
+	"\x13ERROR_CODE_INTERNAL\x10\a*\xcc\x02\n" +
 	"\x10AbilityRejection\x12!\n" +
 	"\x1dABILITY_REJECTION_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16ABILITY_REJECTION_NONE\x10\x01\x12\x1f\n" +
@@ -2590,7 +2611,8 @@ const file_sarnaut_v1_envelope_proto_rawDesc = "" +
 	"\x1dABILITY_REJECTION_TARGET_DEAD\x10\x04\x12\"\n" +
 	"\x1eABILITY_REJECTION_OUT_OF_RANGE\x10\x05\x12!\n" +
 	"\x1dABILITY_REJECTION_ON_COOLDOWN\x10\x06\x12%\n" +
-	"!ABILITY_REJECTION_UNKNOWN_ABILITY\x10\a*\xf3\x01\n" +
+	"!ABILITY_REJECTION_UNKNOWN_ABILITY\x10\a\x12!\n" +
+	"\x1dABILITY_REJECTION_NO_RESOURCE\x10\b*\xf3\x01\n" +
 	"\vLootRefusal\x12\x1c\n" +
 	"\x18LOOT_REFUSAL_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11LOOT_REFUSAL_NONE\x10\x01\x12\x1a\n" +
@@ -2689,7 +2711,8 @@ var file_sarnaut_v1_envelope_proto_goTypes = []any{
 	(*TargetStateReplacement)(nil),      // 46: sarnaut.v1.TargetStateReplacement
 	(*ActionBarReplacement)(nil),        // 47: sarnaut.v1.ActionBarReplacement
 	(*InventorySlotCooldownUpdate)(nil), // 48: sarnaut.v1.InventorySlotCooldownUpdate
-	(*EntitySnapshot)(nil),              // 49: sarnaut.v1.EntitySnapshot
+	(*SocialFriendsReplacement)(nil),    // 49: sarnaut.v1.SocialFriendsReplacement
+	(*EntitySnapshot)(nil),              // 50: sarnaut.v1.EntitySnapshot
 }
 var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
 	26, // 0: sarnaut.v1.ClientMessage.move_intent:type_name -> sarnaut.v1.ClientMoveIntent
@@ -2731,22 +2754,23 @@ var file_sarnaut_v1_envelope_proto_depIdxs = []int32{
 	46, // 36: sarnaut.v1.ServerMessage.target_state_replacement:type_name -> sarnaut.v1.TargetStateReplacement
 	47, // 37: sarnaut.v1.ServerMessage.action_bar_replacement:type_name -> sarnaut.v1.ActionBarReplacement
 	48, // 38: sarnaut.v1.ServerMessage.inventory_slot_cooldown_update:type_name -> sarnaut.v1.InventorySlotCooldownUpdate
-	0,  // 39: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
-	49, // 40: sarnaut.v1.SpawnEvent.entity:type_name -> sarnaut.v1.EntitySnapshot
-	1,  // 41: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
-	19, // 42: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
-	2,  // 43: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
-	19, // 44: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
-	22, // 45: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
-	3,  // 46: sarnaut.v1.QuestStateUpdate.state:type_name -> sarnaut.v1.QuestState
-	24, // 47: sarnaut.v1.QuestStateUpdate.objectives:type_name -> sarnaut.v1.QuestObjectiveProgress
-	4,  // 48: sarnaut.v1.QuestStateUpdate.refusal:type_name -> sarnaut.v1.QuestRefusal
-	19, // 49: sarnaut.v1.QuestStateUpdate.items:type_name -> sarnaut.v1.LootItem
-	50, // [50:50] is the sub-list for method output_type
-	50, // [50:50] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	49, // 39: sarnaut.v1.ServerMessage.social_friends_replacement:type_name -> sarnaut.v1.SocialFriendsReplacement
+	0,  // 40: sarnaut.v1.Error.code:type_name -> sarnaut.v1.ErrorCode
+	50, // 41: sarnaut.v1.SpawnEvent.entity:type_name -> sarnaut.v1.EntitySnapshot
+	1,  // 42: sarnaut.v1.CombatEvent.rejection:type_name -> sarnaut.v1.AbilityRejection
+	19, // 43: sarnaut.v1.LootOffer.items:type_name -> sarnaut.v1.LootItem
+	2,  // 44: sarnaut.v1.LootResult.refusal:type_name -> sarnaut.v1.LootRefusal
+	19, // 45: sarnaut.v1.LootResult.items:type_name -> sarnaut.v1.LootItem
+	22, // 46: sarnaut.v1.InventoryUpdate.slots:type_name -> sarnaut.v1.InventorySlot
+	3,  // 47: sarnaut.v1.QuestStateUpdate.state:type_name -> sarnaut.v1.QuestState
+	24, // 48: sarnaut.v1.QuestStateUpdate.objectives:type_name -> sarnaut.v1.QuestObjectiveProgress
+	4,  // 49: sarnaut.v1.QuestStateUpdate.refusal:type_name -> sarnaut.v1.QuestRefusal
+	19, // 50: sarnaut.v1.QuestStateUpdate.items:type_name -> sarnaut.v1.LootItem
+	51, // [51:51] is the sub-list for method output_type
+	51, // [51:51] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_v1_envelope_proto_init() }
@@ -2800,6 +2824,7 @@ func file_sarnaut_v1_envelope_proto_init() {
 		(*ServerMessage_TargetStateReplacement)(nil),
 		(*ServerMessage_ActionBarReplacement)(nil),
 		(*ServerMessage_InventorySlotCooldownUpdate)(nil),
+		(*ServerMessage_SocialFriendsReplacement)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

@@ -64,7 +64,7 @@ func TestWorkedExampleSection61(t *testing.T) {
 	if drop.Money != 4 {
 		t.Errorf("drop.Money = %d, want 4", drop.Money)
 	}
-	want := []loot.ItemGrant{{ItemID: "heal-elixir", Count: 1}}
+	want := []loot.ItemGrant{{ItemID: "heal-elixir", Count: 1, IsCursed: false}}
 	if len(drop.Items) != len(want) || drop.Items[0] != want[0] {
 		t.Errorf("drop.Items = %+v, want %+v", drop.Items, want)
 	}
@@ -116,7 +116,7 @@ func TestSeedPinnedRoll(t *testing.T) {
 	if drop.Money != goldenMoney {
 		t.Errorf("drop.Money = %d, want the frozen %d", drop.Money, goldenMoney)
 	}
-	goldenItems := []loot.ItemGrant{{ItemID: "heal-elixir", Count: 1}}
+	goldenItems := []loot.ItemGrant{{ItemID: "heal-elixir", Count: 1, IsCursed: false}}
 	if len(drop.Items) != len(goldenItems) || drop.Items[0] != goldenItems[0] {
 		t.Errorf("drop.Items = %+v, want the frozen %+v", drop.Items, goldenItems)
 	}
