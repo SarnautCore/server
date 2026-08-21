@@ -9,8 +9,11 @@ import (
 	"testing"
 
 	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/google/uuid"
 )
+
+var errDeliberateInventoryUpdate = errors.New("deliberate inventory update failure")
 
 // runRepositoryConformance is the behaviour every [charstore.Repository] owes its
 // callers, run once against the in-memory implementation and once against
@@ -490,6 +493,151 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) cha
 		items := loadInventory(t, ctx, repository, characterID)
 		if len(items) != 1 || items[0].InstanceID != first.HUD.Equipment[0].InstanceID {
 			t.Fatalf("inventory after unequip = %+v, want preserved instance %d", items, first.HUD.Equipment[0].InstanceID)
+		}
+	})
+
+	t.Run("UpdateInventory commits items and sequence under the persisted layout", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		seed := snapshotWithHUD(characterID, 1, "inventory-update")
+		seed.HUD.BagLayout = charstore.ProductBagLayout{
+			LayoutID:   "bag.layout.18",
+			Partitions: []charstore.BagPartition{{Ordinal: 0, Capacity: 12}, {Ordinal: 1, Capacity: 6}},
+		}
+		seed.Inventory[0].Slot = 17
+		if err := charstore.SaveCharacter(ctx, repository, seed); err != nil {
+			t.Fatalf("seed inventory update: %v", err)
+		}
+
+		committed, err := repository.UpdateInventory(ctx, characterID, func(state inventory.MoveState) (inventory.MoveState, error) {
+			if state.Layout.ID != inventory.BagLayout18ID || !reflect.DeepEqual(state.Layout.Partitions, []int32{12, 6}) {
+				t.Fatalf("callback layout = %+v, want authored bag.layout.18 [12,6]", state.Layout)
+			}
+			state.Items[0].Slot = 0
+			state.SaveSeq++
+			return state, nil
+		})
+		if err != nil {
+			t.Fatalf("UpdateInventory() error = %v", err)
+		}
+		if committed.SaveSeq != 2 || len(committed.Items) != 1 || committed.Items[0].Slot != 0 {
+			t.Fatalf("committed inventory state = %+v, want slot 0 at sequence 2", committed)
+		}
+		stored := loadInventory(t, ctx, repository, characterID)
+		state, stateErr := repository.LoadCharacterState(ctx, characterID)
+		hud, hudErr := repository.LoadCharacterHUD(ctx, characterID)
+		if len(stored) != 1 || stored[0].Slot != 0 || stateErr != nil || state.SaveSeq != 2 ||
+			hudErr != nil || hud.BagLayout.LayoutID != "bag.layout.18" {
+			t.Fatalf("stored inventory/state/HUD = %+v / %+v (%v) / %+v (%v)", stored, state, stateErr, hud, hudErr)
+		}
+	})
+
+	t.Run("UpdateInventory rolls back callback errors and stale replacements", func(t *testing.T) {
+		for name, update := range map[string]func(inventory.MoveState) (inventory.MoveState, error){
+			"callback error": func(state inventory.MoveState) (inventory.MoveState, error) {
+				state.Items[0].Slot = 5
+				return state, errDeliberateInventoryUpdate
+			},
+			"stale sequence": func(state inventory.MoveState) (inventory.MoveState, error) {
+				state.Items[0].Slot = 5
+				return state, nil
+			},
+			"layout mutation": func(state inventory.MoveState) (inventory.MoveState, error) {
+				state.Items[0].Slot = 5
+				state.SaveSeq++
+				state.Layout.Partitions[0] = 11
+				return state, nil
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				repository := newRepository(t)
+				ctx := t.Context()
+				characterID := uuid.New()
+				if err := charstore.SaveCharacter(ctx, repository, snapshotWithHUD(characterID, 1, name)); err != nil {
+					t.Fatalf("seed inventory update: %v", err)
+				}
+				_, err := repository.UpdateInventory(ctx, characterID, update)
+				switch name {
+				case "callback error":
+					if !errors.Is(err, errDeliberateInventoryUpdate) {
+						t.Fatalf("UpdateInventory() error = %v, want callback error", err)
+					}
+				case "stale sequence":
+					if !errors.Is(err, charstore.ErrStaleSave) {
+						t.Fatalf("UpdateInventory() error = %v, want ErrStaleSave", err)
+					}
+				default:
+					if !errors.Is(err, charstore.ErrConstraintViolated) {
+						t.Fatalf("UpdateInventory() error = %v, want ErrConstraintViolated", err)
+					}
+				}
+				stored := loadInventory(t, ctx, repository, characterID)
+				state, stateErr := repository.LoadCharacterState(ctx, characterID)
+				if len(stored) != 1 || stored[0].Slot != 0 || stateErr != nil || state.SaveSeq != 1 {
+					t.Fatalf("failed update changed stored state: %+v / %+v (%v)", stored, state, stateErr)
+				}
+			})
+		}
+	})
+
+	t.Run("UpdateInventory rejects a non-catalog persisted layout", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		seed := snapshotWithHUD(characterID, 1, "bad-layout")
+		seed.HUD.BagLayout = charstore.ProductBagLayout{
+			LayoutID:   "bag.layout.18",
+			Partitions: []charstore.BagPartition{{Ordinal: 0, Capacity: 9}, {Ordinal: 1, Capacity: 9}},
+		}
+		if err := charstore.SaveCharacter(ctx, repository, seed); err != nil {
+			t.Fatalf("seed structurally valid layout: %v", err)
+		}
+		called := false
+		_, err := repository.UpdateInventory(ctx, characterID, func(state inventory.MoveState) (inventory.MoveState, error) {
+			called = true
+			return state, nil
+		})
+		if !errors.Is(err, charstore.ErrConstraintViolated) || called {
+			t.Fatalf("UpdateInventory() = %v, callback called %v; want exact-layout refusal before callback", err, called)
+		}
+	})
+
+	t.Run("concurrent UpdateInventory calls serialize without lost writes", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		if err := charstore.SaveCharacter(ctx, repository, snapshotWithHUD(characterID, 1, "update-race")); err != nil {
+			t.Fatalf("seed inventory update race: %v", err)
+		}
+		start := make(chan struct{})
+		errorsSeen := make(chan error, 2)
+		var wait sync.WaitGroup
+		for range 2 {
+			wait.Add(1)
+			go func() {
+				defer wait.Done()
+				<-start
+				_, err := repository.UpdateInventory(ctx, characterID, func(state inventory.MoveState) (inventory.MoveState, error) {
+					state.Items[0].Quantity++
+					state.SaveSeq++
+					return state, nil
+				})
+				errorsSeen <- err
+			}()
+		}
+		close(start)
+		wait.Wait()
+		close(errorsSeen)
+		for err := range errorsSeen {
+			if err != nil {
+				t.Fatalf("concurrent UpdateInventory() error = %v", err)
+			}
+		}
+		stored := loadInventory(t, ctx, repository, characterID)
+		state, err := repository.LoadCharacterState(ctx, characterID)
+		if len(stored) != 1 || stored[0].Quantity != 3 || err != nil || state.SaveSeq != 3 {
+			t.Fatalf("concurrent inventory/state = %+v / %+v (%v), want quantity 3 sequence 3", stored, state, err)
 		}
 	})
 

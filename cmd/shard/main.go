@@ -202,7 +202,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	// The bag is behind the repository, and the loot module is behind the bag:
 	// nothing in `internal/loot` can reach a database, and nothing in
 	// `internal/inventory` can reach the zone.
-	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), 0)
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content))
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,6 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	logger.Info("zone loot wired",
 		"loot_tables", lootRules.TableCount(),
 		"items", content.ItemCount(),
-		"bag_slots", bags.Slots(),
 	)
 
 	// Quests read the same pack and grant through the same bag. The catalog is

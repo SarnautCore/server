@@ -59,12 +59,13 @@ type harness struct {
 	mobEntity      uint64
 	// joined is how many characters this harness has admitted, and indexes
 	// harnessCharacters.
-	joined int
+	joined  int
+	fullBag bool
 }
 
 type harnessOptions struct {
-	// slots is the bag capacity. Zero means inventory.DefaultBagLayout().
-	slots int32
+	// fullBag fills every slot in the persisted authored layout.
+	fullBag bool
 	// repository replaces the in-memory one, for the abort test.
 	repository charstore.Repository
 }
@@ -107,7 +108,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	if repository == nil {
 		repository = charstore.NewMemory()
 	}
-	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), options.slots)
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content))
 	if err != nil {
 		t.Fatalf("inventory.NewService() error = %v", err)
 	}
@@ -130,6 +131,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		combat:     combatModule,
 		loot:       lootModule,
 		repository: repository,
+		fullBag:    options.fullBag,
 	}
 	fixture.ownerEntity, fixture.ownerID = fixture.join(repository)
 	fixture.strangerEntity, fixture.strangerID = fixture.join(repository)
@@ -172,6 +174,15 @@ func (fixture *harness) join(repository charstore.Repository) (uint64, uuid.UUID
 	}
 	characterID := harnessCharacters[fixture.joined]
 	fixture.joined++
+	hud := fixtureHUDState(1)
+	var items []charstore.InventoryItem
+	if fixture.fullBag {
+		for slot := int32(0); slot < 12; slot++ {
+			items = append(items, charstore.InventoryItem{
+				Slot: slot, InstanceID: uint64(slot) + 2, ItemID: tonicItemID, Quantity: 20,
+			})
+		}
+	}
 	err := charstore.SaveCharacter(context.Background(), repository, charstore.Snapshot{
 		State: charstore.CharacterState{
 			CharacterID: characterID,
@@ -180,12 +191,26 @@ func (fixture *harness) join(repository charstore.Repository) (uint64, uuid.UUID
 			Health:      100,
 			SaveSeq:     1,
 		},
+		Inventory: items,
+		HUD:       &hud,
 	})
 	if err != nil {
 		fixture.t.Fatalf("seed character state: %v", err)
 	}
 	fixture.loot.Admit(entityID, characterID)
 	return entityID, characterID
+}
+
+func fixtureHUDState(bagInstanceID uint64) charstore.CharacterHUDState {
+	return charstore.CharacterHUDState{
+		Bag: &charstore.ItemInstance{InstanceID: bagInstanceID, ItemID: "item.bag.fixture", Quantity: 1},
+		BagLayout: charstore.ProductBagLayout{
+			LayoutID:   "bag.layout.12",
+			Partitions: []charstore.BagPartition{{Ordinal: 0, Capacity: 12}},
+		},
+		Stats:   charstore.EmptyOrderedStats(),
+		Actions: charstore.EmptyOrderedActionSlots(),
+	}
 }
 
 func (fixture *harness) findMob(contentID string) uint64 {

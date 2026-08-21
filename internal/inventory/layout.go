@@ -30,11 +30,6 @@ const (
 	BagLayout48ID BagLayoutID = "bag.layout.48"
 	BagLayout54ID BagLayoutID = "bag.layout.54"
 	BagLayout60ID BagLayoutID = "bag.layout.60"
-
-	// DefaultBagLayoutID is the product's initial bag layout. Keeping the
-	// choice as a catalog identity prevents gameplay code from treating a bare
-	// slot count as the authored layout.
-	DefaultBagLayoutID = BagLayout16ID
 )
 
 // BagLayout describes the ordered retail bag partitions that form one
@@ -141,15 +136,6 @@ func BagLayoutForCapacity(capacity int32) (BagLayout, bool) {
 		}
 	}
 	return BagLayout{}, false
-}
-
-// DefaultBagLayout returns the product's initial authored layout.
-func DefaultBagLayout() BagLayout {
-	layout, ok := BagLayoutByID(DefaultBagLayoutID)
-	if !ok {
-		panic("inventory: default bag layout is absent from the catalog")
-	}
-	return layout
 }
 
 func cloneBagLayout(layout BagLayout) BagLayout {

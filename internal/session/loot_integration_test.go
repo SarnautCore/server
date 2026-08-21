@@ -223,7 +223,7 @@ func newLootFixture(t *testing.T) *lootFixture {
 	}
 
 	repository := charstore.NewMemory()
-	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), 0)
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content))
 	if err != nil {
 		t.Fatalf("inventory.NewService() error = %v", err)
 	}
@@ -482,7 +482,9 @@ type lootTemplates struct {
 }
 
 func (templates lootTemplates) Template(string) (charstore.Snapshot, bool) {
+	hud := sessionTestHUD(1)
 	return charstore.Snapshot{
 		State: charstore.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
+		HUD:   &hud,
 	}, true
 }

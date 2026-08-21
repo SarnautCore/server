@@ -795,7 +795,7 @@ func startInProcessShard(
 		logger,
 		0,
 	)
-	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), 0)
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content))
 	if err != nil {
 		return hostedShard{}, err
 	}

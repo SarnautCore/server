@@ -455,7 +455,7 @@ func (store *memoryStore) ReplaceInventory(ctx context.Context, characterID uuid
 	return nil
 }
 
-func (store *memoryStore) replaceInventoryAndHUD(
+func (store *memoryStore) ReplaceInventoryAndHUD(
 	ctx context.Context,
 	characterID uuid.UUID,
 	items []InventoryItem,

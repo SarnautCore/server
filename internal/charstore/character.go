@@ -161,13 +161,7 @@ func saveWithin(ctx context.Context, tx Repository, snapshot Snapshot) error {
 		return err
 	}
 	if snapshot.HUD != nil {
-		replacer, ok := tx.(interface {
-			replaceInventoryAndHUD(context.Context, uuid.UUID, []InventoryItem, CharacterHUDState) error
-		})
-		if !ok {
-			return errors.New("store: repository does not support atomic inventory and HUD replacement")
-		}
-		if err := replacer.replaceInventoryAndHUD(ctx, snapshot.State.CharacterID, snapshot.Inventory, *snapshot.HUD); err != nil {
+		if err := tx.ReplaceInventoryAndHUD(ctx, snapshot.State.CharacterID, snapshot.Inventory, *snapshot.HUD); err != nil {
 			return err
 		}
 	} else if err := tx.ReplaceInventory(ctx, snapshot.State.CharacterID, snapshot.Inventory); err != nil {

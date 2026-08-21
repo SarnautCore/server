@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/world"
 	"github.com/google/uuid"
 )
@@ -108,6 +109,15 @@ func (repository *failingRepository) LoadInventory(context.Context, uuid.UUID) (
 	return nil, nil
 }
 
+func (repository *failingRepository) UpdateInventory(
+	context.Context,
+	uuid.UUID,
+	func(inventory.MoveState) (inventory.MoveState, error),
+) (inventory.MoveState, error) {
+	repository.fail("UpdateInventory")
+	return inventory.MoveState{}, nil
+}
+
 func (repository *failingRepository) UpsertQuestState(context.Context, uuid.UUID, charstore.QuestState) error {
 	repository.fail("UpsertQuestState")
 	return nil
@@ -133,6 +143,16 @@ func (repository *failingRepository) LoadCharacterHUD(
 ) (charstore.CharacterHUDState, error) {
 	repository.fail("LoadCharacterHUD")
 	return charstore.CharacterHUDState{}, nil
+}
+
+func (repository *failingRepository) ReplaceInventoryAndHUD(
+	context.Context,
+	uuid.UUID,
+	[]charstore.InventoryItem,
+	charstore.CharacterHUDState,
+) error {
+	repository.fail("ReplaceInventoryAndHUD")
+	return nil
 }
 
 func (repository *failingRepository) RunInTx(context.Context, func(context.Context, charstore.Repository) error) error {

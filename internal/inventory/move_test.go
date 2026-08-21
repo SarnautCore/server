@@ -18,12 +18,12 @@ func moveLayout(t *testing.T) inventory.BagLayout {
 }
 
 func TestMoveToEmptySlot(t *testing.T) {
-	before := []inventory.Stack{{Slot: 1, ItemID: tonic, Count: 7}}
+	before := []inventory.Stack{{Slot: 1, InstanceID: 101, ItemID: tonic, Count: 7}}
 	got, err := inventory.Move(before, 1, 8, fixtureLimits(), moveLayout(t))
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
-	want := []inventory.Stack{{Slot: 8, ItemID: tonic, Count: 7}}
+	want := []inventory.Stack{{Slot: 8, InstanceID: 101, ItemID: tonic, Count: 7}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Move() = %+v, want %+v", got, want)
 	}
@@ -34,23 +34,23 @@ func TestMoveToEmptySlot(t *testing.T) {
 
 func TestMoveMergesMatchingStacksToTheirLimit(t *testing.T) {
 	before := []inventory.Stack{
-		{Slot: 2, ItemID: tonic, Count: 13},
-		{Slot: 7, ItemID: tonic, Count: 12},
+		{Slot: 2, InstanceID: 101, ItemID: tonic, Count: 13},
+		{Slot: 7, InstanceID: 202, ItemID: tonic, Count: 12},
 	}
 	got, err := inventory.Move(before, 2, 7, fixtureLimits(), moveLayout(t))
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
 	want := []inventory.Stack{
-		{Slot: 2, ItemID: tonic, Count: 5},
-		{Slot: 7, ItemID: tonic, Count: 20},
+		{Slot: 2, InstanceID: 101, ItemID: tonic, Count: 5},
+		{Slot: 7, InstanceID: 202, ItemID: tonic, Count: 20},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Move() = %+v, want %+v", got, want)
 	}
 	if !reflect.DeepEqual(before, []inventory.Stack{
-		{Slot: 2, ItemID: tonic, Count: 13},
-		{Slot: 7, ItemID: tonic, Count: 12},
+		{Slot: 2, InstanceID: 101, ItemID: tonic, Count: 13},
+		{Slot: 7, InstanceID: 202, ItemID: tonic, Count: 12},
 	}) {
 		t.Fatalf("Move() mutated input: %+v", before)
 	}
@@ -58,14 +58,14 @@ func TestMoveMergesMatchingStacksToTheirLimit(t *testing.T) {
 
 func TestMoveConsumesSourceWhenMatchingStackHasRoom(t *testing.T) {
 	before := []inventory.Stack{
-		{Slot: 2, ItemID: tonic, Count: 3},
-		{Slot: 7, ItemID: tonic, Count: 12},
+		{Slot: 2, InstanceID: 101, ItemID: tonic, Count: 3},
+		{Slot: 7, InstanceID: 202, ItemID: tonic, Count: 12},
 	}
 	got, err := inventory.Move(before, 2, 7, fixtureLimits(), moveLayout(t))
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
-	want := []inventory.Stack{{Slot: 7, ItemID: tonic, Count: 15}}
+	want := []inventory.Stack{{Slot: 7, InstanceID: 202, ItemID: tonic, Count: 15}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Move() = %+v, want %+v", got, want)
 	}
@@ -73,16 +73,16 @@ func TestMoveConsumesSourceWhenMatchingStackHasRoom(t *testing.T) {
 
 func TestMoveSwapsDifferentItems(t *testing.T) {
 	before := []inventory.Stack{
-		{Slot: 2, ItemID: tonic, Count: 3},
-		{Slot: 7, ItemID: feather, Count: 9},
+		{Slot: 2, InstanceID: 101, ItemID: tonic, Count: 3},
+		{Slot: 7, InstanceID: 202, ItemID: feather, Count: 9},
 	}
 	got, err := inventory.Move(before, 2, 7, fixtureLimits(), moveLayout(t))
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
 	want := []inventory.Stack{
-		{Slot: 2, ItemID: feather, Count: 9},
-		{Slot: 7, ItemID: tonic, Count: 3},
+		{Slot: 2, InstanceID: 202, ItemID: feather, Count: 9},
+		{Slot: 7, InstanceID: 101, ItemID: tonic, Count: 3},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Move() = %+v, want %+v", got, want)

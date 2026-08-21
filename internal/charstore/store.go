@@ -215,6 +215,14 @@ type Inventory interface {
 
 	// LoadInventory returns every occupied slot in ascending slot order.
 	LoadInventory(ctx context.Context, characterID uuid.UUID) ([]InventoryItem, error)
+
+	// UpdateInventory serializes one inventory read-modify-write with the
+	// character save sequence and persisted authored bag layout.
+	UpdateInventory(
+		ctx context.Context,
+		characterID uuid.UUID,
+		update func(inventory.MoveState) (inventory.MoveState, error),
+	) (inventory.MoveState, error)
 }
 
 // Quests owns shard.character_quests.
@@ -228,6 +236,12 @@ type Quests interface {
 type HUDStates interface {
 	SaveCharacterHUD(ctx context.Context, characterID uuid.UUID, hud CharacterHUDState) error
 	LoadCharacterHUD(ctx context.Context, characterID uuid.UUID) (CharacterHUDState, error)
+	ReplaceInventoryAndHUD(
+		ctx context.Context,
+		characterID uuid.UUID,
+		items []InventoryItem,
+		hud CharacterHUDState,
+	) error
 }
 
 // Repository is the whole persistence surface. It is one interface rather than

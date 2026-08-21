@@ -130,10 +130,10 @@ func TestTakingTheSameCorpseTwiceYieldsTheItemOnce(t *testing.T) {
 }
 
 // TestAFullBagLeavesTheCorpseIntact is rule 5.6.3. The drop needs three slots
-// and the bag has two, so nothing is inserted, nothing is destroyed, and the
+// and every authored slot is already full, so nothing is inserted, nothing is destroyed, and the
 // client is told why.
 func TestAFullBagLeavesTheCorpseIntact(t *testing.T) {
-	fixture := newHarness(t, harnessOptions{slots: 2})
+	fixture := newHarness(t, harnessOptions{fullBag: true})
 	containerID := fixture.kill()
 
 	result, err := fixture.loot.Take(context.Background(), fixture.ownerEntity, containerID)
@@ -143,8 +143,8 @@ func TestAFullBagLeavesTheCorpseIntact(t *testing.T) {
 	if result.Refusal != loot.RefusalBagFull {
 		t.Errorf("result.Refusal = %s, want bag_full", result.Refusal)
 	}
-	if items := fixture.inventoryOf(fixture.ownerID); len(items) != 0 {
-		t.Errorf("bag holds %+v after a refused take, want nothing", items)
+	if items := fixture.inventoryOf(fixture.ownerID); len(items) != 12 || unitsOf(items, tonicItemID) != 240 {
+		t.Errorf("bag changed after a refused take: %+v", items)
 	}
 
 	offer, refusal := fixture.loot.Look(fixture.ownerEntity, containerID)

@@ -88,10 +88,3 @@ func TestBagLayoutValidationEnforcesRetailLimits(t *testing.T) {
 		}
 	}
 }
-
-func TestDefaultBagLayoutIsCatalogBacked(t *testing.T) {
-	layout := inventory.DefaultBagLayout()
-	if layout.ID != inventory.DefaultBagLayoutID || layout.Capacity() != 16 {
-		t.Fatalf("DefaultBagLayout() = %+v", layout)
-	}
-}
