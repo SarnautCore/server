@@ -126,9 +126,16 @@ func (host *fakeHost) Apply(_ context.Context, command script.Command) error {
 	switch command.Kind {
 	case script.CommandAttachTrigger:
 		host.attached = append(host.attached, *command.Attachment)
+		scope := command.EntityID
+		if command.Attachment.MobWorld.ID != "" {
+			scope = "mobworld:" + command.Attachment.MobWorld.ID
+			if command.Attachment.OnlyTagged {
+				scope += " tagged-only"
+			}
+		}
 		host.trace = append(host.trace, fmt.Sprintf(
 			"apply attach-trigger %s to %s key=%s",
-			command.Ref.ID, command.EntityID, command.ExecutionKey,
+			command.Ref.ID, scope, command.ExecutionKey,
 		))
 	case script.CommandDetachTrigger:
 		host.trace = append(host.trace, fmt.Sprintf(

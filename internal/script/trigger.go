@@ -34,6 +34,12 @@ func (evaluator *Evaluator) Fire(ctx context.Context, attachment Attachment, eve
 	if !evaluator.options.Enabled {
 		return ErrDisabled
 	}
+	if attachment.EntityID == "" {
+		return fmt.Errorf(
+			"script: attachment of %s is spawn-scoped to mob world %s; the host materializes a per-entity view before firing",
+			attachment.TriggerRef.ID, attachment.MobWorld.ID,
+		)
+	}
 	if attachment.Trigger == nil {
 		return fmt.Errorf(
 			"script: attachment for %s carries no trigger node; the host resolves %s before firing",
@@ -313,11 +319,18 @@ func (evaluator *Evaluator) deactivate(ctx context.Context, node *Node, frame Fr
 // evalAttachTrigger is shape B's binder, reached from inside ImpactFindSpawnTable
 // so that it runs once per mob of the table with that mob as the addressee.
 func evalAttachTrigger(ctx context.Context, evaluator *Evaluator, node *Node, frame Frame) error {
-	return evaluator.attach(ctx, node, frame, frame.Addressee)
+	return evaluator.attach(ctx, node, frame, frame.Addressee, Ref{}, false)
 }
 
-// evalTriggerAgent is shape A's binder. The agent opcode names whom to bind to,
-// which is the only difference between the four TriggerAgent types.
+// evalTriggerAgent covers the four TriggerAgent binders the tutorial reaches.
+//
+// TriggerAgentSelf and TriggerAgentInterlocutor bind to an entity the
+// invocation already names. TriggerAgentSimple and TriggerAgentOnTagged bind
+// across a MobWorld — the reflection schema gives both exactly one field over
+// the TriggerAgentResource base, `mobWorld`, plus OnTagged's `onSelf` — so they
+// emit a spawn-scoped attachment and the host registry owns which live mobs it
+// lands on. Quest_4_10 is the Simple use (QuestCompl on LI_Necromancer) and
+// Quest_2_10 the OnTagged one (GibberSummon on RuffianMageMiniboss2_2).
 func evalTriggerAgent(ctx context.Context, evaluator *Evaluator, node *Node, frame Frame) error {
 	var bearer string
 	switch node.Opcode {
@@ -327,6 +340,26 @@ func evalTriggerAgent(ctx context.Context, evaluator *Evaluator, node *Node, fra
 		bearer = frame.Addressee
 	case "TriggerAgentInterlocutor":
 		bearer = frame.InterlocutorID
+	case "TriggerAgentSimple", "TriggerAgentOnTagged":
+		world, ok := node.Field("mobWorld")
+		if !ok || world.Kind != ValueRef {
+			return &RefusedError{
+				SourceID: frame.SourceID, NodeKey: node.Key,
+				Family: node.Family, Opcode: node.Opcode,
+				Reason: "field \"mobWorld\" is missing or is not a MobWorld reference",
+			}
+		}
+		// onSelf is OnTagged's other schema field. Nothing in the tutorial
+		// spells it, so its semantics are unverified against data; false is the
+		// schema default and is accepted, true is refused rather than guessed.
+		if onSelf, ok := node.Field("onSelf"); ok && (onSelf.Kind != ValueBool || onSelf.Bool) {
+			return &RefusedError{
+				SourceID: frame.SourceID, NodeKey: node.Key,
+				Family: node.Family, Opcode: node.Opcode,
+				Reason: "field \"onSelf\" is outside the M3 implemented shape; no tutorial document sets it",
+			}
+		}
+		return evaluator.attach(ctx, node, frame, "", world.Ref, node.Opcode == "TriggerAgentOnTagged")
 	default:
 		return &RefusedError{
 			SourceID: frame.SourceID, NodeKey: node.Key,
@@ -341,7 +374,7 @@ func evalTriggerAgent(ctx context.Context, evaluator *Evaluator, node *Node, fra
 			Reason: "the invocation names no entity to bind the trigger to",
 		}
 	}
-	return evaluator.attach(ctx, node, frame, bearer)
+	return evaluator.attach(ctx, node, frame, bearer, Ref{}, false)
 }
 
 // attach turns a trigger reference into a host command. The trigger is named by
@@ -349,7 +382,13 @@ func evalTriggerAgent(ctx context.Context, evaluator *Evaluator, node *Node, fra
 // row and ADR 0036 resolves hrefs to a canonical content id at extraction. The
 // host loads the row; an inline node is accepted too, so a fixture and a pack
 // take the same path.
-func (evaluator *Evaluator) attach(ctx context.Context, node *Node, frame Frame, bearer string) error {
+//
+// An empty bearer with a non-empty mobWorld is a spawn scope: the command names
+// no entity, and the host registry decides which live and future mobs of that
+// world the trigger lands on.
+func (evaluator *Evaluator) attach(
+	ctx context.Context, node *Node, frame Frame, bearer string, mobWorld Ref, onlyTagged bool,
+) error {
 	value, ok := node.Field("trigger")
 	if !ok {
 		return &RefusedError{
@@ -359,7 +398,7 @@ func (evaluator *Evaluator) attach(ctx context.Context, node *Node, frame Frame,
 		}
 	}
 
-	attachment := Attachment{EntityID: bearer, Frame: frame}
+	attachment := Attachment{EntityID: bearer, MobWorld: mobWorld, OnlyTagged: onlyTagged, Frame: frame}
 	// detachesOnDeath is the other field on the TriggerAgentResource base, and
 	// it is lifetime rather than behaviour, so it rides on the attachment for
 	// the host registry to honour. Quest_1_20 omits it.
@@ -382,12 +421,19 @@ func (evaluator *Evaluator) attach(ctx context.Context, node *Node, frame Frame,
 		}
 	}
 
+	// The key's scope leg is whatever names the attachment's reach: the bearer
+	// for an entity scope, the mob world for a spawn scope. Both are stable
+	// across a replay, which is what an execution key is for.
+	scope := bearer
+	if scope == "" {
+		scope = mobWorld.ID
+	}
 	return evaluator.host.Apply(ctx, Command{
 		Kind:         CommandAttachTrigger,
 		EntityID:     bearer,
 		Ref:          attachment.TriggerRef,
 		Attachment:   &attachment,
-		ExecutionKey: frame.EvaluationID + "|" + node.Key + "|" + bearer,
+		ExecutionKey: frame.EvaluationID + "|" + node.Key + "|" + scope,
 	})
 }
 
