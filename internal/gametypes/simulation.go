@@ -61,6 +61,15 @@ type Tick interface {
 	PendingWork() int
 }
 
+// PostCommitTick is implemented by zones that can run blocking commit work
+// after releasing the simulation lock. A system uses this for an immutable
+// outbox batch captured during the tick. The callback must not retain or use
+// the Tick.
+type PostCommitTick interface {
+	Tick
+	AfterUnlock(func())
+}
+
 // System is per-tick work registered with a zone.
 type System interface {
 	Step(Tick)

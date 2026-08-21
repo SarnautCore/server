@@ -37,9 +37,9 @@ func (store *postgresStore) RunInTx(ctx context.Context, run func(context.Contex
 	if err != nil {
 		return fmt.Errorf("script queue: begin transaction: %w", err)
 	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
 	view := &postgresStore{pool: store.pool, db: tx, inTx: true}
 	if err := run(ctx, view); err != nil {
-		_ = tx.Rollback(ctx)
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

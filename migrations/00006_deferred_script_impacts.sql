@@ -22,6 +22,9 @@ CREATE INDEX deferred_script_impacts_zone_due_idx
 CREATE INDEX deferred_script_impacts_scope_due_idx
     ON shard.deferred_script_impacts (zone_id, scope_id, due_at_ms, sequence);
 
+GRANT SELECT, INSERT, UPDATE, DELETE ON shard.deferred_script_impacts TO sarnaut_shard;
+GRANT USAGE, SELECT ON SEQUENCE shard.deferred_script_impacts_sequence_seq TO sarnaut_shard;
+
 -- +goose Down
 
 DROP TABLE shard.deferred_script_impacts;

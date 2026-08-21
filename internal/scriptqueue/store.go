@@ -55,6 +55,29 @@ type Store interface {
 	RunInTx(context.Context, func(context.Context, Store) error) error
 }
 
+// EnqueueBatch inserts every row in one transaction. A conflict or storage
+// failure leaves none of the new rows visible.
+func EnqueueBatch(ctx context.Context, store Store, works []Work) ([]Work, error) {
+	if store == nil {
+		return nil, errors.New("script queue: store is required")
+	}
+	inserted := make([]Work, 0, len(works))
+	err := store.RunInTx(ctx, func(ctx context.Context, tx Store) error {
+		for _, work := range works {
+			row, err := tx.Enqueue(ctx, work)
+			if err != nil {
+				return err
+			}
+			inserted = append(inserted, row)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return inserted, nil
+}
+
 func Validate(work Work) error {
 	if work.ID == "" {
 		return errors.New("script queue: work id is required")

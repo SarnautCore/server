@@ -23,6 +23,7 @@ import (
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/script"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
@@ -244,6 +245,10 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		Quests: questModule,
 	}
 	if settings.Content.EnableImpactInterpreter {
+		deferredStore, err := scriptqueue.NewPostgres(pool)
+		if err != nil {
+			return fmt.Errorf("create deferred script store: %w", err)
+		}
 		binding.Scripts = session.NewScriptDriver(
 			logger,
 			zone,
@@ -251,6 +256,11 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 			session.NewPackQuestScriptSource(content),
 			script.Options{Enabled: true},
 		)
+		if err := binding.Scripts.BindDeferredQueue(
+			ctx, deferredStore, shardInstanceID(settings.Auth.InstanceID)+"|"+zone.ID(),
+		); err != nil {
+			return fmt.Errorf("recover deferred quest scripts: %w", err)
+		}
 		binding.Scripts.BindCombat(combatModule)
 		logger.Info("zone quest scripts wired", "quest_scripts", len(content.QuestScriptIDs()))
 	}

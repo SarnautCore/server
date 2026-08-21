@@ -133,7 +133,11 @@ func (reader *commandReader) questAccept(request *sarnautv1.QuestAccept) error {
 	// impacts run — and it is a no-op on the default composition, where the
 	// catalog admits no quest that would need it.
 	if reader.lastQuestVerbCommitted {
-		reader.scripts.QuestActivated(reader.entityID, request.GetQuestId())
+		ctx, cancel := context.WithTimeout(context.Background(), questGrantTimeout)
+		defer cancel()
+		if err := reader.scripts.QuestActivatedCommitted(ctx, reader.entityID, request.GetQuestId()); err != nil {
+			return fmt.Errorf("commit quest activation scripts: %w", err)
+		}
 	}
 	return nil
 }

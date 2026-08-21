@@ -70,6 +70,8 @@ func (tick gameTick) After(delay uint64, run func(gametypes.Tick)) {
 	tick.tick.After(delay, func(later *Tick) { run(gameTick{tick: later}) })
 }
 
+func (tick gameTick) AfterUnlock(run func()) { tick.tick.AfterUnlock(run) }
+
 func (tick gameTick) entity(data *gametypes.EntityData) *Entity {
 	if data == nil {
 		return nil

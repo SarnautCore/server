@@ -2,18 +2,21 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/script"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 )
 
 // This file is the impact interpreter's session adapter: the one place
@@ -114,6 +117,15 @@ type ScriptDriver struct {
 	summons map[string]uint64
 
 	evaluations uint64
+
+	// activeDeferred is an evaluation-local collector used only under the zone
+	// lock. Store calls happen after unlock through a PostCommitTick.
+	activeDeferred *[]script.Deferred
+	deferredStore  scriptqueue.Store
+	deferredWorker string
+	deferredRows   map[string]bool
+	deferredCtx    context.Context
+	deferredMu     sync.Mutex
 }
 
 // NewScriptDriver wires the interpreter to one zone's quest module. The
@@ -140,6 +152,10 @@ func NewScriptDriver(
 		tagged:               make(map[uint64]bool),
 		summons:              make(map[string]uint64),
 		effects:              script.NewEffectRegistry(),
+		deferredStore:        scriptqueue.NewMemory(),
+		deferredWorker:       "memory|" + zone.ID(),
+		deferredRows:         make(map[string]bool),
+		deferredCtx:          context.Background(),
 	}
 	driver.evaluator = script.New(scriptHost{driver: driver}, options)
 	return driver
@@ -215,16 +231,38 @@ func (driver *ScriptDriver) ScaleDamage(
 // operator problem — the census and the log line carry the row id — not a
 // reason to kill the player's connection.
 func (driver *ScriptDriver) QuestActivated(entityID uint64, questID string) {
+	if err := driver.QuestActivatedCommitted(context.Background(), entityID, questID); err != nil {
+		driver.logger.Warn("quest activation deferred commit failed",
+			"quest_id", questID, "entity_id", entityID, "error", err)
+	}
+}
+
+// QuestActivatedCommitted evaluates and commits the deferred outbox before it
+// returns. The command reader uses this form so it does not acknowledge an
+// activation whose outbox transaction failed.
+func (driver *ScriptDriver) QuestActivatedCommitted(
+	ctx context.Context, entityID uint64, questID string,
+) error {
 	if driver == nil {
-		return
+		return nil
 	}
 	activation, ok := driver.source.QuestActivation(questID)
 	if !ok {
-		return
+		return nil
 	}
-	_ = driver.zone.GameCommand(func(tick gametypes.Tick) error {
+	var commitErr error
+	err := driver.zone.GameCommand(func(tick gametypes.Tick) error {
+		batch, err := driver.beginDeferredBatch()
+		if err != nil {
+			return err
+		}
 		driver.tick = tick
-		defer func() { driver.tick = nil }()
+		defer func() {
+			driver.tick = nil
+			if driver.activeDeferred == batch {
+				driver.endDeferredBatch(batch)
+			}
+		}()
 
 		driver.evaluations++
 		actor := formatEntityID(entityID)
@@ -248,8 +286,14 @@ func (driver *ScriptDriver) QuestActivated(entityID uint64, questID string) {
 					"quest_id", questID, "entity_id", entityID, "error", err)
 			}
 		}
-		return nil
+		deferred := driver.endDeferredBatch(batch)
+		return afterUnlock(tick, func() {
+			unlock := driver.lockDeferredCommit()
+			defer unlock()
+			commitErr = driver.persistBatch(ctx, deferred)
+		})
 	})
+	return errors.Join(err, commitErr)
 }
 
 // MobKilled implements combat.KillSink. It is the zone event that fires shape
@@ -271,8 +315,18 @@ func (driver *ScriptDriver) MobKilled(tick gametypes.Tick, kill combat.Kill) {
 	if len(held) == 0 {
 		return
 	}
+	batch, err := driver.beginDeferredBatch()
+	if err != nil {
+		driver.logger.Error("kill script cannot start deferred batch", "error", err)
+		return
+	}
 	driver.tick = tick
-	defer func() { driver.tick = nil }()
+	defer func() {
+		driver.tick = nil
+		if driver.activeDeferred == batch {
+			driver.endDeferredBatch(batch)
+		}
+	}()
 
 	previous := int64(1)
 	if victim := tick.Entity(kill.VictimEntityID); victim != nil && victim.MaxHealth > 0 {
@@ -308,6 +362,24 @@ func (driver *ScriptDriver) MobKilled(tick gametypes.Tick, kill combat.Kill) {
 	driver.retryPendingDetaches(tick, kill.VictimEntityID)
 	// The tag is event-admission state rather than effect-lifetime state.
 	delete(driver.tagged, kill.VictimEntityID)
+	deferred := driver.endDeferredBatch(batch)
+	if err := afterUnlock(tick, func() {
+		unlock := driver.lockDeferredCommit()
+		defer unlock()
+		for {
+			if err := driver.persistBatch(driver.deferredCtx, deferred); err == nil {
+				return
+			} else {
+				driver.logger.Warn("kill script deferred commit failed",
+					"victim_entity_id", kill.VictimEntityID, "error", err)
+			}
+			if !waitDeferredRetry(driver.deferredCtx) {
+				return
+			}
+		}
+	}); err != nil {
+		driver.logger.Error("kill script cannot commit after zone unlock", "error", err)
+	}
 }
 
 func (driver *ScriptDriver) retainPendingDetach(
@@ -368,12 +440,31 @@ func (driver *ScriptDriver) schedulePendingDetachRetry(tick gametypes.Tick, enti
 // No module publishes it yet — M2 has bags and no equipment slots — so the
 // method is the seam a future equipment module and today's tests share.
 func (driver *ScriptDriver) EquipChanged(entityID uint64, slot string, equipped bool) {
-	if driver == nil {
-		return
+	if err := driver.EquipChangedCommitted(context.Background(), entityID, slot, equipped); err != nil {
+		driver.logger.Warn("equip script deferred commit failed",
+			"entity_id", entityID, "slot", slot, "error", err)
 	}
-	_ = driver.zone.GameCommand(func(tick gametypes.Tick) error {
+}
+
+func (driver *ScriptDriver) EquipChangedCommitted(
+	ctx context.Context, entityID uint64, slot string, equipped bool,
+) error {
+	if driver == nil {
+		return nil
+	}
+	var commitErr error
+	err := driver.zone.GameCommand(func(tick gametypes.Tick) error {
+		batch, err := driver.beginDeferredBatch()
+		if err != nil {
+			return err
+		}
 		driver.tick = tick
-		defer func() { driver.tick = nil }()
+		defer func() {
+			driver.tick = nil
+			if driver.activeDeferred == batch {
+				driver.endDeferredBatch(batch)
+			}
+		}()
 
 		event := script.Event{
 			Kind:     script.EventEquipChanged,
@@ -387,8 +478,14 @@ func (driver *ScriptDriver) EquipChanged(entityID uint64, slot string, equipped 
 					"entity_id", entityID, "trigger", attachment.TriggerRef.ID, "error", err)
 			}
 		}
-		return nil
+		deferred := driver.endDeferredBatch(batch)
+		return afterUnlock(tick, func() {
+			unlock := driver.lockDeferredCommit()
+			defer unlock()
+			commitErr = driver.persistBatch(ctx, deferred)
+		})
 	})
+	return errors.Join(err, commitErr)
 }
 
 // materialize turns one attachment into a live registry entry on one bearer,
@@ -750,31 +847,13 @@ func (host scriptHost) Apply(ctx context.Context, command script.Command) error 
 	}
 }
 
-// Enqueue schedules a deferred impact on the zone's timing wheel, converting
-// the due time from the tick clock back into ticks. The queue is in-memory:
-// ADR 0036 wants the deferred queue persisted, and until the storage row
-// exists a shard restart drops pending deferred work. That is a known gap of
-// the flag-on path, not of the default composition.
+// Enqueue appends to the immutable batch owned by the current evaluation. It
+// performs no storage I/O while the zone lock is held.
 func (host scriptHost) Enqueue(_ context.Context, deferred script.Deferred) error {
-	driver := host.driver
-	tick := driver.tick
-	intervalMS := tick.Interval().Milliseconds()
-	if intervalMS <= 0 {
-		return fmt.Errorf("session: zone tick interval %s cannot schedule deferred work", tick.Interval())
+	if host.driver.activeDeferred == nil {
+		return fmt.Errorf("session: deferred impact %s has no active commit batch", deferred.Node.Key)
 	}
-	nowMS := int64(tick.Number()) * intervalMS
-	var delayTicks uint64
-	if due := int64(deferred.DueAtMS); due > nowMS {
-		delayTicks = uint64((due - nowMS + intervalMS - 1) / intervalMS)
-	}
-	tick.After(delayTicks, func(later gametypes.Tick) {
-		driver.tick = later
-		defer func() { driver.tick = nil }()
-		if err := driver.evaluator.Evaluate(context.Background(), deferred.Node, deferred.Frame); err != nil {
-			driver.logger.Warn("deferred script impact failed",
-				"node", deferred.Node.Key, "error", err)
-		}
-	})
+	*host.driver.activeDeferred = append(*host.driver.activeDeferred, deferred)
 	return nil
 }
 

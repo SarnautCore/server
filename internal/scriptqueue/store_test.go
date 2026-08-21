@@ -110,6 +110,27 @@ func TestTransactionRollbackRestoresQueue(t *testing.T) {
 	}
 }
 
+func TestBatchConflictRollsBackEarlierRows(t *testing.T) {
+	t.Parallel()
+	store := NewMemory()
+	if _, err := store.Enqueue(t.Context(), testWork("existing", "quest", 5)); err != nil {
+		t.Fatal(err)
+	}
+	conflict := testWork("existing", "quest", 6)
+	if _, err := EnqueueBatch(t.Context(), store, []Work{
+		testWork("must-rollback", "quest", 4), conflict,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("EnqueueBatch() error = %v, want ErrConflict", err)
+	}
+	rows, err := store.LoadZone(t.Context(), "zone.inst-league1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != "existing" {
+		t.Fatalf("rows after batch rollback = %#v, want existing only", rowIDs(rows))
+	}
+}
+
 func TestConcurrentClaimHasOneWinner(t *testing.T) {
 	t.Parallel()
 	store := NewMemory()

@@ -9,8 +9,18 @@ import "time"
 // one, or the *Entity values it hands out, means reading and writing the
 // registry with no lock held.
 type Tick struct {
-	zone   *Zone
-	number uint64
+	zone       *Zone
+	number     uint64
+	postCommit []func()
+}
+
+// AfterUnlock defers blocking commit work until the zone has released its
+// simulation mutex. Callbacks run in registration order before Command or Step
+// returns.
+func (tick *Tick) AfterUnlock(run func()) {
+	if run != nil {
+		tick.postCommit = append(tick.postCommit, run)
+	}
 }
 
 // Number is the server tick this call is running at. Every duration in the

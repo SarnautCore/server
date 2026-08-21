@@ -100,11 +100,22 @@ func (zone *Zone) AddSystem(system System) {
 // It is the entry point every non-movement client verb goes through, and it is
 // the only way a module outside this package gets a *Entity. The callback must
 // not block, start a goroutine that touches the zone, or retain anything it is
-// handed.
+// handed. A caller that must commit an immutable snapshot uses Tick.AfterUnlock;
+// Command runs those callbacks in order after releasing the mutex and before
+// it returns.
 func (zone *Zone) Command(mutate func(*Tick) error) error {
 	zone.mu.Lock()
-	defer zone.mu.Unlock()
-	return mutate(&Tick{zone: zone, number: zone.serverTick})
+	tick := &Tick{zone: zone, number: zone.serverTick}
+	var err error
+	func() {
+		defer zone.mu.Unlock()
+		err = mutate(tick)
+	}()
+	postCommit := append([]func(){}, tick.postCommit...)
+	for _, run := range postCommit {
+		run()
+	}
+	return err
 }
 
 // SpawnNPC adds one non-player entity described entirely by content.
@@ -283,18 +294,25 @@ func (zone *Zone) Run(ctx context.Context) {
 // worked example in mechanics/combat.md section 6.1 assertable.
 func (zone *Zone) Step() {
 	zone.mu.Lock()
-	defer zone.mu.Unlock()
-	zone.serverTick++
-	current := &Tick{zone: zone, number: zone.serverTick}
+	current := &Tick{zone: zone}
+	func() {
+		defer zone.mu.Unlock()
+		zone.serverTick++
+		current.number = zone.serverTick
 
-	zone.integrateLocked()
-	// Deferred work runs before the systems, so a mob that respawns on this
-	// tick is scanned for aggro on this tick rather than the next one.
-	for _, work := range zone.wheel.advance(zone.serverTick) {
-		work.run(current)
-	}
-	for _, system := range zone.systems {
-		system.Step(current)
+		zone.integrateLocked()
+		// Deferred work runs before the systems, so a mob that respawns on this
+		// tick is scanned for aggro on this tick rather than the next one.
+		for _, work := range zone.wheel.advance(zone.serverTick) {
+			work.run(current)
+		}
+		for _, system := range zone.systems {
+			system.Step(current)
+		}
+	}()
+	postCommit := append([]func(){}, current.postCommit...)
+	for _, run := range postCommit {
+		run()
 	}
 }
 
