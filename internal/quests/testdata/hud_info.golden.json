@@ -1,0 +1,52 @@
+{
+  "info": {
+    "id": "quest.test.tide-ledger",
+    "name": {
+      "localization_key": "quest.test.tide-ledger.name"
+    },
+    "level": 7,
+    "required_level": 4,
+    "goal": {
+      "localization_key": "quest.test.tide-ledger.goal"
+    },
+    "start_text": {
+      "localization_key": "quest.test.tide-ledger.start"
+    },
+    "check_text": {
+      "localization_key": "quest.test.tide-ledger.check"
+    },
+    "finish_text": {
+      "localization_key": "quest.test.tide-ledger.finish"
+    },
+    "can_cancel": true,
+    "type": "STORY",
+    "zone_id": "zone.test.paper-harbor",
+    "starter_id": "mob.test.quartermaster",
+    "finisher_id": "mob.test.harbor-master"
+  },
+  "rewards": {
+    "money": 27,
+    "experience": 450,
+    "honor": 3,
+    "mandatory_items": [
+      {
+        "item_id": "item.test.token",
+        "count": 2,
+        "hidden": false
+      },
+      {
+        "item_id": "item.test.note",
+        "count": 1,
+        "hidden": true
+      }
+    ],
+    "mandatory_items_count": 2,
+    "alternative_items": [
+      {
+        "item_id": "item.test.sword",
+        "count": 1,
+        "hidden": false
+      }
+    ]
+  }
+}

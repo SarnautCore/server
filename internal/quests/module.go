@@ -3,17 +3,17 @@
 //
 // Everything that varies per quest is read from the pack: the objectives and
 // their limits and targets, the prerequisites, the required level, the starter
-// and finisher, and the whole reward. What is in Go is the shape of the state
-// machine and the two invented constants of section 3. Adding a second quest is
-// a row in the pack and nothing here.
+// and finisher, and the whole reward. Go owns the state machine, retail UI
+// limits, and the gameplay range constant of section 3. Adding a second quest
+// is a row in the pack and nothing here.
 //
-// The module reaches two sibling gameplay modules and imports neither. Kill
-// credit arrives as [Kill], the value mechanics/combat.md rule 5.9.3 publishes,
-// and the reward grant leaves through [Granter], which `internal/inventory`
-// satisfies structurally over the plain values owned by the gameplay modules.
-// tidiness: combat asking the quest log whether a kill counts, or the quest
-// module reaching into a bag, is how two modules stop being separable, and
-// `boundary_test.go` fails the build if either import appears.
+// Kill credit arrives as [Kill], the value mechanics/combat.md rule 5.9.3
+// publishes, and the reward grant leaves through [Granter], which
+// `internal/inventory` satisfies structurally over plain gameplay values.
+// Quest sharing depends on party.AudienceReader, the party package's read-only
+// connected-member seam. The quest package still owns distance, life, and
+// can-start checks. It does not reach into combat state, a bag, a session, or
+// generated wire types; `boundary_test.go` enforces those boundaries.
 //
 // The module holds no lock of its own. Every quest log is read and written
 // under the zone's, either from inside a tick or through Zone.GameCommand,

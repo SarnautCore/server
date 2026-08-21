@@ -132,7 +132,7 @@ func (module *Module) Accept(
 		switch {
 		case module.gate(log, definition) != StateOffered:
 			refusal = RefusalUnavailable
-		case len(log.instances) >= QuestLogCapacity:
+		case visibleQuestCount(log) >= QuestLogCapacity:
 			refusal = RefusalLogFull
 		default:
 			starter := tick.Entity(starterEntityID)

@@ -10,10 +10,11 @@ import (
 	"github.com/SarnautCore/server/internal/pack"
 )
 
-// The invented constants of mechanics/quests.md section 3.
+// Mechanics constants. The quest log limit is the retail HUD's authored row
+// capacity; turn-in range remains the M2 gameplay constant.
 const (
 	// QuestLogCapacity is how many instances one character may hold at once.
-	QuestLogCapacity = 25
+	QuestLogCapacity = HUDVisibleQuestLimit
 	// TurnInRangeM is how close a character must stand to a starter or a
 	// finisher. It is deliberately shorter than combat's ABILITY_RANGE_M so
 	// that a player has to walk to the NPC rather than shout at it.
