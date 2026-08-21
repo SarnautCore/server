@@ -2,7 +2,7 @@
 //
 // It owns rule 5.7 of mechanics/loot.md — stack splitting, merging into
 // partially filled stacks, and the all-or-nothing insertion of rule 5.6.3 — and
-// the persistence of both through `internal/store`. Every stack limit it uses
+// the persistence of both through `internal/charstore`. Every stack limit it uses
 // comes from the content pack; there is no constant in this package that a
 // second item could contradict.
 //

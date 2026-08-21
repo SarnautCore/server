@@ -8,14 +8,16 @@ package world
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/SarnautCore/server/internal/gametypes"
+	"github.com/SarnautCore/server/internal/interest"
 )
 
 // ErrUnknownEntity reports a command naming an entity this zone does not have.
-var ErrUnknownEntity = errors.New("unknown world entity")
+var ErrUnknownEntity = gametypes.ErrUnknownEntity
 
 // ZoneConfig sets fixed simulation and replication rates.
 type ZoneConfig struct {
@@ -51,7 +53,7 @@ type Zone struct {
 // whose replicated entities belong in that player's snapshot. It extends one
 // grid cell beyond the combat skeleton's 40 m leash, so an NPC is visible
 // before it can enter the farthest server-driven engagement range.
-const ReplicationInterestRadiusMetres float32 = 48
+const ReplicationInterestRadiusMetres = interest.ReplicationRadiusMetres
 
 // NewZone constructs an empty zone.
 func NewZone(config ZoneConfig) (*Zone, error) {
@@ -67,9 +69,13 @@ func NewZone(config ZoneConfig) (*Zone, error) {
 	if config.MaxMoveSpeed <= 0 || !finite(config.MaxMoveSpeed) {
 		return nil, fmt.Errorf("zone maximum move speed must be positive and finite")
 	}
+	manager, err := interest.New(interest.ReplicationRadiusMetres)
+	if err != nil {
+		return nil, err
+	}
 	return &Zone{
 		config:   config,
-		registry: newRegistry(),
+		registry: newRegistry(manager),
 		sessions: make(map[uint64]*snapshotSubscription),
 	}, nil
 }
@@ -110,21 +116,23 @@ func (zone *Zone) SpawnNPC(spec NPCSpec) uint64 {
 
 func (zone *Zone) spawnNPCLocked(spec NPCSpec) *Entity {
 	return zone.registry.add(&Entity{
-		Kind:          EntityKindNPC,
-		ContentID:     spec.ContentID,
-		NameKey:       spec.NameKey,
-		PlacementID:   spec.PlacementID,
-		Faction:       spec.Faction,
-		Level:         spec.Level,
-		Health:        spec.MaxHealth,
-		MaxHealth:     spec.MaxHealth,
-		Alive:         true,
-		Heading:       spec.Heading,
-		Animation:     AnimationStateIdle,
-		Origin:        spec.Position,
-		OriginHeading: spec.Heading,
-		Replicated:    true,
-		position:      spec.Position,
+		EntityData: gametypes.EntityData{
+			Kind:          EntityKindNPC,
+			ContentID:     spec.ContentID,
+			NameKey:       spec.NameKey,
+			PlacementID:   spec.PlacementID,
+			Faction:       spec.Faction,
+			Level:         spec.Level,
+			Health:        spec.MaxHealth,
+			MaxHealth:     spec.MaxHealth,
+			Alive:         true,
+			Heading:       spec.Heading,
+			Animation:     AnimationStateIdle,
+			Origin:        spec.Position,
+			OriginHeading: spec.Heading,
+			Replicated:    true,
+		},
+		position: spec.Position,
 	})
 }
 
@@ -157,14 +165,16 @@ func (zone *Zone) JoinAt(position Vec3, heading float32) (uint64, Vec3) {
 	zone.mu.Lock()
 	defer zone.mu.Unlock()
 	entity := zone.registry.add(&Entity{
-		Kind:          EntityKindPlayer,
-		Alive:         true,
-		Heading:       heading,
-		Animation:     AnimationStateIdle,
-		Origin:        position,
-		OriginHeading: heading,
-		Replicated:    false,
-		position:      position,
+		EntityData: gametypes.EntityData{
+			Kind:          EntityKindPlayer,
+			Alive:         true,
+			Heading:       heading,
+			Animation:     AnimationStateIdle,
+			Origin:        position,
+			OriginHeading: heading,
+			Replicated:    false,
+		},
+		position: position,
 	})
 	return entity.ID, position
 }
@@ -230,6 +240,7 @@ func (zone *Zone) Subscribe(entityID uint64, sink SnapshotSink) error {
 		return fmt.Errorf("subscribe entity %d: %w", entityID, ErrUnknownEntity)
 	}
 	current.Replicated = true
+	zone.registry.interest.Forget(entityID)
 	zone.sessions[entityID] = &snapshotSubscription{sink: sink}
 	return nil
 }
@@ -239,6 +250,7 @@ func (zone *Zone) Leave(entityID uint64) {
 	zone.mu.Lock()
 	defer zone.mu.Unlock()
 	delete(zone.sessions, entityID)
+	zone.registry.interest.Forget(entityID)
 	if current := zone.registry.get(entityID); current != nil && current.Kind == EntityKindPlayer {
 		zone.registry.remove(entityID)
 	}
@@ -295,16 +307,29 @@ func (zone *Zone) PublishSnapshot() {
 		if subscriber == nil {
 			continue
 		}
-		views := zone.interestedEntitiesLocked(subscriber.position)
-		spawns, despawns, current := interestDelta(subscription.interested, views)
-		subscription.interested = current
+		delta := zone.registry.interest.Observe(entityID, subscriber.position, func(id uint64) bool {
+			entity := zone.registry.get(id)
+			return entity != nil && entity.Replicated
+		})
+		views := make([]EntitySnapshot, 0, len(delta.Current))
+		for _, id := range delta.Current {
+			if entity := zone.registry.get(id); entity != nil {
+				views = append(views, viewOf(entity))
+			}
+		}
+		spawns := make([]EntitySnapshot, 0, len(delta.Entered))
+		for _, id := range delta.Entered {
+			if entity := zone.registry.get(id); entity != nil {
+				spawns = append(spawns, viewOf(entity))
+			}
+		}
 		deliveries = append(deliveries, snapshotDelivery{
 			sink: subscription.sink,
 			snapshot: Snapshot{
 				ServerTick: zone.serverTick,
 				Entities:   views,
 				Spawns:     spawns,
-				Despawns:   despawns,
+				Despawns:   delta.Left,
 			},
 		})
 	}
@@ -321,54 +346,5 @@ type snapshotDelivery struct {
 }
 
 type snapshotSubscription struct {
-	sink       SnapshotSink
-	interested []uint64
-}
-
-func (zone *Zone) interestedEntitiesLocked(centre Vec3) []EntitySnapshot {
-	views := make([]EntitySnapshot, 0)
-	zone.registry.within(centre, ReplicationInterestRadiusMetres, EntityKindUnspecified, func(entity *Entity) bool {
-		if entity.Replicated {
-			views = append(views, viewOf(entity))
-		}
-		return true
-	})
-	return views
-}
-
-// interestDelta compares two ascending interest sets. A view that was absent
-// from the previous publish is a spawn; an id missing from the new view is a
-// despawn. Keeping the sets ordered makes event order deterministic and avoids
-// a map allocation per subscriber per publish.
-func interestDelta(previous []uint64, views []EntitySnapshot) (
-	spawns []EntitySnapshot,
-	despawns []uint64,
-	current []uint64,
-) {
-	current = make([]uint64, len(views))
-	for index, view := range views {
-		current[index] = view.EntityID
-	}
-
-	left, right := 0, 0
-	for left < len(previous) && right < len(views) {
-		switch {
-		case previous[left] < views[right].EntityID:
-			despawns = append(despawns, previous[left])
-			left++
-		case previous[left] > views[right].EntityID:
-			spawns = append(spawns, views[right])
-			right++
-		default:
-			left++
-			right++
-		}
-	}
-	for ; left < len(previous); left++ {
-		despawns = append(despawns, previous[left])
-	}
-	for ; right < len(views); right++ {
-		spawns = append(spawns, views[right])
-	}
-	return spawns, despawns, current
+	sink SnapshotSink
 }

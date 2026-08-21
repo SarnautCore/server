@@ -7,17 +7,17 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/inventory"
-	"github.com/SarnautCore/server/internal/store"
 )
 
 // newCharacter seeds one character with an empty bag and a zero purse, which is
 // what checkpoint L1 leaves behind for a fresh login.
-func newCharacter(t *testing.T, repository store.Repository) uuid.UUID {
+func newCharacter(t *testing.T, repository charstore.Repository) uuid.UUID {
 	t.Helper()
 	characterID := uuid.New()
-	err := store.SaveCharacter(context.Background(), repository, store.Snapshot{
-		State: store.CharacterState{
+	err := charstore.SaveCharacter(context.Background(), repository, charstore.Snapshot{
+		State: charstore.CharacterState{
 			CharacterID: characterID,
 			ZoneID:      "PaperHarbor",
 			Level:       2,
@@ -31,9 +31,9 @@ func newCharacter(t *testing.T, repository store.Repository) uuid.UUID {
 	return characterID
 }
 
-func newService(t *testing.T, repository store.Repository, slots int32) *inventory.Service {
+func newService(t *testing.T, repository charstore.Repository, slots int32) *charstore.InventoryService {
 	t.Helper()
-	service, err := inventory.NewService(repository, fixtureLimits(), slots)
+	service, err := charstore.NewInventoryService(repository, fixtureLimits(), slots)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -43,7 +43,7 @@ func newService(t *testing.T, repository store.Repository, slots int32) *invento
 // TestAwardCommitsSlotsAndPurseTogether is rule 5.6: one transaction writes the
 // bag and the purse, and what it returns is what it committed.
 func TestAwardCommitsSlotsAndPurseTogether(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
 	service := newService(t, repository, 8)
 
@@ -83,7 +83,7 @@ func TestAwardCommitsSlotsAndPurseTogether(t *testing.T) {
 // TestAwardWithAFullBagWritesNothing is rule 5.6.3: not the items, and not the
 // money either.
 func TestAwardWithAFullBagWritesNothing(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
 	service := newService(t, repository, 2)
 
@@ -114,13 +114,13 @@ func TestAwardWithAFullBagWritesNothing(t *testing.T) {
 // abortingRepository fails one named write, so a test can cut a transaction in
 // half at a chosen point.
 type abortingRepository struct {
-	store.Repository
+	charstore.Repository
 	failStateSave bool
 }
 
 var errInjected = errors.New("injected mid-transaction failure")
 
-func (repository *abortingRepository) SaveCharacterState(ctx context.Context, state store.CharacterState) error {
+func (repository *abortingRepository) SaveCharacterState(ctx context.Context, state charstore.CharacterState) error {
 	if repository.failStateSave {
 		return errInjected
 	}
@@ -129,9 +129,9 @@ func (repository *abortingRepository) SaveCharacterState(ctx context.Context, st
 
 func (repository *abortingRepository) RunInTx(
 	ctx context.Context,
-	fn func(ctx context.Context, tx store.Repository) error,
+	fn func(ctx context.Context, tx charstore.Repository) error,
 ) error {
-	return repository.Repository.RunInTx(ctx, func(ctx context.Context, tx store.Repository) error {
+	return repository.Repository.RunInTx(ctx, func(ctx context.Context, tx charstore.Repository) error {
 		return fn(ctx, &abortingRepository{Repository: tx, failStateSave: repository.failStateSave})
 	})
 }
@@ -144,7 +144,7 @@ func (repository *abortingRepository) RunInTx(
 // too. The assertion is that the stored bag is exactly as it was, so the item
 // is in the corpse and nowhere else.
 func TestAnAbortedAwardRollsTheInventoryBack(t *testing.T) {
-	repository := &abortingRepository{Repository: store.NewMemory(), failStateSave: true}
+	repository := &abortingRepository{Repository: charstore.NewMemory(), failStateSave: true}
 	characterID := newCharacter(t, &abortingRepository{Repository: repository.Repository})
 	service := newService(t, repository, 8)
 
@@ -176,7 +176,7 @@ func TestAnAbortedAwardRollsTheInventoryBack(t *testing.T) {
 // looks like: the merge in rule 5.7.5 happens against what the first award
 // persisted, not against an in-memory view.
 func TestTwoAwardsStackIntoTheSameSlots(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
 	service := newService(t, repository, 8)
 
@@ -208,7 +208,7 @@ func TestTwoAwardsStackIntoTheSameSlots(t *testing.T) {
 // TestAwardAdvancesTheSaveSequence. Two awards in a row must not both write at
 // the same sequence, or the second would be refused as a stale save.
 func TestAwardAdvancesTheSaveSequence(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
 	service := newService(t, repository, 8)
 

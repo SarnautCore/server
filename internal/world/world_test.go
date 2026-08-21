@@ -164,42 +164,6 @@ func TestSnapshotExcludesEntitiesOutsideSubscriberInterest(t *testing.T) {
 	}
 }
 
-func TestInterestCrossingEmitsOneSpawnAndOneDespawn(t *testing.T) {
-	t.Parallel()
-
-	zone := newTestZone(t, world.Vec3{})
-	entityID := zone.SpawnNPC(world.NPCSpec{Position: world.Vec3{X: 1_000}})
-	playerID, _ := zone.Join()
-	sink := new(captureSink)
-	if err := zone.Subscribe(playerID, sink); err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
-	zone.PublishSnapshot()
-
-	moveNPC := func(position world.Vec3) {
-		t.Helper()
-		if err := zone.Command(func(tick *world.Tick) error {
-			tick.MoveTo(tick.Entity(entityID), position)
-			return nil
-		}); err != nil {
-			t.Fatalf("Command() error = %v", err)
-		}
-	}
-	moveNPC(world.Vec3{X: 47})
-	zone.PublishSnapshot()
-	zone.PublishSnapshot()
-	if got := sink.spawnCount(entityID); got != 1 {
-		t.Fatalf("spawn events for entity %d = %d, want exactly 1", entityID, got)
-	}
-
-	moveNPC(world.Vec3{X: 49})
-	zone.PublishSnapshot()
-	zone.PublishSnapshot()
-	if got := sink.despawnCount(entityID); got != 1 {
-		t.Fatalf("despawn events for entity %d = %d, want exactly 1", entityID, got)
-	}
-}
-
 func TestDifferentSubscribersReceiveIndependentBatches(t *testing.T) {
 	t.Parallel()
 
@@ -303,12 +267,10 @@ func TestSnapshotEntitiesAreInAscendingIDOrder(t *testing.T) {
 
 type captureSink struct {
 	snapshot world.Snapshot
-	history  []world.Snapshot
 }
 
 func (sink *captureSink) OfferSnapshot(snapshot world.Snapshot) {
 	sink.snapshot = snapshot
-	sink.history = append(sink.history, snapshot)
 }
 
 func (sink *captureSink) find(entityID uint64) (world.EntitySnapshot, bool) {
@@ -327,28 +289,4 @@ func (sink *captureSink) index(entityID uint64) int {
 		}
 	}
 	return -1
-}
-
-func (sink *captureSink) spawnCount(entityID uint64) int {
-	count := 0
-	for _, snapshot := range sink.history {
-		for _, spawn := range snapshot.Spawns {
-			if spawn.EntityID == entityID {
-				count++
-			}
-		}
-	}
-	return count
-}
-
-func (sink *captureSink) despawnCount(entityID uint64) int {
-	count := 0
-	for _, snapshot := range sink.history {
-		for _, despawn := range snapshot.Despawns {
-			if despawn == entityID {
-				count++
-			}
-		}
-	}
-	return count
 }

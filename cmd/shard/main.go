@@ -12,6 +12,7 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/config"
 	"github.com/SarnautCore/server/internal/health"
@@ -22,7 +23,6 @@ import (
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -168,7 +168,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	if err != nil {
 		return err
 	}
-	repository, err := store.NewPostgres(pool)
+	repository, err := charstore.NewPostgres(pool)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		)
 	}
 
-	worker := store.NewSaveWorker(
+	worker := charstore.NewSaveWorker(
 		repository,
 		logger,
 		settings.Persistence.SaveQueueSize,
@@ -191,7 +191,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	if err != nil {
 		return err
 	}
-	characters := store.NewCharacterService(
+	characters := charstore.NewCharacterService(
 		repository,
 		templates,
 		worker,
@@ -201,7 +201,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	// The bag is behind the repository, and the loot module is behind the bag:
 	// nothing in `internal/loot` can reach a database, and nothing in
 	// `internal/inventory` can reach the zone.
-	bags, err := inventory.NewService(repository, inventory.LimitsFromPack(content), 0)
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), 0)
 	if err != nil {
 		return err
 	}

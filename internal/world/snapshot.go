@@ -1,5 +1,7 @@
 package world
 
+import "github.com/SarnautCore/server/internal/gametypes"
+
 // EntitySnapshot is one entity as a replication value.
 //
 // It is a value, not a pointer into the registry: the zone copies out from
@@ -7,34 +9,10 @@ package world
 // immutable data afterwards. That is what retires ADR 0026's shared-batch
 // hazard, and it is why the boundary type is not a protobuf message
 // (ADR 0028).
-type EntitySnapshot struct {
-	EntityID  uint64
-	Kind      EntityKind
-	Position  Vec3
-	Heading   float32
-	Velocity  Vec3
-	Animation AnimationState
-
-	ContentID string
-	NameKey   string
-	Faction   string
-	Level     uint32
-	Health    int32
-	MaxHealth int32
-	Alive     bool
-}
+type EntitySnapshot = gametypes.EntitySnapshot
 
 // Snapshot is the newest view of a zone. It is immutable once published.
-type Snapshot struct {
-	ServerTick uint64
-	Entities   []EntitySnapshot
-	// Spawns and Despawns are reliable interest-set transitions associated
-	// with this view. Entities remains the latest-value snapshot; these deltas
-	// let a client create an entity on entry and remove it on exit without
-	// guessing from a missing or stalled snapshot.
-	Spawns   []EntitySnapshot
-	Despawns []uint64
-}
+type Snapshot = gametypes.Snapshot
 
 // SnapshotSink accepts the newest view of a zone.
 //

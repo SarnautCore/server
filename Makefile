@@ -11,7 +11,7 @@ generate:
 	pwsh -NoProfile -File scripts/proto-lock.ps1
 
 lint:
-	golangci-lint run
+	go tool -modfile=golangci-lint.mod github.com/golangci/golangci-lint/v2/cmd/golangci-lint run
 
 test:
 	go test -race ./...

@@ -7,9 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/inventory"
-	"github.com/SarnautCore/server/internal/world"
 )
 
 // Options tunes one loot module.
@@ -30,7 +29,7 @@ type Options struct {
 // seconds mechanics/loot.md gives it and then genuinely disappears.
 type Module struct {
 	logger  *slog.Logger
-	zone    *world.Zone
+	zone    gametypes.Zone
 	rules   Rules
 	awarder inventory.Awarder
 	options Options
@@ -62,7 +61,7 @@ type corpse struct {
 // New builds the loot module for one zone.
 func New(
 	logger *slog.Logger,
-	zone *world.Zone,
+	zone gametypes.Zone,
 	rules Rules,
 	awarder inventory.Awarder,
 	options Options,
@@ -92,7 +91,7 @@ func (module *Module) Rules() Rules { return module.rules }
 // survives a reconnect, which means it cannot be keyed on anything a reconnect
 // destroys.
 func (module *Module) Admit(entityID uint64, characterID uuid.UUID) {
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		module.owners[entityID] = characterID
 		return nil
 	})
@@ -102,19 +101,19 @@ func (module *Module) Admit(entityID uint64, characterID uuid.UUID) {
 // corpses that character owns are untouched: they stay theirs until they
 // despawn.
 func (module *Module) Release(entityID uint64) {
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		delete(module.owners, entityID)
 		return nil
 	})
 }
 
-// MobKilled implements [combat.KillSink]: it rolls the drop and stands the
+// MobKilled rolls the drop and stands the
 // corpse container up, inside the tick that caused the death.
 //
 // The roll happens here and not when a player opens the corpse (rule 5.1.1), so
 // re-opening cannot re-roll and a disconnect mid-loot cannot change what is
 // there.
-func (module *Module) MobKilled(tick *world.Tick, kill combat.Kill) {
+func (module *Module) MobKilled(tick gametypes.Tick, kill Kill) {
 	table, ok := module.rules.Table(kill.LootTableID)
 	if !ok {
 		// A mob that names no table, or one this pack does not carry, drops
@@ -164,7 +163,7 @@ func (module *Module) MobKilled(tick *world.Tick, kill combat.Kill) {
 		return
 	}
 
-	container := tick.SpawnNPC(world.NPCSpec{
+	container := tick.SpawnNPC(gametypes.NPCSpec{
 		ContentID:   kill.VictimContentID,
 		Position:    kill.Position,
 		Heading:     kill.Heading,
@@ -196,7 +195,7 @@ func (module *Module) MobKilled(tick *world.Tick, kill combat.Kill) {
 	if kill.DespawnTick > tick.Number() {
 		delay = kill.DespawnTick - tick.Number()
 	}
-	tick.After(delay, func(later *world.Tick) {
+	tick.After(delay, func(later gametypes.Tick) {
 		module.despawn(later, containerID)
 	})
 }
@@ -207,7 +206,7 @@ func (module *Module) MobKilled(tick *world.Tick, kill combat.Kill) {
 // container removed from the registry while its record stayed would leak one
 // map entry per kill for the life of the shard; a record removed while the
 // entity stayed would leave a corpse on every client that nothing can open.
-func (module *Module) despawn(tick *world.Tick, containerID uint64) {
+func (module *Module) despawn(tick gametypes.Tick, containerID uint64) {
 	held, ok := module.corpses[containerID]
 	if !ok {
 		return
@@ -246,7 +245,7 @@ func (module *Module) Look(actorEntityID, corpseEntityID uint64) (Offer, Refusal
 		offer   Offer
 		refusal Refusal
 	)
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		held, actor := module.corpses[corpseEntityID], module.owners[actorEntityID]
 		switch {
 		case held == nil:
@@ -286,7 +285,7 @@ func (module *Module) Take(ctx context.Context, actorEntityID, corpseEntityID ui
 		owner    uuid.UUID
 		refusal  Refusal
 	)
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		held, actor := module.corpses[corpseEntityID], module.owners[actorEntityID]
 		switch {
 		case held == nil:
@@ -341,7 +340,7 @@ func (module *Module) Take(ctx context.Context, actorEntityID, corpseEntityID ui
 }
 
 func (module *Module) release(corpseEntityID uint64) {
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		if held, ok := module.corpses[corpseEntityID]; ok {
 			held.inFlight = false
 		}
@@ -350,7 +349,7 @@ func (module *Module) release(corpseEntityID uint64) {
 }
 
 func (module *Module) zoneClear(corpseEntityID uint64) {
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		held, ok := module.corpses[corpseEntityID]
 		if !ok {
 			// Despawned while the award was in flight. The character keeps what
@@ -369,7 +368,7 @@ func (module *Module) zoneClear(corpseEntityID uint64) {
 // is compared against when a corpse despawns unlooted.
 func (module *Module) CorpseCount() int {
 	var count int
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		count = len(module.corpses)
 		return nil
 	})
@@ -383,11 +382,26 @@ func (module *Module) CorpseFor(victimEntityID uint64) (uint64, bool) {
 		containerID uint64
 		ok          bool
 	)
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		containerID, ok = module.byVictim[victimEntityID]
 		return nil
 	})
 	return containerID, ok
+}
+
+// Kill is the loot projection of one combat death. Session owns the adapter
+// so neither gameplay module imports the other.
+type Kill struct {
+	VictimEntityID  uint64
+	KillerEntityID  uint64
+	VictimContentID string
+	PlacementID     string
+	LootTableID     string
+	VictimLevel     uint32
+	Position        gametypes.Vec3
+	Heading         float32
+	DeathTick       uint64
+	DespawnTick     uint64
 }
 
 func grantsFor(drop Drop) []inventory.Grant {

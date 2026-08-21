@@ -47,10 +47,10 @@ Every post-handshake frame in either direction is a `ClientMessage` or a `Server
 
 Requirements:
 
-- Go 1.26
+- Go 1.27
 - protoc 35 or later
 - `protoc-gen-go` 1.36.12
-- golangci-lint 2.12.2 for local linting
+- golangci-lint 2.13.0, invoked through the repository pin by `make lint` or `scripts/lint.ps1`
 
 Generate, test, lint, and build on Windows:
 

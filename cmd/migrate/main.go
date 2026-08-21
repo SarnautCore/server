@@ -21,8 +21,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/config"
-	"github.com/SarnautCore/server/internal/store"
 )
 
 const usage = `usage: migrate [-dsn DSN] [-timeout DURATION] COMMAND [ARGS]
@@ -64,7 +64,7 @@ func run(ctx context.Context, arguments []string) error {
 		return err
 	}
 
-	migrator, err := store.NewMigrator(resolved)
+	migrator, err := charstore.NewMigrator(resolved)
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func run(ctx context.Context, arguments []string) error {
 	return dispatch(commandContext, migrator, flags.Arg(0), flags.Args()[1:])
 }
 
-func dispatch(ctx context.Context, migrator *store.Migrator, command string, arguments []string) error {
+func dispatch(ctx context.Context, migrator *charstore.Migrator, command string, arguments []string) error {
 	switch command {
 	case "up":
 		return migrator.Up(ctx)

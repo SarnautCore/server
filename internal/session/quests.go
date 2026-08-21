@@ -8,9 +8,9 @@ import (
 	"github.com/google/uuid"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/quests"
-	"github.com/SarnautCore/server/internal/store"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -285,5 +285,5 @@ func questRefusalToProto(refusal quests.Refusal) (sarnautv1.QuestRefusal, error)
 // module, and so that the checkpoint cannot reach past the log into the
 // module's other state. `*quests.Module` is the only implementation.
 type questRows interface {
-	Rows(characterID uuid.UUID) []store.QuestState
+	Rows(characterID uuid.UUID) []charstore.QuestState
 }

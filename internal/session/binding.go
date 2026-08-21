@@ -2,8 +2,9 @@ package session
 
 import (
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/gametypes"
+	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/quests"
-	"github.com/SarnautCore/server/internal/world"
 )
 
 // KillSink is the fan-out one zone's composition installs on its combat module:
@@ -20,7 +21,7 @@ import (
 func (binding ZoneBinding) KillSink() combat.KillSink {
 	sinks := make(combat.KillSinks, 0, 2)
 	if binding.Loot != nil {
-		sinks = append(sinks, binding.Loot)
+		sinks = append(sinks, lootKills{module: binding.Loot})
 	}
 	if binding.Quests != nil {
 		sinks = append(sinks, questKills{module: binding.Quests})
@@ -39,10 +40,29 @@ type questKills struct {
 	module *quests.Module
 }
 
-func (sink questKills) MobKilled(tick *world.Tick, kill combat.Kill) {
+func (sink questKills) MobKilled(tick gametypes.Tick, kill combat.Kill) {
 	sink.module.CreditKill(tick, quests.Kill{
 		KillerEntityID:  kill.KillerEntityID,
 		VictimContentID: kill.VictimContentID,
 		ServerTick:      kill.DeathTick,
+	})
+}
+
+type lootKills struct {
+	module *loot.Module
+}
+
+func (sink lootKills) MobKilled(tick gametypes.Tick, kill combat.Kill) {
+	sink.module.MobKilled(tick, loot.Kill{
+		VictimEntityID:  kill.VictimEntityID,
+		KillerEntityID:  kill.KillerEntityID,
+		VictimContentID: kill.VictimContentID,
+		PlacementID:     kill.PlacementID,
+		LootTableID:     kill.LootTableID,
+		VictimLevel:     kill.VictimLevel,
+		Position:        kill.Position,
+		Heading:         kill.Heading,
+		DeathTick:       kill.DeathTick,
+		DespawnTick:     kill.DespawnTick,
 	})
 }

@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/quests"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/world"
 )
 
 // startingTonics is the League warrior's chargen loadout. The item objective of
 // `tonic-tithe` asks for two of them, so a fresh character accepts that quest
 // already satisfied — which is what makes it the fixture for rule 5.5.3.
-var startingTonics = []store.InventoryItem{
+var startingTonics = []charstore.InventoryItem{
 	{Slot: 0, ItemID: tonicItem, Quantity: 3},
 }
 
@@ -356,9 +356,9 @@ func TestAGrantThatDoesNotFitAbortsTheWholeTurnIn(t *testing.T) {
 	t.Parallel()
 	// A bag with exactly one free slot, against a reward of two unstackable
 	// items. The arithmetic is content's: two kinds at stack_limit 1.
-	full := make([]store.InventoryItem, 0, 15)
+	full := make([]charstore.InventoryItem, 0, 15)
 	for slot := range int32(15) {
-		full = append(full, store.InventoryItem{Slot: slot, ItemID: scaleItem, Quantity: 1})
+		full = append(full, charstore.InventoryItem{Slot: slot, ItemID: scaleItem, Quantity: 1})
 	}
 	fixture := newFixture(t, 1, full)
 
@@ -401,7 +401,7 @@ func TestAGrantThatDoesNotFitAbortsTheWholeTurnIn(t *testing.T) {
 	// Free a slot and the same turn-in succeeds. That is the other half of the
 	// arithmetic: the requirement was one slot, not two.
 	trimmed := full[:14]
-	if err := store.SaveCharacter(context.Background(), fixture.repository, store.Snapshot{
+	if err := charstore.SaveCharacter(context.Background(), fixture.repository, charstore.Snapshot{
 		State:     bumped(after),
 		Inventory: trimmed,
 	}); err != nil {
@@ -485,7 +485,7 @@ func TestAnItemCounterTracksTheBagAndRegresses(t *testing.T) {
 	}
 
 	// The player sells one. Two are left, which is still the limit.
-	fixture.module.InventoryChanged(fixture.characterID, []store.InventoryItem{
+	fixture.module.InventoryChanged(fixture.characterID, []charstore.InventoryItem{
 		{Slot: 0, ItemID: tonicItem, Quantity: 2},
 	})
 	if state := fixture.journalState(t, titheQuest); state != quests.StateCompletable {
@@ -493,7 +493,7 @@ func TestAnItemCounterTracksTheBagAndRegresses(t *testing.T) {
 	}
 
 	// The player sells another. The counter regresses and so does the state.
-	fixture.module.InventoryChanged(fixture.characterID, []store.InventoryItem{
+	fixture.module.InventoryChanged(fixture.characterID, []charstore.InventoryItem{
 		{Slot: 0, ItemID: tonicItem, Quantity: 1},
 	})
 	if counters := fixture.counters(t, titheQuest); counters[0] != 1 {
@@ -509,7 +509,7 @@ func TestAnItemCounterTracksTheBagAndRegresses(t *testing.T) {
 	}
 
 	// Reacquired, and it is completable again.
-	fixture.module.InventoryChanged(fixture.characterID, []store.InventoryItem{
+	fixture.module.InventoryChanged(fixture.characterID, []charstore.InventoryItem{
 		{Slot: 0, ItemID: tonicItem, Quantity: 4},
 	})
 	if state := fixture.journalState(t, titheQuest); state != quests.StateCompletable {

@@ -12,11 +12,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -50,7 +50,7 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 		t.Fatalf("open pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	migrator, err := store.NewMigrator(dsn)
+	migrator, err := charstore.NewMigrator(dsn)
 	if err != nil {
 		t.Fatalf("NewMigrator() error = %v", err)
 	}
@@ -60,7 +60,7 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 	if err := migrator.Close(); err != nil {
 		t.Fatalf("close migrator: %v", err)
 	}
-	repository, err := store.NewPostgres(pool)
+	repository, err := charstore.NewPostgres(pool)
 	if err != nil {
 		t.Fatalf("NewPostgres() error = %v", err)
 	}
@@ -88,7 +88,7 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 	if err := combatModule.Populate(content.NPCSpawns()); err != nil {
 		t.Fatalf("Populate() error = %v", err)
 	}
-	bags, err := inventory.NewService(repository, inventory.LimitsFromPack(content), 0)
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), 0)
 	if err != nil {
 		t.Fatalf("inventory.NewService() error = %v", err)
 	}
@@ -107,8 +107,8 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 
 	// Checkpoint L1, as the session would have written it.
 	characterID := uuid.New()
-	err = store.SaveCharacter(ctx, repository, store.Snapshot{
-		State: store.CharacterState{
+	err = charstore.SaveCharacter(ctx, repository, charstore.Snapshot{
+		State: charstore.CharacterState{
 			CharacterID: characterID,
 			ZoneID:      zone.ID(),
 			Level:       1,
@@ -170,7 +170,7 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 
 	// Reconnect through a repository built from scratch, so nothing the first
 	// half of this test held in memory can answer the question.
-	fresh, err := store.NewPostgres(pool)
+	fresh, err := charstore.NewPostgres(pool)
 	if err != nil {
 		t.Fatalf("second NewPostgres() error = %v", err)
 	}
@@ -178,7 +178,7 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadQuestStates() after reconnect error = %v", err)
 	}
-	var reloaded *store.QuestState
+	var reloaded *charstore.QuestState
 	for index := range rows {
 		if rows[index].QuestID == questSliceID {
 			reloaded = &rows[index]

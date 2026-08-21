@@ -14,56 +14,266 @@ linters:
   settings:
     depguard:
       rules:
-        # ADR 0028: the world sim owns domain types and protobuf stops at the
-        # session layer. Prose already said so once and did not hold, so it is
-        # a lint rule now. `internal/world/boundary_test.go` asserts the same
-        # thing, for a checkout with no linter installed.
+        # ADR 0033 section 2: session is the shard dispatch and composition
+        # module. The 2026-08-21 amendment adds script and pack for its one
+        # interpreter adapter; generated wire packages are outside internal/.
+        session-module:
+          list-mode: lax
+          files:
+            - "**/internal/session/*.go"
+            - "**/internal/session/**/*.go"
+            - "!$test"
+          allow:
+            - "github.com/SarnautCore/server/internal/world$"
+            - "github.com/SarnautCore/server/internal/combat$"
+            - "github.com/SarnautCore/server/internal/loot$"
+            - "github.com/SarnautCore/server/internal/inventory$"
+            - "github.com/SarnautCore/server/internal/quests$"
+            - "github.com/SarnautCore/server/internal/charstore$"
+            - "github.com/SarnautCore/server/internal/chat$"
+            - "github.com/SarnautCore/server/internal/script$"
+            - "github.com/SarnautCore/server/internal/transport$"
+            - "github.com/SarnautCore/server/internal/pack$"
+            - "github.com/SarnautCore/server/internal/gametypes$"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal
+              desc: >-
+                ADR 0033 section 2 permits session to import only its listed
+                shard modules and leaves.
+
+        # ADR 0033 section 2: world owns zone state and can delegate only to
+        # interest and combat while sharing plain values through gametypes.
+        world-module:
+          list-mode: lax
+          files:
+            - "**/internal/world/*.go"
+            - "**/internal/world/**/*.go"
+            - "!$test"
+          allow:
+            - "github.com/SarnautCore/server/internal/interest$"
+            - "github.com/SarnautCore/server/internal/combat$"
+            - "github.com/SarnautCore/server/internal/gametypes$"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal
+              desc: >-
+                ADR 0033 section 2 permits world to import only interest,
+                combat, and gametypes.
+
+        # ADR 0033 section 2: combat may publish toward loot and otherwise
+        # shares only plain game values.
+        combat-module:
+          list-mode: lax
+          files:
+            - "**/internal/combat/*.go"
+            - "**/internal/combat/**/*.go"
+            - "!$test"
+          allow:
+            - "github.com/SarnautCore/server/internal/loot$"
+            - "github.com/SarnautCore/server/internal/gametypes$"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal
+              desc: >-
+                ADR 0033 section 2 permits combat to import only loot and
+                gametypes.
+
+        # ADR 0033 section 2: loot delegates bag changes to inventory; pack
+        # and gametypes are leaf dependencies.
+        loot-module:
+          list-mode: lax
+          files:
+            - "**/internal/loot/*.go"
+            - "**/internal/loot/**/*.go"
+            - "!$test"
+          allow:
+            - "github.com/SarnautCore/server/internal/inventory$"
+            - "github.com/SarnautCore/server/internal/pack$"
+            - "github.com/SarnautCore/server/internal/gametypes$"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal
+              desc: >-
+                ADR 0033 section 2 permits loot to import only inventory,
+                pack, and gametypes.
+
+        # ADR 0033 section 2: quest rewards leave through inventory; pack and
+        # gametypes are leaf dependencies.
+        quests-module:
+          list-mode: lax
+          files:
+            - "**/internal/quests/*.go"
+            - "**/internal/quests/**/*.go"
+            - "!$test"
+          allow:
+            - "github.com/SarnautCore/server/internal/inventory$"
+            - "github.com/SarnautCore/server/internal/pack$"
+            - "github.com/SarnautCore/server/internal/gametypes$"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal
+              desc: >-
+                ADR 0033 section 2 permits quests to import only inventory,
+                pack, and gametypes.
+
+        # ADR 0033 section 2 and ADR 0031: charstore is the shard.* writer and
+        # persists snapshots owned by inventory and quests.
+        charstore-module:
+          list-mode: lax
+          files:
+            - "**/internal/charstore/*.go"
+            - "**/internal/charstore/**/*.go"
+            - "!$test"
+          allow:
+            - "github.com/SarnautCore/server/internal/inventory$"
+            - "github.com/SarnautCore/server/internal/quests$"
+            - "github.com/SarnautCore/server/internal/gametypes$"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal
+              desc: >-
+                ADR 0033 section 2 permits charstore to import only inventory,
+                quests, and gametypes.
+
+        # ADR 0033 section 2: inventory owns bag rules; content and shared
+        # values are its only internal dependencies.
+        inventory-module:
+          list-mode: lax
+          files:
+            - "**/internal/inventory/*.go"
+            - "**/internal/inventory/**/*.go"
+            - "!$test"
+          allow:
+            - "github.com/SarnautCore/server/internal/pack$"
+            - "github.com/SarnautCore/server/internal/gametypes$"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal
+              desc: >-
+                ADR 0033 section 2 permits inventory to import only pack and
+                gametypes.
+
+        # ADR 0033 section 2: interest is a leaf over shared game values.
+        interest-module:
+          list-mode: lax
+          files:
+            - "**/internal/interest/*.go"
+            - "**/internal/interest/**/*.go"
+            - "!$test"
+          allow:
+            - "github.com/SarnautCore/server/internal/gametypes$"
+          deny:
+            - pkg: github.com/SarnautCore/server/internal
+              desc: >-
+                ADR 0033 section 2 permits interest to import only gametypes.
+
+        # ADR 0033 section 2: shared game types import only the Go standard
+        # library. Strict mode also rejects an accidental third-party import.
+        gametypes-leaf:
+          list-mode: strict
+          files:
+            - "**/internal/gametypes/*.go"
+            - "**/internal/gametypes/**/*.go"
+            - "!$test"
+          allow:
+            - $gostd
+
+        # ADR 0033's 2026-08-21 amendment and ADR 0036: the interpreter owns no
+        # simulation state and sees only its pack rows and shared values.
+        script-leaf:
+          list-mode: strict
+          files:
+            - "**/internal/script/*.go"
+            - "**/internal/script/**/*.go"
+            - "!$test"
+          allow:
+            - $gostd
+            - "github.com/SarnautCore/server/internal/gametypes$"
+            - "github.com/SarnautCore/server/internal/pack$"
+
+        # ADR 0028: generated protobuf stops at the session mapping seam.
         world-owns-domain-types:
           files:
             - "**/internal/world/*.go"
+            - "**/internal/world/**/*.go"
+            - "!$test"
           deny:
             - pkg: github.com/SarnautCore/server/gen
               desc: >-
                 ADR 0028 keeps generated protobuf out of internal/world. Map at
-                the boundary in internal/session/mapping.go instead.
-        # Combat hands off to loot and to quests through events, not through
-        # imports (mechanics/combat.md rules 5.9.3 and 5.9.4). The packages do
-        # not exist yet; the rule is here before the first one lands rather
-        # than after the first shortcut.
-        combat-hands-off-by-event:
+                the seam in internal/session/mapping.go instead.
+
+        # ADR 0031 sections 7 and 8: gameplay modules cannot reach the pool or
+        # its facade. Auth, charstore, and cmd are the approved callers.
+        infra-facade-imports:
+          list-mode: lax
           files:
-            - "**/internal/combat/*.go"
+            - $all
+            - "!$test"
+            - "!**/internal/auth/*.go"
+            - "!**/internal/auth/**/*.go"
+            - "!**/internal/charstore/*.go"
+            - "!**/internal/charstore/**/*.go"
+            - "!**/cmd/**/*.go"
           deny:
-            - pkg: github.com/SarnautCore/server/internal/quests
+            - pkg: github.com/SarnautCore/server/internal/infra
               desc: >-
-                Kill credit reaches quests as the MobKilled event of
-                mechanics/combat.md rule 5.9.3, never as a call.
-            - pkg: github.com/SarnautCore/server/internal/inventory
-              desc: >-
-                Combat does not touch inventories. Loot owns that handoff.
-            - pkg: github.com/SarnautCore/server/internal/loot
-              desc: >-
-                The corpse is the handoff (mechanics/combat.md rule 5.9.4).
-                Loot reads combat's events; combat does not call loot.
-        # The other side of the same boundary. mechanics/quests.md rule 5.4.1
-        # says the quest module consumes combat's MobKilled event and does not
-        # observe combat state, and rule 5.7 puts the reward grant behind an
-        # interface. Both are one import away from being decorative.
-        quests-reach-siblings-by-interface:
+                ADR 0031 permits internal/infra only from auth, charstore, and
+                process composition under cmd.
+
+        # ADR 0031: direct PostgreSQL and Valkey clients stay in persistence,
+        # infrastructure, auth, and composition packages.
+        database-client-imports:
+          list-mode: lax
           files:
-            - "**/internal/quests/*.go"
+            - $all
+            - "!$test"
+            - "!**/internal/auth/*.go"
+            - "!**/internal/auth/**/*.go"
+            - "!**/internal/charstore/*.go"
+            - "!**/internal/charstore/**/*.go"
+            - "!**/internal/infra/*.go"
+            - "!**/internal/infra/**/*.go"
+            - "!**/cmd/**/*.go"
           deny:
-            - pkg: github.com/SarnautCore/server/internal/combat
+            - pkg: github.com/jackc/pgx
               desc: >-
-                Kill credit arrives as quests.Kill, the value rule 5.9.3
-                publishes. The adapter lives in internal/session.
-            - pkg: github.com/SarnautCore/server/internal/inventory
+                ADR 0031 restricts PostgreSQL clients to persistence,
+                infrastructure, auth, and process composition.
+            - pkg: github.com/redis
               desc: >-
-                The reward grant leaves through the Granter interface, over the
-                plain values in internal/store.
-            - pkg: github.com/SarnautCore/server/internal/loot
+                ADR 0031 restricts Valkey clients to persistence,
+                infrastructure, auth, and process composition.
+
+        # ADR 0033 section 2: session's NATS import is the dated M2 ticket-
+        # redemption exemption. Delete the session exclusion when ADR 0039
+        # moves redemption to the gateway; all other packages remain covered.
+        nats-client-imports:
+          list-mode: lax
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/auth/*.go"
+            - "!**/internal/auth/**/*.go"
+            - "!**/internal/charstore/*.go"
+            - "!**/internal/charstore/**/*.go"
+            - "!**/internal/infra/*.go"
+            - "!**/internal/infra/**/*.go"
+            - "!**/internal/session/*.go"
+            - "!**/internal/session/**/*.go"
+            - "!**/cmd/**/*.go"
+          deny:
+            - pkg: github.com/nats-io
               desc: >-
-                A quest counter and a corpse have nothing to say to each other.
+                ADR 0033 permits NATS only from approved infrastructure
+                packages and session's dated ticket-redemption exception.
+
+        # ADR 0017: QUIC is an implementation detail of transport.
+        quic-client-imports:
+          list-mode: lax
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/transport/*.go"
+            - "!**/internal/transport/**/*.go"
+          deny:
+            - pkg: github.com/quic-go
+              desc: >-
+                ADR 0017 keeps QUIC behind internal/transport.
 
 formatters:
   enable:

@@ -7,10 +7,10 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -83,7 +83,7 @@ func TestKillLoopOverQUIC(t *testing.T) {
 		// input: with admission in place it is the chargen spawn that decides
 		// where a fresh character stands, not the zone's configured one.
 		Authority: new(stubAuthority),
-		Characters: newStubCharacters(integrationTemplate(store.Vec3{
+		Characters: newStubCharacters(integrationTemplate(charstore.Vec3{
 			X: anchor.X + 6,
 			Y: anchor.Y,
 			Z: anchor.Z,

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/SarnautCore/server/internal/store"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -17,16 +17,16 @@ import (
 //
 // The session layer holds an interface rather than a repository so that no
 // session code can reach a database directly, and so a session test needs no
-// container. `internal/store` is the only implementation.
+// container. `internal/charstore` is the only implementation.
 type CharacterStore interface {
 	// Load is checkpoint L1: the character's saved snapshot, materialized from
 	// the chargen table on a first login (ADR 0032 §5.4).
-	Load(ctx context.Context, characterID uuid.UUID, chargenOptionID, zoneID string) (store.Snapshot, error)
+	Load(ctx context.Context, characterID uuid.UUID, chargenOptionID, zoneID string) (charstore.Snapshot, error)
 
 	// Checkpoint enqueues a save on the bounded worker and returns without
 	// waiting. It reports false when the queue was full and the snapshot was
 	// dropped.
-	Checkpoint(snapshot store.Snapshot) bool
+	Checkpoint(snapshot charstore.Snapshot) bool
 }
 
 // characterSession is one connection's view of its character: the state L1
@@ -46,7 +46,7 @@ type characterSession struct {
 	zoneID      string
 
 	mu     sync.Mutex
-	loaded store.Snapshot
+	loaded charstore.Snapshot
 	// saveSeq is the sequence this session's next checkpoint will use. It is
 	// advanced by every checkpoint and re-synchronised by [adopt] when some
 	// other unit of work commits at a higher one.
@@ -57,7 +57,7 @@ type characterSession struct {
 	quests questRows
 }
 
-func newCharacterSession(admission Admission, zoneID string, loaded store.Snapshot) *characterSession {
+func newCharacterSession(admission Admission, zoneID string, loaded charstore.Snapshot) *characterSession {
 	return &characterSession{
 		characterID: admission.CharacterID,
 		zoneID:      zoneID,
@@ -93,7 +93,7 @@ func (character *characterSession) bindQuests(rows questRows) {
 // once the session has been released, and writing it would erase the log. The
 // rows the session loaded are the fallback, which is exactly what a session
 // with no quest module saves.
-func (character *characterSession) questSnapshotLocked() []store.QuestState {
+func (character *characterSession) questSnapshotLocked() []charstore.QuestState {
 	if character.quests == nil {
 		return character.loaded.Quests
 	}
@@ -107,21 +107,21 @@ func (character *characterSession) questSnapshotLocked() []store.QuestState {
 // the save sequence. A save whose sequence does not advance past the stored one
 // is rejected, which is what stops a slow write from a dying session clobbering
 // a newer write from a reconnect (ADR 0031 §6).
-func (character *characterSession) snapshotFrom(view world.CharacterSnapshot) store.Snapshot {
+func (character *characterSession) snapshotFrom(view world.CharacterSnapshot) charstore.Snapshot {
 	character.mu.Lock()
 	defer character.mu.Unlock()
 	character.saveSeq++
 	state := character.loaded.State
 	state.CharacterID = character.characterID
 	state.ZoneID = character.zoneID
-	state.Position = store.Vec3{X: view.Position.X, Y: view.Position.Y, Z: view.Position.Z}
+	state.Position = charstore.Vec3{X: view.Position.X, Y: view.Position.Y, Z: view.Position.Z}
 	state.Heading = view.Heading
 	if view.Level > 0 {
 		state.Level = int32(view.Level)
 	}
 	state.Health = view.Health
 	state.SaveSeq = character.saveSeq
-	return store.Snapshot{
+	return charstore.Snapshot{
 		State:     state,
 		Inventory: character.loaded.Inventory,
 		Quests:    character.questSnapshotLocked(),
@@ -137,7 +137,7 @@ func (character *characterSession) snapshotFrom(view world.CharacterSnapshot) st
 // as stale or, worse, overwrite the looted bag with the empty one. The sequence
 // only ever moves forward: two writers racing both try to advance to the same
 // number, and the anti-clobber rule of ADR 0031 §6 decides which one wins.
-func (character *characterSession) adopt(inventory []store.InventoryItem, currency, saveSeq int64) {
+func (character *characterSession) adopt(inventory []charstore.InventoryItem, currency, saveSeq int64) {
 	character.mu.Lock()
 	defer character.mu.Unlock()
 	character.loaded.Inventory = inventory

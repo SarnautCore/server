@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/loot"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -159,13 +159,13 @@ func TestAFullBagLeavesTheCorpseIntact(t *testing.T) {
 // abortingRepository fails the purse write, cutting the award transaction in
 // half at the worst possible moment.
 type abortingRepository struct {
-	store.Repository
+	charstore.Repository
 	armed bool
 }
 
 var errInjected = errors.New("injected mid-transaction failure")
 
-func (repository *abortingRepository) SaveCharacterState(ctx context.Context, state store.CharacterState) error {
+func (repository *abortingRepository) SaveCharacterState(ctx context.Context, state charstore.CharacterState) error {
 	if repository.armed {
 		return errInjected
 	}
@@ -174,9 +174,9 @@ func (repository *abortingRepository) SaveCharacterState(ctx context.Context, st
 
 func (repository *abortingRepository) RunInTx(
 	ctx context.Context,
-	fn func(ctx context.Context, tx store.Repository) error,
+	fn func(ctx context.Context, tx charstore.Repository) error,
 ) error {
-	return repository.Repository.RunInTx(ctx, func(ctx context.Context, tx store.Repository) error {
+	return repository.Repository.RunInTx(ctx, func(ctx context.Context, tx charstore.Repository) error {
 		return fn(ctx, &abortingRepository{Repository: tx, armed: repository.armed})
 	})
 }
@@ -191,7 +191,7 @@ func (repository *abortingRepository) RunInTx(
 func TestAnAbortedTakeLeavesTheItemInExactlyOnePlace(t *testing.T) {
 	// The failure is armed after the harness has seeded its characters, so what
 	// it cuts in half is the award and nothing else.
-	repository := &abortingRepository{Repository: store.NewMemory()}
+	repository := &abortingRepository{Repository: charstore.NewMemory()}
 	fixture := newHarness(t, harnessOptions{repository: repository})
 	containerID := fixture.kill()
 	repository.armed = true

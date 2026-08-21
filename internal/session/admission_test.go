@@ -11,7 +11,7 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
-	"github.com/SarnautCore/server/internal/store"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -27,7 +27,7 @@ type admissionFixture struct {
 	logs       *safeBuffer
 }
 
-func newAdmissionFixture(t *testing.T, spawn store.Vec3) *admissionFixture {
+func newAdmissionFixture(t *testing.T, spawn charstore.Vec3) *admissionFixture {
 	t.Helper()
 
 	zone, err := world.NewZone(world.ZoneConfig{
@@ -149,7 +149,7 @@ func TestEveryAdmissionRefusalIsDistinctlyLoggedAndCreatesNoEntity(t *testing.T)
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			fixture := newAdmissionFixture(t, store.Vec3{X: 5})
+			fixture := newAdmissionFixture(t, charstore.Vec3{X: 5})
 			ticket := testCase.setup(fixture)
 			client, connection, results := fixture.connect(t, ticket)
 
@@ -187,7 +187,7 @@ func TestEveryAdmissionRefusalIsDistinctlyLoggedAndCreatesNoEntity(t *testing.T)
 func TestARefusedAdmissionAnswersWithOpaqueUnauthenticated(t *testing.T) {
 	t.Parallel()
 
-	fixture := newAdmissionFixture(t, store.Vec3{X: 5})
+	fixture := newAdmissionFixture(t, charstore.Vec3{X: 5})
 	// Two refusals that a peer must not be able to tell apart.
 	fixture.authority.refuse("sarnaut_tk_expired", ReasonUnknownTicket)
 	fixture.authority.refuse("sarnaut_tk_someone-elses", ReasonNotOwned)
@@ -228,7 +228,7 @@ func TestARefusedAdmissionAnswersWithOpaqueUnauthenticated(t *testing.T) {
 func TestAValidTicketSpawnsTheCharacterAtItsChargenSpawn(t *testing.T) {
 	t.Parallel()
 
-	spawn := store.Vec3{X: 12, Y: 4.5}
+	spawn := charstore.Vec3{X: 12, Y: 4.5}
 	fixture := newAdmissionFixture(t, spawn)
 	admission := testAdmission()
 	fixture.authority.mint("sarnaut_tk_good", admission)

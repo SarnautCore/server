@@ -7,7 +7,7 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
-	"github.com/SarnautCore/server/internal/store"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/transport"
 )
 
@@ -63,7 +63,7 @@ func moveUntilAdvanced(
 func TestReconnectRestoresTheSavedPositionRatherThanTheOrigin(t *testing.T) {
 	t.Parallel()
 
-	spawn := store.Vec3{X: 12, Y: 4.5}
+	spawn := charstore.Vec3{X: 12, Y: 4.5}
 	fixture := newAdmissionFixture(t, spawn)
 	admission := testAdmission()
 	fixture.authority.mint("sarnaut_tk_first", admission)
@@ -112,7 +112,7 @@ func TestReconnectRestoresTheSavedPositionRatherThanTheOrigin(t *testing.T) {
 func TestASecondSessionEvictsTheFirstAndTheZoneHoldsOneEntity(t *testing.T) {
 	t.Parallel()
 
-	fixture := newAdmissionFixture(t, store.Vec3{X: 12})
+	fixture := newAdmissionFixture(t, charstore.Vec3{X: 12})
 	admission := testAdmission()
 	fixture.authority.mint("sarnaut_tk_one", admission)
 	fixture.authority.mint("sarnaut_tk_two", admission)
@@ -151,7 +151,7 @@ func TestASecondSessionEvictsTheFirstAndTheZoneHoldsOneEntity(t *testing.T) {
 func TestAShutdownStillSavesTheSimulatedPosition(t *testing.T) {
 	t.Parallel()
 
-	spawn := store.Vec3{X: 12, Y: 4.5}
+	spawn := charstore.Vec3{X: 12, Y: 4.5}
 	fixture := newAdmissionFixture(t, spawn)
 	admission := testAdmission()
 	fixture.authority.mint("sarnaut_tk_shutdown", admission)
@@ -206,7 +206,7 @@ func TestAShutdownStillSavesTheSimulatedPosition(t *testing.T) {
 func TestTheFinalCheckpointIsTakenBeforeTheEntityIsEvicted(t *testing.T) {
 	t.Parallel()
 
-	spawn := store.Vec3{X: 12, Y: 4.5}
+	spawn := charstore.Vec3{X: 12, Y: 4.5}
 	fixture := newAdmissionFixture(t, spawn)
 	admission := testAdmission()
 	fixture.authority.mint("sarnaut_tk_order", admission)
@@ -227,7 +227,7 @@ func TestTheFinalCheckpointIsTakenBeforeTheEntityIsEvicted(t *testing.T) {
 		t.Fatalf("only %d checkpoints were written; want at least S0 and S1", len(written))
 	}
 	final := written[len(written)-1]
-	if final.State.Position == (store.Vec3{}) {
+	if final.State.Position == (charstore.Vec3{}) {
 		t.Error("the final checkpoint wrote the origin: it read the entity after eviction")
 	}
 	if final.State.Position.X <= spawn.X {
@@ -251,7 +251,7 @@ func TestTheFinalCheckpointIsTakenBeforeTheEntityIsEvicted(t *testing.T) {
 func TestPeriodicCheckpointsRunWhileTheSessionIsOpen(t *testing.T) {
 	t.Parallel()
 
-	fixture := newAdmissionFixture(t, store.Vec3{X: 12})
+	fixture := newAdmissionFixture(t, charstore.Vec3{X: 12})
 	admission := testAdmission()
 	fixture.authority.mint("sarnaut_tk_periodic", admission)
 
@@ -275,7 +275,7 @@ func TestPeriodicCheckpointsRunWhileTheSessionIsOpen(t *testing.T) {
 func TestADroppedCheckpointIsLogged(t *testing.T) {
 	t.Parallel()
 
-	fixture := newAdmissionFixture(t, store.Vec3{X: 12})
+	fixture := newAdmissionFixture(t, charstore.Vec3{X: 12})
 	fixture.characters.full = true
 	admission := testAdmission()
 	fixture.authority.mint("sarnaut_tk_full", admission)

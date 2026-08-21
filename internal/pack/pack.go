@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	contentv1 "github.com/SarnautCore/server/gen/sarnaut/content/v1"
+	"github.com/SarnautCore/server/internal/gametypes"
 )
 
 // Named failures a caller can distinguish. Every one of them aborts startup:
@@ -55,25 +56,11 @@ const spawnTimeNever = "time-never"
 const mobIDPrefix = "mob."
 
 // Vec3 is a world-space position. Z is the vertical axis.
-type Vec3 struct {
-	X float32
-	Y float32
-	Z float32
-}
+type Vec3 = gametypes.Vec3
 
 // NPCSpawn is one mob the shard registers at boot, resolved from a placement
 // either directly or through a spawn table.
-type NPCSpawn struct {
-	PlacementID string
-	MobID       string
-	Position    Vec3
-	Heading     float32
-	// RespawnMin and RespawnMax bound the delay before this slot fills again
-	// (mechanics/combat.md rule 5.9.6). Both zero means the placement authored
-	// no window and the shard uses its own default.
-	RespawnMin time.Duration
-	RespawnMax time.Duration
-}
+type NPCSpawn = gametypes.NPCSpawn
 
 // StatValue is one starting stat of a chargen option.
 type StatValue struct {

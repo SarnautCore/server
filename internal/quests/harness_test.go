@@ -12,9 +12,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -58,7 +59,7 @@ const (
 type fixture struct {
 	zone        *world.Zone
 	module      *quests.Module
-	repository  store.Repository
+	repository  charstore.Repository
 	granter     *bagGranter
 	characterID uuid.UUID
 	entityID    uint64
@@ -67,7 +68,7 @@ type fixture struct {
 	updates     *recorder
 }
 
-func newFixture(t *testing.T, level uint32, inventory []store.InventoryItem) *fixture {
+func newFixture(t *testing.T, level uint32, inventory []charstore.InventoryItem) *fixture {
 	t.Helper()
 
 	content, err := pack.Load(filepath.Join("..", "..", "testdata", "packs", "demo"), pack.Options{})
@@ -90,7 +91,7 @@ func newFixture(t *testing.T, level uint32, inventory []store.InventoryItem) *fi
 	}
 
 	characterID := uuid.MustParse("019200f0-0000-7000-8000-0000000a1001")
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	granter := &bagGranter{
 		repository: repository,
 		capacity:   16,
@@ -148,7 +149,7 @@ func (fixture *fixture) accept(t *testing.T, questID string) quests.Result {
 // kill delivers one mechanics/combat.md rule 5.9.3 event, from inside a tick
 // and under the zone lock, which is exactly where the combat module calls it.
 func (fixture *fixture) kill(killerEntityID uint64, mobID string) {
-	_ = fixture.zone.Command(func(tick *world.Tick) error {
+	_ = fixture.zone.GameCommand(func(tick gametypes.Tick) error {
 		fixture.module.CreditKill(tick, quests.Kill{
 			KillerEntityID:  killerEntityID,
 			VictimContentID: mobID,
@@ -176,7 +177,7 @@ func (fixture *fixture) storedState(t *testing.T, questID string) (string, bool)
 	return "", false
 }
 
-func (fixture *fixture) storedCharacter(t *testing.T) store.CharacterState {
+func (fixture *fixture) storedCharacter(t *testing.T) charstore.CharacterState {
 	t.Helper()
 	state, err := fixture.repository.LoadCharacterState(context.Background(), fixture.characterID)
 	if err != nil {
@@ -185,7 +186,7 @@ func (fixture *fixture) storedCharacter(t *testing.T) store.CharacterState {
 	return state
 }
 
-func (fixture *fixture) storedInventory(t *testing.T) []store.InventoryItem {
+func (fixture *fixture) storedInventory(t *testing.T) []charstore.InventoryItem {
 	t.Helper()
 	items, err := fixture.repository.LoadInventory(context.Background(), fixture.characterID)
 	if err != nil {
@@ -280,7 +281,7 @@ func (sink *recorder) count(questID string) int {
 // held to the same contract by `internal/inventory`'s own tests and by the
 // end-to-end run in `internal/session`.
 type bagGranter struct {
-	repository store.Repository
+	repository charstore.Repository
 	capacity   int32
 	limits     map[string]int32
 
@@ -308,17 +309,17 @@ func (granter *bagGranter) committed() int {
 
 func (granter *bagGranter) GrantQuestReward(
 	ctx context.Context,
-	grant store.QuestGrant,
-) (store.QuestGrantResult, error) {
+	grant charstore.QuestGrant,
+) (charstore.QuestGrantResult, error) {
 	granter.mu.Lock()
 	forced := granter.failWith
 	granter.mu.Unlock()
 	if forced != nil {
-		return store.QuestGrantResult{}, forced
+		return charstore.QuestGrantResult{}, forced
 	}
 
-	var result store.QuestGrantResult
-	err := granter.repository.RunInTx(ctx, func(ctx context.Context, tx store.Repository) error {
+	var result charstore.QuestGrantResult
+	err := granter.repository.RunInTx(ctx, func(ctx context.Context, tx charstore.Repository) error {
 		state, err := tx.LoadCharacterState(ctx, grant.CharacterID)
 		if err != nil {
 			return err
@@ -341,7 +342,7 @@ func (granter *bagGranter) GrantQuestReward(
 			held[given.ItemID] += given.Count
 		}
 		if granter.slotsFor(held) > granter.capacity {
-			return store.ErrGrantWouldNotFit
+			return charstore.ErrGrantWouldNotFit
 		}
 		if err := tx.ReplaceInventory(ctx, grant.CharacterID, granter.pack(held)); err != nil {
 			return err
@@ -357,7 +358,7 @@ func (granter *bagGranter) GrantQuestReward(
 		if err := tx.UpsertQuestState(ctx, grant.CharacterID, grant.Quest); err != nil {
 			return err
 		}
-		result = store.QuestGrantResult{
+		result = charstore.QuestGrantResult{
 			Inventory:  granter.pack(held),
 			Currency:   state.Currency,
 			Experience: state.Experience,
@@ -367,7 +368,7 @@ func (granter *bagGranter) GrantQuestReward(
 		return nil
 	})
 	if err != nil {
-		return store.QuestGrantResult{}, err
+		return charstore.QuestGrantResult{}, err
 	}
 	granter.mu.Lock()
 	granter.grants++
@@ -390,7 +391,7 @@ func (granter *bagGranter) slotsFor(held map[string]int32) int32 {
 	return slots
 }
 
-func (granter *bagGranter) pack(held map[string]int32) []store.InventoryItem {
+func (granter *bagGranter) pack(held map[string]int32) []charstore.InventoryItem {
 	ids := make([]string, 0, len(held))
 	for itemID, count := range held {
 		if count > 0 {
@@ -400,7 +401,7 @@ func (granter *bagGranter) pack(held map[string]int32) []store.InventoryItem {
 	sort.Strings(ids)
 
 	var (
-		items []store.InventoryItem
+		items []charstore.InventoryItem
 		slot  int32
 	)
 	for _, itemID := range ids {
@@ -413,7 +414,7 @@ func (granter *bagGranter) pack(held map[string]int32) []store.InventoryItem {
 			if count > remaining {
 				count = remaining
 			}
-			items = append(items, store.InventoryItem{Slot: slot, ItemID: itemID, Quantity: count})
+			items = append(items, charstore.InventoryItem{Slot: slot, ItemID: itemID, Quantity: count})
 			remaining -= count
 			slot++
 		}
@@ -433,7 +434,7 @@ func zeroVec() world.Vec3 { return world.Vec3{} }
 // bumped advances a state's save sequence so a test can write over what a grant
 // just committed. The anti-clobber rule of ADR 0031 §6 rejects a save that does
 // not advance, which is the behaviour under test everywhere else.
-func bumped(state store.CharacterState) store.CharacterState {
+func bumped(state charstore.CharacterState) charstore.CharacterState {
 	state.SaveSeq++
 	return state
 }
@@ -453,15 +454,15 @@ func stackLimits(t *testing.T, content *pack.Pack) map[string]int32 {
 
 func seedCharacter(
 	t *testing.T,
-	repository store.Repository,
+	repository charstore.Repository,
 	characterID uuid.UUID,
 	level int32,
-	items []store.InventoryItem,
+	items []charstore.InventoryItem,
 ) {
 	t.Helper()
 	ctx := context.Background()
-	err := store.SaveCharacter(ctx, repository, store.Snapshot{
-		State: store.CharacterState{
+	err := charstore.SaveCharacter(ctx, repository, charstore.Snapshot{
+		State: charstore.CharacterState{
 			CharacterID: characterID,
 			ZoneID:      "QuestTestZone",
 			Level:       level,
@@ -475,7 +476,7 @@ func seedCharacter(
 	}
 }
 
-func loadQuestRows(t *testing.T, repository store.Repository, characterID uuid.UUID) []store.QuestState {
+func loadQuestRows(t *testing.T, repository charstore.Repository, characterID uuid.UUID) []charstore.QuestState {
 	t.Helper()
 	rows, err := repository.LoadQuestStates(context.Background(), characterID)
 	if err != nil {

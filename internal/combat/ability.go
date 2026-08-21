@@ -1,9 +1,6 @@
 package combat
 
-import (
-	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/world"
-)
+import "github.com/SarnautCore/server/internal/gametypes"
 
 // AbilityRequest is one client ability use, already decoded.
 //
@@ -35,11 +32,11 @@ func (module *Module) UseAbility(casterID uint64, request AbilityRequest) (Event
 		outcome  error
 		rejected Rejection
 	)
-	err := module.zone.Command(func(tick *world.Tick) error {
+	err := module.zone.GameCommand(func(tick gametypes.Tick) error {
 		caster := tick.Entity(casterID)
 		state := module.casters[casterID]
 		if caster == nil || state == nil {
-			return world.ErrUnknownEntity
+			return gametypes.ErrUnknownEntity
 		}
 		if request.Seq != 0 && state.hasSeq && request.Seq <= state.lastSeq {
 			return ErrDuplicateCommand
@@ -97,9 +94,9 @@ func (module *Module) UseAbility(casterID uint64, request AbilityRequest) (Event
 // validate runs rules 5.2 to 5.4 in the order the spec states them, because
 // the order decides which reason a use that breaks two rules comes back with.
 func (module *Module) validate(
-	tick *world.Tick,
-	caster *world.Entity,
-	ability pack.Ability,
+	tick gametypes.Tick,
+	caster *gametypes.EntityData,
+	ability gametypes.Ability,
 	targetID uint64,
 ) Rejection {
 	// Rule 5.2.2.
@@ -127,7 +124,7 @@ func (module *Module) validate(
 		return RejectionInvalidTarget
 	}
 	// Rule 5.3.
-	if world.Distance(caster.Position(), target.Position()) > ability.RangeM+rangeTolerance {
+	if gametypes.Distance(tick.Position(caster), tick.Position(target)) > ability.RangeM+rangeTolerance {
 		return RejectionOutOfRange
 	}
 	// Rule 5.4.1, plus the per-ability cooldown the pack may carry.
@@ -151,15 +148,15 @@ func (module *Module) hostile(casterFaction, targetFaction string) bool {
 	if !ok || !target.Attackable {
 		return false
 	}
-	return target.StanceTowards(casterFaction) == pack.StanceHostile
+	return target.StanceTowards(casterFaction) == gametypes.StanceHostile
 }
 
 // applyDamage is rules 5.5 and 5.6.
 func (module *Module) applyDamage(
-	tick *world.Tick,
-	caster *world.Entity,
-	target *world.Entity,
-	ability pack.Ability,
+	tick gametypes.Tick,
+	caster *gametypes.EntityData,
+	target *gametypes.EntityData,
+	ability gametypes.Ability,
 ) Event {
 	// Rule 5.5 computes the damage and rule 5.6.1 clamps the health, in that
 	// order. The event reports what the ability did, not what was left to
@@ -195,6 +192,6 @@ func (module *Module) applyDamage(
 	return event
 }
 
-func (module *Module) gcdTicks(tick *world.Tick) uint64 {
+func (module *Module) gcdTicks(tick gametypes.Tick) uint64 {
 	return ticksIn(globalCooldown, tick.Interval())
 }

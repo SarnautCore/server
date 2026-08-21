@@ -86,7 +86,7 @@ func (zone *Zone) integratePlayerLocked(current *Entity) {
 	zone.registry.moveTo(current, Vec3{
 		X: current.position.X + current.Velocity.X*step,
 		Y: current.position.Y + current.Velocity.Y*step,
-		// TODO(SAR-19): resolve terrain height and collisions before assigning Z movement.
+		// Terrain height and collision resolution will replace this preserved Z.
 		Z: current.position.Z,
 	})
 	current.intentRemaining -= delta

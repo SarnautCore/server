@@ -7,6 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	contentv1 "github.com/SarnautCore/server/gen/sarnaut/content/v1"
+	"github.com/SarnautCore/server/internal/gametypes"
 )
 
 // Table names carrying the rules mechanics/combat.md reads.
@@ -18,75 +19,26 @@ const (
 
 // Stances a faction relation may declare.
 const (
-	StanceHostile  = "hostile"
-	StanceNeutral  = "neutral"
-	StanceFriendly = "friendly"
+	StanceHostile  = gametypes.StanceHostile
+	StanceNeutral  = gametypes.StanceNeutral
+	StanceFriendly = gametypes.StanceFriendly
 )
 
 // AbilityEffect is one effect an ability applies.
-type AbilityEffect struct {
-	Kind             string
-	Element          string
-	Amount           float64
-	AttackPowerCoeff float64
-}
+type AbilityEffect = gametypes.AbilityEffect
 
 // Ability is one activatable ability, as authored.
-type Ability struct {
-	ID          string
-	NameKey     string
-	Target      string
-	RangeM      float32
-	CastTime    time.Duration
-	Cooldown    time.Duration
-	TriggersGCD bool
-	Effects     []AbilityEffect
-}
+type Ability = gametypes.Ability
 
 // FactionRelation is one directed stance towards another faction.
-type FactionRelation struct {
-	FactionID string
-	Stance    string
-}
+type FactionRelation = gametypes.FactionRelation
 
 // Faction is a hostility table entry.
-type Faction struct {
-	ID            string
-	NameKey       string
-	PlayerFaction bool
-	Attackable    bool
-	DefaultStance string
-	Relations     []FactionRelation
-}
-
-// StanceTowards resolves this faction's stance towards `other`, falling back to
-// the authored default. The relation is directed: A hostile to B says nothing
-// about B towards A.
-func (faction Faction) StanceTowards(other string) string {
-	for _, relation := range faction.Relations {
-		if relation.FactionID == other {
-			return relation.Stance
-		}
-	}
-	return faction.DefaultStance
-}
+type Faction = gametypes.Faction
 
 // Mob is one creature record: the combat inputs of mechanics/combat.md
 // section 4, plus the ids later systems resolve.
-type Mob struct {
-	ID           string
-	NameKey      string
-	FactionID    string
-	MobKindID    string
-	LevelMin     uint32
-	LevelMax     uint32
-	WalkSpeed    float32
-	HPMod        float64
-	AggroRadiusM float32
-	LeashRadiusM float32
-	AbilityIDs   []string
-	LootTableID  string
-}
+type Mob = gametypes.Mob
 
 // Ability returns one ability by canonical id.
 func (p *Pack) Ability(id string) (Ability, bool) {

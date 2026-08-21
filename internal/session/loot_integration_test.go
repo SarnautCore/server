@@ -10,11 +10,11 @@ import (
 	"github.com/google/uuid"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -171,7 +171,7 @@ type lootFixture struct {
 	cancel     context.CancelFunc
 	address    string
 	zoneID     string
-	repository store.Repository
+	repository charstore.Repository
 	serve      chan error
 	listener   transport.Listener
 }
@@ -222,8 +222,8 @@ func newLootFixture(t *testing.T) *lootFixture {
 		t.Fatalf("Populate() error = %v", err)
 	}
 
-	repository := store.NewMemory()
-	bags, err := inventory.NewService(repository, inventory.LimitsFromPack(content), 0)
+	repository := charstore.NewMemory()
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), 0)
 	if err != nil {
 		t.Fatalf("inventory.NewService() error = %v", err)
 	}
@@ -234,7 +234,7 @@ func newLootFixture(t *testing.T) *lootFixture {
 	lootModule := loot.New(slog.New(slog.DiscardHandler), zone, lootRules, bags, loot.Options{
 		WorldSeed: "loot-slice-test",
 	})
-	combatModule.SetKillSink(lootModule)
+	combatModule.SetKillSink((session.ZoneBinding{Loot: lootModule}).KillSink())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	go zone.Run(ctx)
@@ -254,11 +254,11 @@ func newLootFixture(t *testing.T) *lootFixture {
 	// The character service writes through the same repository the bag does, so
 	// a checkpoint and a loot award are two writers on one row — which is the
 	// composition `cmd/shard` uses and the one the save sequence has to survive.
-	worker := store.NewSaveWorker(repository, slog.New(slog.DiscardHandler), 0, 0)
+	worker := charstore.NewSaveWorker(repository, slog.New(slog.DiscardHandler), 0, 0)
 	go worker.Run(ctx)
-	characters := store.NewCharacterService(
+	characters := charstore.NewCharacterService(
 		repository,
-		lootTemplates{spawn: store.Vec3{X: anchor.X + 4, Y: anchor.Y, Z: anchor.Z}},
+		lootTemplates{spawn: charstore.Vec3{X: anchor.X + 4, Y: anchor.Y, Z: anchor.Z}},
 		worker,
 		slog.New(slog.DiscardHandler),
 		0,
@@ -421,7 +421,7 @@ func awaitInventoryUpdate(t *testing.T, actor *lootSession) *sarnautv1.Inventory
 	}
 }
 
-func lootUnits(items []store.InventoryItem) int32 {
+func lootUnits(items []charstore.InventoryItem) int32 {
 	var total int32
 	for _, item := range items {
 		if item.ItemID == lootItemID {
@@ -478,11 +478,11 @@ func (authority *lootAuthority) ReleasePlayLock(context.Context, uuid.UUID) erro
 
 // lootTemplates materializes both characters next to the target.
 type lootTemplates struct {
-	spawn store.Vec3
+	spawn charstore.Vec3
 }
 
-func (templates lootTemplates) Template(string) (store.Snapshot, bool) {
-	return store.Snapshot{
-		State: store.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
+func (templates lootTemplates) Template(string) (charstore.Snapshot, bool) {
+	return charstore.Snapshot{
+		State: charstore.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
 	}, true
 }

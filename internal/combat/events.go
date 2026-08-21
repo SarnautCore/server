@@ -1,6 +1,6 @@
 package combat
 
-import "github.com/SarnautCore/server/internal/world"
+import "github.com/SarnautCore/server/internal/gametypes"
 
 // EventKind distinguishes the two things combat tells the rest of the server
 // about.
@@ -72,7 +72,7 @@ type Kill struct {
 	// names none.
 	LootTableID string
 	VictimLevel uint32
-	Position    world.Vec3
+	Position    gametypes.Vec3
 	Heading     float32
 	DeathTick   uint64
 	// DespawnTick is when the corpse goes, rule 5.9.4. loot.md section 3 sets
@@ -97,7 +97,7 @@ type KillSinks []KillSink
 
 // MobKilled implements [KillSink]. A nil member is skipped, so a composition
 // that omits one module needs no branch at the call site.
-func (sinks KillSinks) MobKilled(tick *world.Tick, kill Kill) {
+func (sinks KillSinks) MobKilled(tick gametypes.Tick, kill Kill) {
 	for _, sink := range sinks {
 		if sink == nil {
 			continue
@@ -113,5 +113,5 @@ func (sinks KillSinks) MobKilled(tick *world.Tick, kill Kill) {
 // nothing that blocks. `internal/loot` is the implementation; combat does not
 // import it, which is what keeps the dependency pointing one way.
 type KillSink interface {
-	MobKilled(*world.Tick, Kill)
+	MobKilled(gametypes.Tick, Kill)
 }

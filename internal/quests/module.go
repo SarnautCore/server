@@ -10,7 +10,7 @@
 // The module reaches two sibling gameplay modules and imports neither. Kill
 // credit arrives as [Kill], the value mechanics/combat.md rule 5.9.3 publishes,
 // and the reward grant leaves through [Granter], which `internal/inventory`
-// satisfies structurally over the plain values in `internal/store`. That is not
+// satisfies structurally over the plain values owned by the gameplay modules.
 // tidiness: combat asking the quest log whether a kill counts, or the quest
 // module reaching into a bag, is how two modules stop being separable, and
 // `boundary_test.go` fails the build if either import appears.
@@ -30,9 +30,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/SarnautCore/server/internal/gametypes"
+	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/store"
-	"github.com/SarnautCore/server/internal/world"
 )
 
 // updateQueueSize bounds the backlog between the tick loop and the fan-out
@@ -84,7 +84,7 @@ type Update struct {
 	Experience int64
 	Money      int64
 	Honor      int64
-	Items      []store.ItemCount
+	Items      []ItemCount
 }
 
 // Character is what a session hands over at zone entry: the rows checkpoint L1
@@ -92,14 +92,14 @@ type Update struct {
 // of rule 5.3 are evaluated at.
 type Character struct {
 	Level     uint32
-	Quests    []store.QuestState
-	Inventory []store.InventoryItem
+	Quests    []QuestState
+	Inventory []inventory.InventoryItem
 }
 
 // Module is the quest system for one zone.
 type Module struct {
 	logger  *slog.Logger
-	zone    *world.Zone
+	zone    gametypes.Zone
 	catalog Catalog
 	granter Granter
 
@@ -135,7 +135,7 @@ type addressed struct {
 }
 
 // New builds the quest module for one zone.
-func New(logger *slog.Logger, zone *world.Zone, catalog Catalog, granter Granter) *Module {
+func New(logger *slog.Logger, zone gametypes.Zone, catalog Catalog, granter Granter) *Module {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -166,7 +166,7 @@ func (module *Module) Catalog() Catalog { return module.catalog }
 // counter restored from a row would say `completable` about a bag that is
 // empty.
 func (module *Module) Admit(entityID uint64, characterID uuid.UUID, loaded Character) error {
-	return module.zone.Command(func(*world.Tick) error {
+	return module.zone.GameCommand(func(gametypes.Tick) error {
 		log := &questLog{
 			characterID: characterID,
 			instances:   make(map[string]*instance, len(loaded.Quests)),
@@ -204,7 +204,7 @@ func (module *Module) Admit(entityID uint64, characterID uuid.UUID, loaded Chara
 // checkpoint reads this log, and a log released first would persist an empty
 // quest set over a real one.
 func (module *Module) Release(entityID uint64) {
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		characterID, ok := module.actors[entityID]
 		if !ok {
 			return nil
@@ -284,7 +284,7 @@ func (module *Module) publish(characterID uuid.UUID, update Update) {
 // evaluated once per quest after all of that quest's counters have moved (rule
 // 5.4.5), so a kill that satisfies the last two objectives at once reports one
 // completion rather than an intermediate state that was never true.
-func (module *Module) CreditKill(_ *world.Tick, kill Kill) {
+func (module *Module) CreditKill(_ gametypes.Tick, kill Kill) {
 	characterID, ok := module.actors[kill.KillerEntityID]
 	if !ok {
 		return
@@ -332,13 +332,13 @@ func (module *Module) CreditKill(_ *world.Tick, kill Kill) {
 // It is what makes that kind the only one that can regress (rule 5.5.4): a
 // dropped or sold item lowers the counter and can move a `completable` instance
 // back to `in-progress`, which is transition T10.
-func (module *Module) InventoryChanged(characterID uuid.UUID, inventory []store.InventoryItem) {
-	_ = module.zone.Command(func(*world.Tick) error {
+func (module *Module) InventoryChanged(characterID uuid.UUID, items []inventory.InventoryItem) {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		log, ok := module.logs[characterID]
 		if !ok {
 			return nil
 		}
-		module.trackItems(log, inventory)
+		module.trackItems(log, items)
 		for _, update := range module.recountItems(log) {
 			module.publish(characterID, update)
 		}
@@ -351,7 +351,7 @@ func (module *Module) InventoryChanged(characterID uuid.UUID, inventory []store.
 // Only items some objective names are counted. The bag is the authority and the
 // tally is derived from it every time, so an item that left the bag between two
 // calls disappears from the tally rather than lingering as a stale count.
-func (module *Module) trackItems(log *questLog, inventory []store.InventoryItem) {
+func (module *Module) trackItems(log *questLog, items []inventory.InventoryItem) {
 	tracked := make(map[string]struct{})
 	for questID := range log.instances {
 		definition, ok := module.catalog.Definition(questID)
@@ -368,7 +368,7 @@ func (module *Module) trackItems(log *questLog, inventory []store.InventoryItem)
 		}
 	}
 	held := make(map[string]int32, len(tracked))
-	for _, item := range inventory {
+	for _, item := range items {
 		if _, ok := tracked[item.ItemID]; !ok {
 			continue
 		}
@@ -422,14 +422,14 @@ func (module *Module) recountItems(log *questLog) []Update {
 // ordinary answer once the session has been released; a caller that treated nil
 // as "no quests" and wrote it would erase a log, so the session keeps its
 // loaded rows and only replaces them when this answers non-nil.
-func (module *Module) Rows(characterID uuid.UUID) []store.QuestState {
-	var rows []store.QuestState
-	_ = module.zone.Command(func(*world.Tick) error {
+func (module *Module) Rows(characterID uuid.UUID) []QuestState {
+	var rows []QuestState
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		log, ok := module.logs[characterID]
 		if !ok {
 			return nil
 		}
-		rows = make([]store.QuestState, 0, len(log.instances))
+		rows = make([]QuestState, 0, len(log.instances))
 		for _, questID := range sortedIDs(log.instances) {
 			row, err := log.instances[questID].row()
 			if err != nil {
@@ -453,7 +453,7 @@ func (module *Module) Rows(characterID uuid.UUID) []store.QuestState {
 // answering a question nobody asked with a frame per quest.
 func (module *Module) Log(characterID uuid.UUID) []Update {
 	var updates []Update
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		log, ok := module.logs[characterID]
 		if !ok {
 			return nil

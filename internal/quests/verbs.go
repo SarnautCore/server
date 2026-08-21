@@ -6,9 +6,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/SarnautCore/server/internal/gametypes"
+	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/store"
-	"github.com/SarnautCore/server/internal/world"
 )
 
 // Granter commits one quest grant as a single transaction.
@@ -18,7 +18,7 @@ import (
 // full, or a transaction that fails halfway, without a database — and so that
 // nothing here can reach a repository or a bag directly.
 type Granter interface {
-	GrantQuestReward(ctx context.Context, grant store.QuestGrant) (store.QuestGrantResult, error)
+	GrantQuestReward(ctx context.Context, grant Grant) (GrantResult, error)
 }
 
 // Result is what one committing verb produced.
@@ -28,7 +28,7 @@ type Result struct {
 	// committed them. They are empty on a refusal, and the session adopts them
 	// so its next checkpoint does not write the pre-grant bag back over this
 	// one.
-	Inventory []store.InventoryItem
+	Inventory []inventory.InventoryItem
 	Currency  int64
 	SaveSeq   int64
 	// Committed is true when a transaction ran. An accept and an abandon commit
@@ -48,7 +48,7 @@ func (module *Module) Interact(actorEntityID, targetEntityID uint64) ([]Update, 
 		updates []Update
 		refusal Refusal
 	)
-	_ = module.zone.Command(func(tick *world.Tick) error {
+	_ = module.zone.GameCommand(func(tick gametypes.Tick) error {
 		log, ok := module.logOf(actorEntityID)
 		if !ok {
 			refusal = RefusalNotAQuestGiver
@@ -122,7 +122,7 @@ func (module *Module) Accept(
 		created     *instance
 		refusal     Refusal
 	)
-	_ = module.zone.Command(func(tick *world.Tick) error {
+	_ = module.zone.GameCommand(func(tick gametypes.Tick) error {
 		log, ok := module.logOf(actorEntityID)
 		if !ok {
 			refusal = RefusalUnavailable
@@ -170,7 +170,7 @@ func (module *Module) Accept(
 		module.rollBackAccept(characterID, questID)
 		return Result{Update: Update{QuestID: questID, Refusal: RefusalInternal}}, err
 	}
-	granted, err := module.granter.GrantQuestReward(ctx, store.QuestGrant{
+	granted, err := module.granter.GrantQuestReward(ctx, Grant{
 		CharacterID: characterID,
 		Quest:       row,
 	})
@@ -182,7 +182,7 @@ func (module *Module) Accept(
 	}
 
 	var update Update
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		log, ok := module.logs[characterID]
 		if !ok {
 			return nil
@@ -210,7 +210,7 @@ func (module *Module) Accept(
 // character keeps nothing: no row was written, so there is nothing to reconcile
 // on the next login either.
 func (module *Module) rollBackAccept(characterID uuid.UUID, questID string) {
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		if log, ok := module.logs[characterID]; ok {
 			delete(log.instances, questID)
 		}
@@ -240,10 +240,10 @@ func (module *Module) TurnIn(
 
 	var (
 		characterID uuid.UUID
-		grant       store.QuestGrant
+		grant       Grant
 		refusal     Refusal
 	)
-	_ = module.zone.Command(func(tick *world.Tick) error {
+	_ = module.zone.GameCommand(func(tick gametypes.Tick) error {
 		log, ok := module.logOf(actorEntityID)
 		if !ok {
 			refusal = RefusalUnavailable
@@ -281,7 +281,7 @@ func (module *Module) TurnIn(
 					return nil
 				}
 				held.inFlight = true
-				grant = store.QuestGrant{
+				grant = Grant{
 					CharacterID: characterID,
 					Consume:     consumedItems(definition, log),
 					Grants:      rewardItems(definition),
@@ -301,7 +301,7 @@ func (module *Module) TurnIn(
 	granted, err := module.granter.GrantQuestReward(ctx, grant)
 	if err != nil {
 		module.clearFlight(characterID, questID)
-		if errors.Is(err, store.ErrGrantWouldNotFit) {
+		if errors.Is(err, ErrGrantWouldNotFit) {
 			// T12. Nothing was applied, the instance is unchanged, and the
 			// player can free a slot and try again.
 			return refused(questID, RefusalBagFull)
@@ -312,7 +312,7 @@ func (module *Module) TurnIn(
 	}
 
 	var update Update
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		log, ok := module.logs[characterID]
 		if !ok {
 			return nil
@@ -370,10 +370,10 @@ func (module *Module) Abandon(ctx context.Context, actorEntityID uint64, questID
 
 	var (
 		characterID uuid.UUID
-		grant       store.QuestGrant
+		grant       Grant
 		refusal     Refusal
 	)
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		log, ok := module.logOf(actorEntityID)
 		if !ok {
 			refusal = RefusalUnavailable
@@ -399,7 +399,7 @@ func (module *Module) Abandon(ctx context.Context, actorEntityID uint64, questID
 				return nil
 			}
 			held.inFlight = true
-			grant = store.QuestGrant{
+			grant = Grant{
 				CharacterID: characterID,
 				// Rule 5.5.5: an item objective the definition marks as removed
 				// on abandon takes its items with it.
@@ -421,7 +421,7 @@ func (module *Module) Abandon(ctx context.Context, actorEntityID uint64, questID
 		return Result{Update: Update{QuestID: questID, Refusal: RefusalInternal}}, err
 	}
 
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		log, ok := module.logs[characterID]
 		if !ok {
 			return nil
@@ -447,7 +447,7 @@ func (module *Module) Abandon(ctx context.Context, actorEntityID uint64, questID
 }
 
 func (module *Module) clearFlight(characterID uuid.UUID, questID string) {
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		if log, ok := module.logs[characterID]; ok {
 			if held, holding := log.instances[questID]; holding {
 				held.inFlight = false
@@ -476,19 +476,19 @@ func (module *Module) logOf(entityID uint64) (*questLog, bool) {
 // loot corpse container carries its victim's content id (mechanics/loot.md rule
 // 5.1.1), so without it a player could turn a quest in at the corpse of its own
 // finisher.
-func isGiver(entity *world.Entity, contentID string) bool {
+func isGiver(entity *gametypes.EntityData, contentID string) bool {
 	return entity != nil && entity.Alive && entity.ContentID == contentID
 }
 
 // inRange is TURN_IN_RANGE_M, measured over all three axes exactly as
 // mechanics/combat.md rule 5.3.1 measures ability range. There is no tolerance
 // term: unlike a cast, a turn-in is not racing the target's movement.
-func (module *Module) inRange(tick *world.Tick, actorEntityID uint64, npc *world.Entity) bool {
+func (module *Module) inRange(tick gametypes.Tick, actorEntityID uint64, npc *gametypes.EntityData) bool {
 	actor := tick.Entity(actorEntityID)
 	if actor == nil {
 		return false
 	}
-	return world.Distance(actor.Position(), npc.Position()) <= TurnInRangeM
+	return gametypes.Distance(tick.Position(actor), tick.Position(npc)) <= TurnInRangeM
 }
 
 // consumedItems is what rule 5.7.4 takes out of the bag: the tracked items of
@@ -498,8 +498,8 @@ func (module *Module) inRange(tick *world.Tick, actorEntityID uint64, npc *world
 // can no longer cover asks for what the objective demands and the removal fails
 // the whole transaction. Consuming "as many as there are" would be a partial
 // turn-in.
-func consumedItems(definition pack.Quest, log *questLog) []store.ItemCount {
-	var consumed []store.ItemCount
+func consumedItems(definition pack.Quest, log *questLog) []ItemCount {
+	var consumed []ItemCount
 	for _, objective := range definition.Objectives {
 		if objective.Kind != pack.QuestObjectiveCountItem {
 			continue
@@ -516,14 +516,14 @@ func consumedItems(definition pack.Quest, log *questLog) []store.ItemCount {
 			if take <= 0 {
 				continue
 			}
-			consumed = append(consumed, store.ItemCount{ItemID: target, Count: take})
+			consumed = append(consumed, ItemCount{ItemID: target, Count: take})
 			remaining -= take
 		}
 		if remaining > 0 && len(objective.TargetIDs) > 0 {
 			// Ask for the shortfall anyway, against the first target. The
 			// removal refuses it and the transaction rolls back, which is the
 			// answer: the objective was not actually satisfied.
-			consumed = append(consumed, store.ItemCount{ItemID: objective.TargetIDs[0], Count: remaining})
+			consumed = append(consumed, ItemCount{ItemID: objective.TargetIDs[0], Count: remaining})
 		}
 	}
 	return consumed
@@ -531,28 +531,28 @@ func consumedItems(definition pack.Quest, log *questLog) []store.ItemCount {
 
 // abandonedItems is rule 5.5.5, which is the same arithmetic gated on the
 // definition's own flag.
-func abandonedItems(definition pack.Quest, log *questLog) []store.ItemCount {
-	var consumed []store.ItemCount
+func abandonedItems(definition pack.Quest, log *questLog) []ItemCount {
+	var consumed []ItemCount
 	for _, objective := range definition.Objectives {
 		if objective.Kind != pack.QuestObjectiveCountItem || !objective.RemoveOnAbandon {
 			continue
 		}
 		for _, target := range objective.TargetIDs {
 			if held := log.held[target]; held > 0 {
-				consumed = append(consumed, store.ItemCount{ItemID: target, Count: held})
+				consumed = append(consumed, ItemCount{ItemID: target, Count: held})
 			}
 		}
 	}
 	return consumed
 }
 
-func rewardItems(definition pack.Quest) []store.ItemCount {
-	var items []store.ItemCount
+func rewardItems(definition pack.Quest) []ItemCount {
+	var items []ItemCount
 	for _, reward := range definition.Rewards.MandatoryItems {
 		if reward.Count <= 0 {
 			continue
 		}
-		items = append(items, store.ItemCount{ItemID: reward.ItemID, Count: reward.Count})
+		items = append(items, ItemCount{ItemID: reward.ItemID, Count: reward.Count})
 	}
 	return items
 }

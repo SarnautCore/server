@@ -10,11 +10,11 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -197,7 +197,7 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 	if err != nil {
 		t.Fatalf("CatalogFromPack() error = %v", err)
 	}
-	bags, err := inventory.NewService(store.NewMemory(), inventory.LimitsFromPack(content), 0)
+	bags, err := charstore.NewInventoryService(charstore.NewMemory(), inventory.LimitsFromPack(content), 0)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -220,7 +220,7 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 			zone.ID(): {World: zone, Combat: combatModule, Quests: questModule},
 		},
 		Authority:  authority,
-		Characters: newFakeCharacters(testTemplate(store.Vec3{})),
+		Characters: newFakeCharacters(testTemplate(charstore.Vec3{})),
 		Logger:     slog.New(slog.DiscardHandler),
 		sessions:   newSessionRegistry(),
 	}

@@ -11,13 +11,13 @@ import (
 	"github.com/google/uuid"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -217,7 +217,7 @@ type questFixture struct {
 	cancel        context.CancelFunc
 	address       string
 	zoneID        string
-	repository    store.Repository
+	repository    charstore.Repository
 	skippedQuests int
 	serve         chan error
 	listener      transport.Listener
@@ -258,8 +258,8 @@ func newQuestFixture(t *testing.T) *questFixture {
 		t.Fatalf("Populate() error = %v", err)
 	}
 
-	repository := store.NewMemory()
-	bags, err := inventory.NewService(repository, inventory.LimitsFromPack(content), 0)
+	repository := charstore.NewMemory()
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), 0)
 	if err != nil {
 		t.Fatalf("inventory.NewService() error = %v", err)
 	}
@@ -303,11 +303,11 @@ func newQuestFixture(t *testing.T) *questFixture {
 		t.Fatalf("ListenQUIC() error = %v", err)
 	}
 
-	worker := store.NewSaveWorker(repository, slog.New(slog.DiscardHandler), 0, 0)
+	worker := charstore.NewSaveWorker(repository, slog.New(slog.DiscardHandler), 0, 0)
 	go worker.Run(ctx)
-	characters := store.NewCharacterService(
+	characters := charstore.NewCharacterService(
 		repository,
-		questTemplates{spawn: store.Vec3{X: spawn.X, Y: spawn.Y, Z: spawn.Z}},
+		questTemplates{spawn: charstore.Vec3{X: spawn.X, Y: spawn.Y, Z: spawn.Z}},
 		worker,
 		slog.New(slog.DiscardHandler),
 		0,
@@ -382,7 +382,7 @@ func (fixture *questFixture) storedQuestState(t *testing.T, questID string) stri
 	return ""
 }
 
-func (fixture *questFixture) storedCharacterState(t *testing.T) store.CharacterState {
+func (fixture *questFixture) storedCharacterState(t *testing.T) charstore.CharacterState {
 	t.Helper()
 	state, err := fixture.repository.LoadCharacterState(fixture.ctx, questCharacter)
 	if err != nil {
@@ -585,11 +585,11 @@ func (authority *questAuthority) ReleasePlayLock(context.Context, uuid.UUID) err
 // questTemplates materializes the character six metres from the crab, which
 // puts it three from the quest giver.
 type questTemplates struct {
-	spawn store.Vec3
+	spawn charstore.Vec3
 }
 
-func (templates questTemplates) Template(string) (store.Snapshot, bool) {
-	return store.Snapshot{
-		State: store.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
+func (templates questTemplates) Template(string) (charstore.Snapshot, bool) {
+	return charstore.Snapshot{
+		State: charstore.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
 	}, true
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/store"
 )
 
 // State is the quest state machine of mechanics/quests.md rule 5.1.
@@ -127,7 +126,7 @@ type objectiveRecord struct {
 	AcceptedAtTick uint64  `json:"accepted_at_tick"`
 }
 
-func (held *instance) row() (store.QuestState, error) {
+func (held *instance) row() (QuestState, error) {
 	counters := held.counters
 	if counters == nil {
 		counters = []int32{}
@@ -137,9 +136,9 @@ func (held *instance) row() (store.QuestState, error) {
 		AcceptedAtTick: held.acceptedAtTick,
 	})
 	if err != nil {
-		return store.QuestState{}, fmt.Errorf("encode quest %q counters: %w", held.questID, err)
+		return QuestState{}, fmt.Errorf("encode quest %q counters: %w", held.questID, err)
 	}
-	return store.QuestState{
+	return QuestState{
 		QuestID:    held.questID,
 		State:      held.state.String(),
 		Objectives: encoded,
@@ -153,7 +152,7 @@ func (held *instance) row() (store.QuestState, error) {
 // objectives by position, so a definition that grew has its new counters read
 // as zero and one that shrank drops the tail. Resizing is the conservative
 // answer — the alternative is an index panic on a row nobody can edit.
-func instanceFromRow(row store.QuestState, definition pack.Quest) (*instance, error) {
+func instanceFromRow(row QuestState, definition pack.Quest) (*instance, error) {
 	state, err := parseState(row.State)
 	if err != nil {
 		return nil, fmt.Errorf("quest %q: %w", row.QuestID, err)

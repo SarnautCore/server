@@ -7,15 +7,15 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/inventory"
-	"github.com/SarnautCore/server/internal/store"
 )
 
 // questRow is the row a turn-in writes. Its shape belongs to `internal/quests`;
 // what this package promises about it is only that it is written inside the
 // same transaction as everything else.
-func questRow(state string) store.QuestState {
-	return store.QuestState{
+func questRow(state string) charstore.QuestState {
+	return charstore.QuestState{
 		QuestID:    "quest.paper-harbor.tide-tally",
 		State:      state,
 		Objectives: []byte(`{"counters":[1]}`),
@@ -25,7 +25,7 @@ func questRow(state string) store.QuestState {
 // TestQuestGrantCommitsItemsCurrenciesAndTheRowTogether is
 // mechanics/quests.md rule 5.7.4.
 func TestQuestGrantCommitsItemsCurrenciesAndTheRowTogether(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
 	service := newService(t, repository, 8)
 
@@ -36,10 +36,10 @@ func TestQuestGrantCommitsItemsCurrenciesAndTheRowTogether(t *testing.T) {
 		t.Fatalf("Award() error = %v", err)
 	}
 
-	result, err := service.GrantQuestReward(context.Background(), store.QuestGrant{
+	result, err := service.GrantQuestReward(context.Background(), charstore.QuestGrant{
 		CharacterID: characterID,
-		Consume:     []store.ItemCount{{ItemID: tonic, Count: 2}},
-		Grants:      []store.ItemCount{{ItemID: scale, Count: 1}, {ItemID: feather, Count: 1}},
+		Consume:     []charstore.ItemCount{{ItemID: tonic, Count: 2}},
+		Grants:      []charstore.ItemCount{{ItemID: scale, Count: 1}, {ItemID: feather, Count: 1}},
 		Experience:  8,
 		Money:       2,
 		Honor:       3,
@@ -89,7 +89,7 @@ func TestQuestGrantCommitsItemsCurrenciesAndTheRowTogether(t *testing.T) {
 // and no quest row exists — because the failure mode this guards against is a
 // grant that credits the experience and then cannot place the item.
 func TestAQuestGrantThatDoesNotFitWritesNothing(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
 	// Two slots, and both of them full of something unstackable.
 	service := newService(t, repository, 2)
@@ -100,14 +100,14 @@ func TestAQuestGrantThatDoesNotFitWritesNothing(t *testing.T) {
 		t.Fatalf("Award() error = %v", err)
 	}
 
-	_, err := service.GrantQuestReward(context.Background(), store.QuestGrant{
+	_, err := service.GrantQuestReward(context.Background(), charstore.QuestGrant{
 		CharacterID: characterID,
-		Grants:      []store.ItemCount{{ItemID: feather, Count: 1}},
+		Grants:      []charstore.ItemCount{{ItemID: feather, Count: 1}},
 		Experience:  8,
 		Money:       2,
 		Quest:       questRow("turned-in"),
 	})
-	if !errors.Is(err, store.ErrGrantWouldNotFit) {
+	if !errors.Is(err, charstore.ErrGrantWouldNotFit) {
 		t.Fatalf("GrantQuestReward() error = %v, want store.ErrGrantWouldNotFit", err)
 	}
 	if !errors.Is(err, inventory.ErrBagFull) {
@@ -147,7 +147,7 @@ func TestAQuestGrantThatDoesNotFitWritesNothing(t *testing.T) {
 // net it is zero, and the turn-in must succeed. Computing the gross requirement
 // rejects turn-ins that should work, which is the failure this pins.
 func TestAQuestGrantIsNetNotGross(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
 	service := newService(t, repository, 2)
 	if _, err := service.Award(context.Background(), characterID, inventory.Award{
@@ -156,10 +156,10 @@ func TestAQuestGrantIsNetNotGross(t *testing.T) {
 		t.Fatalf("Award() error = %v", err)
 	}
 
-	if _, err := service.GrantQuestReward(context.Background(), store.QuestGrant{
+	if _, err := service.GrantQuestReward(context.Background(), charstore.QuestGrant{
 		CharacterID: characterID,
-		Consume:     []store.ItemCount{{ItemID: tonic, Count: 1}},
-		Grants:      []store.ItemCount{{ItemID: feather, Count: 1}},
+		Consume:     []charstore.ItemCount{{ItemID: tonic, Count: 1}},
+		Grants:      []charstore.ItemCount{{ItemID: feather, Count: 1}},
 		Quest:       questRow("turned-in"),
 	}); err != nil {
 		t.Fatalf("GrantQuestReward() error = %v; the consumed stack frees the slot the reward needs", err)
@@ -176,13 +176,13 @@ func TestAQuestGrantIsNetNotGross(t *testing.T) {
 // TestAQuestGrantConsumingWhatIsNotThereWritesNothing keeps the removal
 // all-or-nothing. Taking "as many as there are" would be a partial turn-in.
 func TestAQuestGrantConsumingWhatIsNotThereWritesNothing(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
 	service := newService(t, repository, 8)
 
-	_, err := service.GrantQuestReward(context.Background(), store.QuestGrant{
+	_, err := service.GrantQuestReward(context.Background(), charstore.QuestGrant{
 		CharacterID: characterID,
-		Consume:     []store.ItemCount{{ItemID: tonic, Count: 2}},
+		Consume:     []charstore.ItemCount{{ItemID: tonic, Count: 2}},
 		Experience:  8,
 		Quest:       questRow("turned-in"),
 	})
@@ -231,7 +231,7 @@ func TestRemoveDrainsInAscendingSlotOrderAndDeletesEmptyStacks(t *testing.T) {
 // TestAQuestGrantAdvancesTheSaveSequence keeps the anti-clobber rule of
 // ADR 0031 §6 true across the new writer.
 func TestAQuestGrantAdvancesTheSaveSequence(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	characterID := newCharacter(t, repository)
 	service := newService(t, repository, 8)
 
@@ -239,7 +239,7 @@ func TestAQuestGrantAdvancesTheSaveSequence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadCharacterState() error = %v", err)
 	}
-	result, err := service.GrantQuestReward(context.Background(), store.QuestGrant{
+	result, err := service.GrantQuestReward(context.Background(), charstore.QuestGrant{
 		CharacterID: characterID,
 		Experience:  1,
 		Quest:       questRow("accepted"),
@@ -255,15 +255,15 @@ func TestAQuestGrantAdvancesTheSaveSequence(t *testing.T) {
 // TestAQuestGrantForAnUnknownCharacterFails keeps a grant from materializing a
 // character out of nothing.
 func TestAQuestGrantForAnUnknownCharacterFails(t *testing.T) {
-	repository := store.NewMemory()
+	repository := charstore.NewMemory()
 	service := newService(t, repository, 8)
 
-	_, err := service.GrantQuestReward(context.Background(), store.QuestGrant{
+	_, err := service.GrantQuestReward(context.Background(), charstore.QuestGrant{
 		CharacterID: uuid.New(),
 		Experience:  1,
 		Quest:       questRow("accepted"),
 	})
-	if !errors.Is(err, store.ErrNotFound) {
+	if !errors.Is(err, charstore.ErrNotFound) {
 		t.Errorf("GrantQuestReward() error = %v, want store.ErrNotFound", err)
 	}
 }

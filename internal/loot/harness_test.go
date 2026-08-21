@@ -10,11 +10,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -49,7 +50,7 @@ type harness struct {
 	zone       *world.Zone
 	combat     *combat.Module
 	loot       *loot.Module
-	repository store.Repository
+	repository charstore.Repository
 
 	ownerEntity    uint64
 	ownerID        uuid.UUID
@@ -65,7 +66,7 @@ type harnessOptions struct {
 	// slots is the bag capacity. Zero means inventory.DefaultSlots.
 	slots int32
 	// repository replaces the in-memory one, for the abort test.
-	repository store.Repository
+	repository charstore.Repository
 }
 
 func newHarness(t *testing.T, options harnessOptions) *harness {
@@ -104,9 +105,9 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 
 	repository := options.repository
 	if repository == nil {
-		repository = store.NewMemory()
+		repository = charstore.NewMemory()
 	}
-	bags, err := inventory.NewService(repository, inventory.LimitsFromPack(content), options.slots)
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), options.slots)
 	if err != nil {
 		t.Fatalf("inventory.NewService() error = %v", err)
 	}
@@ -117,7 +118,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	lootModule := loot.New(slog.New(slog.DiscardHandler), zone, lootRules, bags, loot.Options{
 		WorldSeed: "loot-fixture",
 	})
-	combatModule.SetKillSink(lootModule)
+	combatModule.SetKillSink(lootSink{module: lootModule})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -136,6 +137,18 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	return fixture
 }
 
+type lootSink struct{ module *loot.Module }
+
+func (sink lootSink) MobKilled(tick gametypes.Tick, kill combat.Kill) {
+	sink.module.MobKilled(tick, loot.Kill{
+		VictimEntityID: kill.VictimEntityID, KillerEntityID: kill.KillerEntityID,
+		VictimContentID: kill.VictimContentID, PlacementID: kill.PlacementID,
+		LootTableID: kill.LootTableID, VictimLevel: kill.VictimLevel,
+		Position: kill.Position, Heading: kill.Heading,
+		DeathTick: kill.DeathTick, DespawnTick: kill.DespawnTick,
+	})
+}
+
 // join admits one player and seeds the character row checkpoint L1 would have
 // written, because the award reads the stored state to credit the purse.
 //
@@ -145,7 +158,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 // run in a hundred and fail whichever assertion counted the grants. Reproducible
 // rolls are the whole point of the seed, and a harness that randomised one was
 // the only thing in this package not taking it seriously.
-func (fixture *harness) join(repository store.Repository) (uint64, uuid.UUID) {
+func (fixture *harness) join(repository charstore.Repository) (uint64, uuid.UUID) {
 	fixture.t.Helper()
 	entityID, _ := fixture.zone.Join()
 	if err := fixture.combat.Admit(entityID); err != nil {
@@ -159,8 +172,8 @@ func (fixture *harness) join(repository store.Repository) (uint64, uuid.UUID) {
 	}
 	characterID := harnessCharacters[fixture.joined]
 	fixture.joined++
-	err := store.SaveCharacter(context.Background(), repository, store.Snapshot{
-		State: store.CharacterState{
+	err := charstore.SaveCharacter(context.Background(), repository, charstore.Snapshot{
+		State: charstore.CharacterState{
 			CharacterID: characterID,
 			ZoneID:      fixture.zone.ID(),
 			Level:       1,
@@ -220,7 +233,7 @@ func (fixture *harness) step(count int) {
 	}
 }
 
-func (fixture *harness) inventoryOf(characterID uuid.UUID) []store.InventoryItem {
+func (fixture *harness) inventoryOf(characterID uuid.UUID) []charstore.InventoryItem {
 	fixture.t.Helper()
 	items, err := fixture.repository.LoadInventory(context.Background(), characterID)
 	if err != nil {
@@ -231,7 +244,7 @@ func (fixture *harness) inventoryOf(characterID uuid.UUID) []store.InventoryItem
 
 // unitsOf totals the quantity of one item across every slot, which is the
 // number that has to be exactly one drop's worth after a double take.
-func unitsOf(items []store.InventoryItem, itemID string) int32 {
+func unitsOf(items []charstore.InventoryItem, itemID string) int32 {
 	var total int32
 	for _, item := range items {
 		if item.ItemID == itemID {

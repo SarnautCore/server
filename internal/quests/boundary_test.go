@@ -15,10 +15,8 @@ const modulePath = "github.com/SarnautCore/server"
 // into, and the generated wire package it must not know exists.
 //
 // mechanics/quests.md rule 5.4.1 says this module consumes combat's MobKilled
-// event and does not observe combat state; rule 5.7 puts the reward grant
-// behind a seam. Both survive only as long as neither import exists: a package
-// that can name `combat.Kill` will eventually ask combat a question, and a
-// package that can name `inventory.Service` will eventually skip the interface.
+// event and does not observe combat state. Inventory is an approved dependency
+// in ADR 0033 for plain reward and bag projections; combat remains forbidden.
 //
 // `internal/loot` is here for a weaker reason and it is still worth stating: a
 // quest counter and a corpse container have nothing to say to each other, and
@@ -27,7 +25,6 @@ const modulePath = "github.com/SarnautCore/server"
 // session layer.
 var forbidden = []string{
 	modulePath + "/internal/combat",
-	modulePath + "/internal/inventory",
 	modulePath + "/internal/loot",
 	modulePath + "/internal/session",
 	modulePath + "/gen/sarnaut/v1",

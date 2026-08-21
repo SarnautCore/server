@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/SarnautCore/server/internal/store"
+	"github.com/SarnautCore/server/internal/charstore"
 )
 
 // fakeAuthority stands in for the auth service. It is deliberately literal
@@ -112,22 +112,22 @@ func (authority *fakeAuthority) counts() (redeemed, renewed, released int) {
 type fakeCharacters struct {
 	mu sync.Mutex
 	// stored is the persisted state per character.
-	stored map[uuid.UUID]store.Snapshot
+	stored map[uuid.UUID]charstore.Snapshot
 	// template is what a character with no stored state materializes from,
 	// standing in for the pack's chargen row.
-	template store.Snapshot
+	template charstore.Snapshot
 	// loadError, when set, fails every load.
 	loadError error
 	// full makes every checkpoint report a dropped save, as a full bounded
 	// queue does.
 	full bool
 
-	checkpoints []store.Snapshot
+	checkpoints []charstore.Snapshot
 	loads       int
 }
 
-func newFakeCharacters(template store.Snapshot) *fakeCharacters {
-	return &fakeCharacters{stored: make(map[uuid.UUID]store.Snapshot), template: template}
+func newFakeCharacters(template charstore.Snapshot) *fakeCharacters {
+	return &fakeCharacters{stored: make(map[uuid.UUID]charstore.Snapshot), template: template}
 }
 
 func (characters *fakeCharacters) Load(
@@ -135,12 +135,12 @@ func (characters *fakeCharacters) Load(
 	characterID uuid.UUID,
 	_ string,
 	zoneID string,
-) (store.Snapshot, error) {
+) (charstore.Snapshot, error) {
 	characters.mu.Lock()
 	defer characters.mu.Unlock()
 	characters.loads++
 	if characters.loadError != nil {
-		return store.Snapshot{}, characters.loadError
+		return charstore.Snapshot{}, characters.loadError
 	}
 	if snapshot, ok := characters.stored[characterID]; ok {
 		return snapshot, nil
@@ -153,7 +153,7 @@ func (characters *fakeCharacters) Load(
 	return fresh, nil
 }
 
-func (characters *fakeCharacters) Checkpoint(snapshot store.Snapshot) bool {
+func (characters *fakeCharacters) Checkpoint(snapshot charstore.Snapshot) bool {
 	characters.mu.Lock()
 	defer characters.mu.Unlock()
 	if characters.full {
@@ -166,17 +166,17 @@ func (characters *fakeCharacters) Checkpoint(snapshot store.Snapshot) bool {
 	return true
 }
 
-func (characters *fakeCharacters) saved(characterID uuid.UUID) (store.Snapshot, bool) {
+func (characters *fakeCharacters) saved(characterID uuid.UUID) (charstore.Snapshot, bool) {
 	characters.mu.Lock()
 	defer characters.mu.Unlock()
 	snapshot, ok := characters.stored[characterID]
 	return snapshot, ok
 }
 
-func (characters *fakeCharacters) written() []store.Snapshot {
+func (characters *fakeCharacters) written() []charstore.Snapshot {
 	characters.mu.Lock()
 	defer characters.mu.Unlock()
-	return append([]store.Snapshot(nil), characters.checkpoints...)
+	return append([]charstore.Snapshot(nil), characters.checkpoints...)
 }
 
 // waitForCheckpoint polls until at least count checkpoints have been written,
@@ -194,15 +194,15 @@ func (characters *fakeCharacters) waitForCheckpoint(count int, within time.Durat
 
 // testTemplate is the fresh-character snapshot the fakes materialize from. It
 // mirrors what the chargen table gives a real first login.
-func testTemplate(position store.Vec3) store.Snapshot {
-	return store.Snapshot{
-		State: store.CharacterState{
+func testTemplate(position charstore.Vec3) charstore.Snapshot {
+	return charstore.Snapshot{
+		State: charstore.CharacterState{
 			Position: position,
 			Level:    1,
 			Health:   100,
 		},
-		Inventory: []store.InventoryItem{{Slot: 0, ItemID: "item.consumable.harbor-tonic", Quantity: 3}},
-		Quests:    []store.QuestState{{QuestID: "quest.paper-harbor.mossy-gate", State: "offered"}},
+		Inventory: []charstore.InventoryItem{{Slot: 0, ItemID: "item.consumable.harbor-tonic", Quantity: 3}},
+		Quests:    []charstore.QuestState{{QuestID: "quest.paper-harbor.mossy-gate", State: "offered"}},
 	}
 }
 

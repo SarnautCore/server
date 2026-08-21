@@ -8,8 +8,8 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
-	"github.com/SarnautCore/server/internal/account"
-	"github.com/SarnautCore/server/internal/account/secret"
+	"github.com/SarnautCore/server/internal/auth"
+	"github.com/SarnautCore/server/internal/auth/secret"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/transport"
 )
@@ -70,7 +70,7 @@ func run(options probeOptions) error {
 	// minted out of band. The probe does that flow itself so a smoke run is one
 	// command rather than a shell pipeline of curl calls.
 	if ticket == "" && options.authURL != "" {
-		client := account.Client{BaseURL: options.authURL}
+		client := auth.Client{BaseURL: options.authURL}
 		minted, characterID, err := client.EnsureTicket(
 			ctx,
 			secret.New(options.email),

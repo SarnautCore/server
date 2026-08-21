@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 )
 
 // The integration tests in this package drive the shard through its exported
@@ -32,9 +32,9 @@ func stubAdmission() session.Admission {
 
 // integrationTemplate is the fresh-character snapshot the stub store
 // materializes from, standing in for the pack's chargen row.
-func integrationTemplate(position store.Vec3) store.Snapshot {
-	return store.Snapshot{
-		State: store.CharacterState{
+func integrationTemplate(position charstore.Vec3) charstore.Snapshot {
+	return charstore.Snapshot{
+		State: charstore.CharacterState{
 			Position: position,
 			Level:    1,
 			Health:   100,
@@ -69,12 +69,12 @@ func (authority *stubAuthority) ReleasePlayLock(context.Context, uuid.UUID) erro
 // keeps whatever the session last checkpointed.
 type stubCharacters struct {
 	mu       sync.Mutex
-	template store.Snapshot
-	stored   map[uuid.UUID]store.Snapshot
+	template charstore.Snapshot
+	stored   map[uuid.UUID]charstore.Snapshot
 }
 
-func newStubCharacters(template store.Snapshot) *stubCharacters {
-	return &stubCharacters{template: template, stored: make(map[uuid.UUID]store.Snapshot)}
+func newStubCharacters(template charstore.Snapshot) *stubCharacters {
+	return &stubCharacters{template: template, stored: make(map[uuid.UUID]charstore.Snapshot)}
 }
 
 func (characters *stubCharacters) Load(
@@ -82,7 +82,7 @@ func (characters *stubCharacters) Load(
 	characterID uuid.UUID,
 	_ string,
 	zoneID string,
-) (store.Snapshot, error) {
+) (charstore.Snapshot, error) {
 	characters.mu.Lock()
 	defer characters.mu.Unlock()
 	if snapshot, ok := characters.stored[characterID]; ok {
@@ -96,7 +96,7 @@ func (characters *stubCharacters) Load(
 	return fresh, nil
 }
 
-func (characters *stubCharacters) Checkpoint(snapshot store.Snapshot) bool {
+func (characters *stubCharacters) Checkpoint(snapshot charstore.Snapshot) bool {
 	characters.mu.Lock()
 	defer characters.mu.Unlock()
 	stored, ok := characters.stored[snapshot.State.CharacterID]

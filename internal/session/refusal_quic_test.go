@@ -8,8 +8,8 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -193,7 +193,7 @@ func TestAnInSessionRefusalReachesThePeerBeforeTheSessionTearsDown(t *testing.T)
 		BuildID:         "shard-test",
 		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone}},
 		Authority:       new(stubAuthority),
-		Characters:      newStubCharacters(integrationTemplate(store.Vec3{X: 1, Y: 1})),
+		Characters:      newStubCharacters(integrationTemplate(charstore.Vec3{X: 1, Y: 1})),
 		Logger:          slog.New(slog.DiscardHandler),
 	})
 

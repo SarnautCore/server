@@ -1,25 +1,29 @@
 package world
 
-import "time"
+import (
+	"time"
+
+	"github.com/SarnautCore/server/internal/gametypes"
+)
 
 // EntityKind is what a world entity is, in simulation terms. It is deliberately
 // a domain type: the wire enum of the same shape belongs to the session layer
 // and this one must be free to diverge from it (ADR 0028).
-type EntityKind uint8
+type EntityKind = gametypes.EntityKind
 
 const (
-	EntityKindUnspecified EntityKind = iota
-	EntityKindPlayer
-	EntityKindNPC
+	EntityKindUnspecified = gametypes.EntityKindUnspecified
+	EntityKindPlayer      = gametypes.EntityKindPlayer
+	EntityKindNPC         = gametypes.EntityKindNPC
 )
 
 // AnimationState is the coarse pose the client should play.
-type AnimationState uint8
+type AnimationState = gametypes.AnimationState
 
 const (
-	AnimationStateUnspecified AnimationState = iota
-	AnimationStateIdle
-	AnimationStateMoving
+	AnimationStateUnspecified = gametypes.AnimationStateUnspecified
+	AnimationStateIdle        = gametypes.AnimationStateIdle
+	AnimationStateMoving      = gametypes.AnimationStateMoving
 )
 
 // Entity is one simulated thing in a zone.
@@ -34,36 +38,7 @@ const (
 // must not be retained: [Zone.Leave] can remove the entity, and every field is
 // read by the snapshot builder under the zone mutex.
 type Entity struct {
-	ID   uint64
-	Kind EntityKind
-
-	// Content identity, resolved by the reader against the runtime pack.
-	ContentID string
-	NameKey   string
-	// PlacementID names the authored spawn slot this entity came from. It is
-	// the respawn key of mechanics/combat.md rule 5.9.4.
-	PlacementID string
-
-	// Combatant state, mechanics/combat.md section 4.
-	Faction   string
-	Level     uint32
-	Health    int32
-	MaxHealth int32
-	Alive     bool
-
-	Heading   float32
-	Velocity  Vec3
-	Animation AnimationState
-
-	// Origin is where the entity was first placed: a mob's anchor for the leash
-	// radius, and where a respawn puts it back.
-	Origin        Vec3
-	OriginHeading float32
-
-	// Replicated is false while the entity exists in the registry but must not
-	// appear in a snapshot: a player between joining and subscribing, and a
-	// corpse that has despawned and is waiting to respawn.
-	Replicated bool
+	gametypes.EntityData
 
 	position Vec3
 
@@ -77,13 +52,4 @@ func (entity *Entity) Position() Vec3 { return entity.position }
 
 // NPCSpec is everything the registry needs to place one non-player entity. The
 // combat values come from the content pack; the zone invents none of them.
-type NPCSpec struct {
-	ContentID   string
-	NameKey     string
-	PlacementID string
-	Faction     string
-	Level       uint32
-	MaxHealth   int32
-	Position    Vec3
-	Heading     float32
-}
+type NPCSpec = gametypes.NPCSpec

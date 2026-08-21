@@ -20,8 +20,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/world"
+	"github.com/SarnautCore/server/internal/gametypes"
 )
 
 // eventQueueSize bounds the backlog between the tick loop and the fan-out
@@ -51,7 +50,7 @@ type Options struct {
 // Module is the combat system for one zone.
 type Module struct {
 	logger  *slog.Logger
-	zone    *world.Zone
+	zone    gametypes.Zone
 	rules   Rules
 	level   uint32
 	faction string
@@ -72,7 +71,7 @@ type Module struct {
 
 // New builds the combat module for one zone and registers it as a per-tick
 // system.
-func New(logger *slog.Logger, zone *world.Zone, rules Rules, options Options) *Module {
+func New(logger *slog.Logger, zone gametypes.Zone, rules Rules, options Options) *Module {
 	level := options.PlayerLevel
 	if level == 0 {
 		level = 1
@@ -93,7 +92,7 @@ func New(logger *slog.Logger, zone *world.Zone, rules Rules, options Options) *M
 		events:  make(chan Event, eventQueueSize),
 		sinks:   make(map[uint64]EventSink),
 	}
-	zone.AddSystem(module)
+	zone.GameAddSystem(module)
 	return module
 }
 
@@ -109,7 +108,7 @@ func (module *Module) Rules() Rules { return module.rules }
 // tick loop reads it under, rather than being raced into place while a kill is
 // resolving.
 func (module *Module) SetKillSink(sink KillSink) {
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		module.killSink = sink
 		return nil
 	})
@@ -117,7 +116,7 @@ func (module *Module) SetKillSink(sink KillSink) {
 
 // Populate spawns every NPC the pack resolved, drawing each mob's level from
 // the zone spawn stream in placement order.
-func (module *Module) Populate(spawns []pack.NPCSpawn) error {
+func (module *Module) Populate(spawns []gametypes.NPCSpawn) error {
 	for _, spawn := range spawns {
 		mob, ok := module.rules.Mob(spawn.MobID)
 		if !ok {
@@ -125,17 +124,17 @@ func (module *Module) Populate(spawns []pack.NPCSpawn) error {
 				spawn.PlacementID, spawn.MobID)
 		}
 		var entityID uint64
-		if err := module.zone.Command(func(tick *world.Tick) error {
+		if err := module.zone.GameCommand(func(tick gametypes.Tick) error {
 			level := module.stream.level(mob.LevelMin, mob.LevelMax)
 			maxHealth := MaxHealth(level, mob.HPMod)
-			entityID = tick.SpawnNPC(world.NPCSpec{
+			entityID = tick.SpawnNPC(gametypes.NPCSpec{
 				ContentID:   mob.ID,
 				NameKey:     mob.NameKey,
 				PlacementID: spawn.PlacementID,
 				Faction:     mob.FactionID,
 				Level:       level,
 				MaxHealth:   maxHealth,
-				Position:    world.Vec3{X: spawn.Position.X, Y: spawn.Position.Y, Z: spawn.Position.Z},
+				Position:    gametypes.Vec3{X: spawn.Position.X, Y: spawn.Position.Y, Z: spawn.Position.Z},
 				Heading:     spawn.Heading,
 			}).ID
 			module.mobs[entityID] = module.newMobState(mob, spawn)
@@ -149,10 +148,10 @@ func (module *Module) Populate(spawns []pack.NPCSpawn) error {
 
 // Admit gives a joined player its combat identity, from the pack.
 func (module *Module) Admit(entityID uint64) error {
-	return module.zone.Command(func(tick *world.Tick) error {
+	return module.zone.GameCommand(func(tick gametypes.Tick) error {
 		entity := tick.Entity(entityID)
-		if entity == nil || entity.Kind != world.EntityKindPlayer {
-			return fmt.Errorf("admit entity %d: %w", entityID, world.ErrUnknownEntity)
+		if entity == nil || entity.Kind != gametypes.EntityKindPlayer {
+			return fmt.Errorf("admit entity %d: %w", entityID, gametypes.ErrUnknownEntity)
 		}
 		entity.Faction = module.faction
 		entity.Level = module.level
@@ -169,7 +168,7 @@ func (module *Module) Admit(entityID uint64) error {
 
 // Release drops the combat state of a departed player.
 func (module *Module) Release(entityID uint64) {
-	_ = module.zone.Command(func(*world.Tick) error {
+	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		delete(module.casters, entityID)
 		return nil
 	})

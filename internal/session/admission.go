@@ -186,7 +186,7 @@ func (authority *natsAuthority) ReleasePlayLock(ctx context.Context, characterID
 	)
 }
 
-// Subjects the shard uses. They are duplicated from `internal/account` rather
+// Subjects the shard uses. They are duplicated from `internal/auth` rather
 // than imported: the shard must not depend on the auth service's package, which
 // owns a database the shard may not touch.
 const (

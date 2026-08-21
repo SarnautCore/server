@@ -17,13 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/SarnautCore/server/internal/account"
+	"github.com/SarnautCore/server/internal/auth"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/config"
 	"github.com/SarnautCore/server/internal/health"
 	"github.com/SarnautCore/server/internal/infra"
 	"github.com/SarnautCore/server/internal/observability"
 	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/store"
 )
 
 func main() {
@@ -67,7 +67,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load content pack: %w", err)
 	}
-	catalogue, err := account.NewCatalogue(content.ChargenOptions())
+	catalogue, err := auth.NewCatalogue(content.ChargenOptions())
 	if err != nil {
 		return err
 	}
@@ -106,14 +106,14 @@ func run(ctx context.Context) error {
 	// Migrations are applied by `cmd/migrate`, not at service start: two
 	// services racing to migrate the same database is a problem goose's
 	// advisory lock solves and an operator should not have to think about.
-	repository, err := store.NewPostgres(pool)
+	repository, err := charstore.NewPostgres(pool)
 	if err != nil {
 		return err
 	}
 
-	service, err := account.New(account.Options{
+	service, err := auth.New(auth.Options{
 		Repository:    repository,
-		Keys:          account.NewValkeyKeyValue(clients.Valkey),
+		Keys:          auth.NewValkeyKeyValue(clients.Valkey),
 		Catalogue:     catalogue,
 		NameBlocklist: settings.Auth.NameBlocklist,
 		Logger:        logger,
@@ -122,7 +122,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	responder := account.NewResponder(service, clients.NATS, logger)
+	responder := auth.NewResponder(service, clients.NATS, logger)
 	drain, err := responder.Subscribe(ctx)
 	if err != nil {
 		return err

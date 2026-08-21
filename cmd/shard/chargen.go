@@ -6,15 +6,15 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/store"
 )
 
 // startingHealth is the health a fresh character materializes with when the
 // chargen option's starting stats do not name one.
 //
 // It is the one number here that is not in the pack, and it is here rather than
-// in `internal/store` so that the seam that owns character state stays free of
+// in `internal/charstore` so that the seam that owns character state stays free of
 // gameplay defaults.
 // TODO(m2-combat): derive health from the option's stats and the level curve,
 // and delete this.
@@ -23,26 +23,26 @@ const startingHealth = 100
 // healthStat is the starting-stat name that overrides [startingHealth].
 const healthStat = "health"
 
-// chargenTemplateSet is the [store.ChargenTemplates] the shard materializes a
+// chargenTemplateSet is the [charstore.ChargenTemplates] the shard materializes a
 // first login from: one plain snapshot per chargen option, built once at boot
 // from the compiled pack.
 //
-// Building it here rather than inside `internal/store` is what keeps ADR 0031's
+// Building it here rather than inside `internal/charstore` is what keeps ADR 0031's
 // rule true in both directions — the persistence package holds no content
 // types, and the pack reader holds no database types.
-type chargenTemplateSet map[string]store.Snapshot
+type chargenTemplateSet map[string]charstore.Snapshot
 
-func (templates chargenTemplateSet) Template(chargenOptionID string) (store.Snapshot, bool) {
+func (templates chargenTemplateSet) Template(chargenOptionID string) (charstore.Snapshot, bool) {
 	snapshot, ok := templates[chargenOptionID]
 	if !ok {
-		return store.Snapshot{}, false
+		return charstore.Snapshot{}, false
 	}
 	// Hand out a copy: a materialization that mutated the template would give
 	// the second character of the day the first one's leftovers.
-	return store.Snapshot{
+	return charstore.Snapshot{
 		State:     snapshot.State,
-		Inventory: append([]store.InventoryItem(nil), snapshot.Inventory...),
-		Quests:    append([]store.QuestState(nil), snapshot.Quests...),
+		Inventory: append([]charstore.InventoryItem(nil), snapshot.Inventory...),
+		Quests:    append([]charstore.QuestState(nil), snapshot.Quests...),
 	}, true
 }
 
@@ -74,9 +74,9 @@ func chargenTemplates(content *pack.Pack, fallbackSpawn pack.Vec3) (chargenTempl
 		if level < 1 {
 			level = 1
 		}
-		snapshot := store.Snapshot{
-			State: store.CharacterState{
-				Position: store.Vec3{X: spawn.X, Y: spawn.Y, Z: spawn.Z},
+		snapshot := charstore.Snapshot{
+			State: charstore.CharacterState{
+				Position: charstore.Vec3{X: spawn.X, Y: spawn.Y, Z: spawn.Z},
 				Heading:  option.SpawnHeading,
 				Level:    level,
 				Health:   startingHealth,
@@ -91,7 +91,7 @@ func chargenTemplates(content *pack.Pack, fallbackSpawn pack.Vec3) (chargenTempl
 			if item.Quantity == 0 {
 				continue
 			}
-			snapshot.Inventory = append(snapshot.Inventory, store.InventoryItem{
+			snapshot.Inventory = append(snapshot.Inventory, charstore.InventoryItem{
 				// The authored order is the slot order. Equipment slots arrive
 				// with the inventory module; until then `bag` is every slot.
 				Slot:     int32(index),
@@ -100,7 +100,7 @@ func chargenTemplates(content *pack.Pack, fallbackSpawn pack.Vec3) (chargenTempl
 			})
 		}
 		for _, questID := range option.StartingQuests {
-			snapshot.Quests = append(snapshot.Quests, store.QuestState{
+			snapshot.Quests = append(snapshot.Quests, charstore.QuestState{
 				QuestID: questID,
 				// The quest module owns the state machine; a granted starter
 				// quest begins offered, which is the one transition every

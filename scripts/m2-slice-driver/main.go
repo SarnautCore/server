@@ -29,13 +29,13 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 	"github.com/google/uuid"
@@ -782,11 +782,11 @@ func startInProcessShard(
 	// `cmd/shard` composes them: the loot award and the periodic save are two
 	// writers on one character row, and running them against two stores would
 	// hide the thing this driver is meant to smoke out.
-	repository := store.NewMemory()
-	worker := store.NewSaveWorker(repository, logger, 0, 0)
-	characters := store.NewCharacterService(
+	repository := charstore.NewMemory()
+	worker := charstore.NewSaveWorker(repository, logger, 0, 0)
+	characters := charstore.NewCharacterService(
 		repository,
-		sliceTemplates{spawn: store.Vec3{
+		sliceTemplates{spawn: charstore.Vec3{
 			X: anchor.X + castDistance,
 			Y: anchor.Y,
 			Z: anchor.Z,
@@ -795,7 +795,7 @@ func startInProcessShard(
 		logger,
 		0,
 	)
-	bags, err := inventory.NewService(repository, inventory.LimitsFromPack(content), 0)
+	bags, err := charstore.NewInventoryService(repository, inventory.LimitsFromPack(content), 0)
 	if err != nil {
 		return hostedShard{}, err
 	}
@@ -868,14 +868,14 @@ func startInProcessShard(
 // is that the worked example starts six metres from the mob and the driver has
 // no pathfinder to walk there.
 type sliceTemplates struct {
-	spawn     store.Vec3
-	inventory []store.InventoryItem
+	spawn     charstore.Vec3
+	inventory []charstore.InventoryItem
 }
 
-func (templates sliceTemplates) Template(string) (store.Snapshot, bool) {
-	return store.Snapshot{
-		State:     store.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
-		Inventory: append([]store.InventoryItem(nil), templates.inventory...),
+func (templates sliceTemplates) Template(string) (charstore.Snapshot, bool) {
+	return charstore.Snapshot{
+		State:     charstore.CharacterState{Position: templates.spawn, Level: 1, Health: 100},
+		Inventory: append([]charstore.InventoryItem(nil), templates.inventory...),
 	}, true
 }
 
@@ -949,7 +949,7 @@ func coLocateGiver(spawns []pack.NPCSpawn, giverMob string, anchor world.Vec3) e
 
 type sliceRequirements struct {
 	killLimit            int
-	inventory            []store.InventoryItem
+	inventory            []charstore.InventoryItem
 	itemObjectiveIndexes []uint32
 }
 
@@ -983,7 +983,7 @@ func requirementsFor(definition pack.Quest, targetMob string) (sliceRequirements
 	}
 	sort.Strings(itemIDs)
 	for slot, id := range itemIDs {
-		requirements.inventory = append(requirements.inventory, store.InventoryItem{
+		requirements.inventory = append(requirements.inventory, charstore.InventoryItem{
 			Slot: int32(slot), ItemID: id, Quantity: quantities[id],
 		})
 	}
@@ -1022,7 +1022,7 @@ func coLocateTargets(
 		indices = append(indices, len(spawns)-1)
 	}
 	for _, index := range indices[:count] {
-		spawns[index].Position = pack.Vec3{X: anchor.X, Y: anchor.Y, Z: anchor.Z}
+		spawns[index].Position = pack.Vec3(anchor)
 	}
 	return spawns, nil
 }

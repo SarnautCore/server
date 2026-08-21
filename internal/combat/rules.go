@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/gametypes"
 )
 
 // The invented constants of mechanics/combat.md section 3.
@@ -63,10 +63,10 @@ const (
 // build one from a fixture pack and assert the worked example of
 // mechanics/combat.md section 6.1 without standing up a zone.
 type Rules struct {
-	abilities     map[string]pack.Ability
+	abilities     map[string]gametypes.Ability
 	abilityOrder  []string
-	factions      map[string]pack.Faction
-	mobs          map[string]pack.Mob
+	factions      map[string]gametypes.Faction
+	mobs          map[string]gametypes.Mob
 	playerFaction string
 }
 
@@ -75,13 +75,13 @@ type Rules struct {
 // It fails rather than defaulting: a pack with no player faction, or two, has
 // no answer to "is this target hostile", and a shard that guessed would be
 // deciding a gameplay rule in Go.
-func RulesFromPack(content *pack.Pack) (Rules, error) {
+func RulesFromPack(content ContentSource) (Rules, error) {
 	abilities := content.Abilities()
 	rules := Rules{
-		abilities:    make(map[string]pack.Ability, len(abilities)),
+		abilities:    make(map[string]gametypes.Ability, len(abilities)),
 		abilityOrder: make([]string, 0, len(abilities)),
-		factions:     make(map[string]pack.Faction),
-		mobs:         make(map[string]pack.Mob),
+		factions:     make(map[string]gametypes.Faction),
+		mobs:         make(map[string]gametypes.Mob),
 	}
 	for _, ability := range abilities {
 		rules.abilities[ability.ID] = ability
@@ -134,6 +134,15 @@ func RulesFromPack(content *pack.Pack) (Rules, error) {
 	return rules, nil
 }
 
+// ContentSource is the combat projection of a loaded content pack.
+type ContentSource interface {
+	ID() string
+	Abilities() []gametypes.Ability
+	NPCSpawns() []gametypes.NPCSpawn
+	Mob(string) (gametypes.Mob, bool)
+	Faction(string) (gametypes.Faction, bool)
+}
+
 // PlayerFaction is the faction an entering character belongs to by default.
 func (rules Rules) PlayerFaction() string { return rules.playerFaction }
 
@@ -144,7 +153,7 @@ func (rules Rules) HasFaction(id string) bool {
 }
 
 // Ability returns one ability by canonical id.
-func (rules Rules) Ability(id string) (pack.Ability, bool) {
+func (rules Rules) Ability(id string) (gametypes.Ability, bool) {
 	ability, ok := rules.abilities[id]
 	return ability, ok
 }
@@ -157,7 +166,7 @@ func (rules Rules) AbilityIDs() []string {
 }
 
 // Mob returns one creature record by canonical id.
-func (rules Rules) Mob(id string) (pack.Mob, bool) {
+func (rules Rules) Mob(id string) (gametypes.Mob, bool) {
 	mob, ok := rules.mobs[id]
 	return mob, ok
 }
@@ -185,7 +194,7 @@ func attackPower(level uint32) float64 {
 //
 // Rounding an intermediate is a defect the rule calls out by name: it makes
 // the worked example in section 6.1 unreproducible.
-func Damage(ability pack.Ability, casterLevel, targetLevel uint32) int32 {
+func Damage(ability gametypes.Ability, casterLevel, targetLevel uint32) int32 {
 	var raw float64
 	for _, effect := range ability.Effects {
 		if effect.Kind != damageEffectKind {

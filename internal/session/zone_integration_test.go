@@ -8,10 +8,10 @@ import (
 	"time"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/session"
-	"github.com/SarnautCore/server/internal/store"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -64,7 +64,7 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	// A fresh character materializes at the chargen spawn, which in the fixture
 	// is not the zone's configured PlayerSpawn: this test pins the pack's zone
 	// spawn, so the template says so explicitly.
-	spawn := store.Vec3{
+	spawn := charstore.Vec3{
 		X: content.Zone().PlayerSpawn.X,
 		Y: content.Zone().PlayerSpawn.Y,
 		Z: content.Zone().PlayerSpawn.Z,

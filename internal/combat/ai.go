@@ -4,8 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/world"
+	"github.com/SarnautCore/server/internal/gametypes"
 )
 
 // phase is the mob AI state of mechanics/combat.md section 4.
@@ -30,7 +29,7 @@ const (
 type mobState struct {
 	contentID   string
 	placementID string
-	anchor      world.Vec3
+	anchor      gametypes.Vec3
 	anchorYaw   float32
 
 	phase       phase
@@ -48,11 +47,11 @@ type mobState struct {
 	respawnMax   time.Duration
 }
 
-func (module *Module) newMobState(mob pack.Mob, spawn pack.NPCSpawn) *mobState {
+func (module *Module) newMobState(mob gametypes.Mob, spawn gametypes.NPCSpawn) *mobState {
 	return &mobState{
 		contentID:   mob.ID,
 		placementID: spawn.PlacementID,
-		anchor:      world.Vec3{X: spawn.Position.X, Y: spawn.Position.Y, Z: spawn.Position.Z},
+		anchor:      gametypes.Vec3{X: spawn.Position.X, Y: spawn.Position.Y, Z: spawn.Position.Z},
 		anchorYaw:   spawn.Heading,
 		phase:       phaseIdle,
 		threat:      make(map[uint64]int64),
@@ -84,11 +83,11 @@ func (state *mobState) addThreat(entityID uint64, amount int64) {
 //
 // Mobs are visited in ascending entity id, which is what makes an aggro tie
 // resolve to the lower id (rule 5.7.3) without a tie-break of its own.
-func (module *Module) Step(tick *world.Tick) {
+func (module *Module) Step(tick gametypes.Tick) {
 	if len(module.mobs) == 0 {
 		return
 	}
-	tick.Each(func(entity *world.Entity) bool {
+	tick.Each(func(entity *gametypes.EntityData) bool {
 		state, ok := module.mobs[entity.ID]
 		if !ok {
 			return true
@@ -110,11 +109,11 @@ func (module *Module) Step(tick *world.Tick) {
 // scanForAggro is rule 5.7. The neighbour query is what makes it cost the
 // number of players near this mob rather than the number of entities in the
 // zone.
-func (module *Module) scanForAggro(tick *world.Tick, mob *world.Entity, state *mobState) {
+func (module *Module) scanForAggro(tick gametypes.Tick, mob *gametypes.EntityData, state *mobState) {
 	if state.aggroRadius <= 0 {
 		return
 	}
-	tick.Within(mob.Position(), state.aggroRadius, world.EntityKindPlayer, func(candidate *world.Entity) bool {
+	tick.Within(tick.Position(mob), state.aggroRadius, gametypes.EntityKindPlayer, func(candidate *gametypes.EntityData) bool {
 		if !candidate.Alive || !candidate.Replicated {
 			return true
 		}
@@ -128,7 +127,7 @@ func (module *Module) scanForAggro(tick *world.Tick, mob *world.Entity, state *m
 }
 
 // chase is rule 5.8, points 1 to 4.
-func (module *Module) chase(tick *world.Tick, mob *world.Entity, state *mobState) {
+func (module *Module) chase(tick gametypes.Tick, mob *gametypes.EntityData, state *mobState) {
 	target := tick.Entity(state.aggroTarget)
 	if target == nil || !target.Alive || !target.Replicated {
 		// Rule 5.8.1: the player left the zone.
@@ -137,29 +136,29 @@ func (module *Module) chase(tick *world.Tick, mob *world.Entity, state *mobState
 	}
 	// Rule 5.8.2, evaluated before the step, so a mob that is already outside
 	// its leash does not get one more stride first.
-	if state.leashRadius > 0 && world.Distance(mob.Position(), state.anchor) > state.leashRadius {
+	if state.leashRadius > 0 && gametypes.Distance(tick.Position(mob), state.anchor) > state.leashRadius {
 		module.breakLeash(mob, state)
 		return
 	}
-	module.walkToward(tick, mob, state, target.Position(), state.stopDistance)
+	module.walkToward(tick, mob, state, tick.Position(target), state.stopDistance)
 }
 
 // breakLeash is rule 5.8.5.
-func (module *Module) breakLeash(mob *world.Entity, state *mobState) {
+func (module *Module) breakLeash(mob *gametypes.EntityData, state *mobState) {
 	state.phase = phaseReturning
 	state.aggroTarget = 0
 	state.threat = make(map[uint64]int64)
-	mob.Velocity = world.Vec3{}
-	mob.Animation = world.AnimationStateMoving
+	mob.Velocity = gametypes.Vec3{}
+	mob.Animation = gametypes.AnimationStateMoving
 }
 
 // walkHome is rules 5.8.6 and 5.8.7.
-func (module *Module) walkHome(tick *world.Tick, mob *world.Entity, state *mobState) {
-	if world.Distance(mob.Position(), state.anchor) <= rangeTolerance {
+func (module *Module) walkHome(tick gametypes.Tick, mob *gametypes.EntityData, state *mobState) {
+	if gametypes.Distance(tick.Position(mob), state.anchor) <= rangeTolerance {
 		tick.MoveTo(mob, state.anchor)
 		mob.Heading = state.anchorYaw
-		mob.Velocity = world.Vec3{}
-		mob.Animation = world.AnimationStateIdle
+		mob.Velocity = gametypes.Vec3{}
+		mob.Animation = gametypes.AnimationStateIdle
 		mob.Health = mob.MaxHealth
 		state.phase = phaseIdle
 		return
@@ -171,21 +170,21 @@ func (module *Module) walkHome(tick *world.Tick, mob *world.Entity, state *mobSt
 // `stopAt` metres short. Movement is on the ground plane: assigning Z waits on
 // the same terrain query player movement waits on.
 func (module *Module) walkToward(
-	tick *world.Tick,
-	mob *world.Entity,
+	tick gametypes.Tick,
+	mob *gametypes.EntityData,
 	state *mobState,
-	destination world.Vec3,
+	destination gametypes.Vec3,
 	stopAt float32,
 ) {
 	if state.walkSpeed <= 0 {
 		return
 	}
-	from := mob.Position()
-	offset := world.Vec3{X: destination.X - from.X, Y: destination.Y - from.Y}
+	from := tick.Position(mob)
+	offset := gametypes.Vec3{X: destination.X - from.X, Y: destination.Y - from.Y}
 	distance := offset.Length()
 	if distance <= stopAt || distance == 0 {
-		mob.Velocity = world.Vec3{}
-		mob.Animation = world.AnimationStateIdle
+		mob.Velocity = gametypes.Vec3{}
+		mob.Animation = gametypes.AnimationStateIdle
 		return
 	}
 
@@ -195,21 +194,21 @@ func (module *Module) walkToward(
 		step = remaining
 	}
 	direction := offset.Scale(1 / distance)
-	tick.MoveTo(mob, world.Vec3{
+	tick.MoveTo(mob, gametypes.Vec3{
 		X: from.X + direction.X*step,
 		Y: from.Y + direction.Y*step,
 		Z: from.Z,
 	})
 	mob.Heading = headingOf(direction)
 	mob.Velocity = direction.Scale(speed)
-	mob.Animation = world.AnimationStateMoving
+	mob.Animation = gametypes.AnimationStateMoving
 }
 
 // kill is rule 5.9: death, the corpse, and the respawn behind it.
-func (module *Module) kill(tick *world.Tick, victim *world.Entity, killerID uint64) {
+func (module *Module) kill(tick gametypes.Tick, victim *gametypes.EntityData, killerID uint64) {
 	victim.Alive = false
-	victim.Velocity = world.Vec3{}
-	victim.Animation = world.AnimationStateIdle
+	victim.Velocity = gametypes.Vec3{}
+	victim.Animation = gametypes.AnimationStateIdle
 
 	state, ok := module.mobs[victim.ID]
 	if !ok {
@@ -246,7 +245,7 @@ func (module *Module) kill(tick *world.Tick, victim *world.Entity, killerID uint
 			PlacementID:     state.placementID,
 			LootTableID:     mob.LootTableID,
 			VictimLevel:     victim.Level,
-			Position:        victim.Position(),
+			Position:        tick.Position(victim),
 			Heading:         victim.Heading,
 			DeathTick:       tick.Number(),
 			DespawnTick:     despawnAt,
@@ -254,13 +253,13 @@ func (module *Module) kill(tick *world.Tick, victim *world.Entity, killerID uint
 	}
 
 	victimID := victim.ID
-	tick.After(despawnAt-tick.Number(), func(later *world.Tick) {
+	tick.After(despawnAt-tick.Number(), func(later gametypes.Tick) {
 		module.despawnCorpse(later, victimID)
 	})
 }
 
 // despawnCorpse is rule 5.9.5, and files the respawn of rule 5.9.6.
-func (module *Module) despawnCorpse(tick *world.Tick, victimID uint64) {
+func (module *Module) despawnCorpse(tick gametypes.Tick, victimID uint64) {
 	entity := tick.Entity(victimID)
 	state, ok := module.mobs[victimID]
 	if entity == nil || !ok || state.phase != phaseDead {
@@ -270,14 +269,14 @@ func (module *Module) despawnCorpse(tick *world.Tick, victimID uint64) {
 	state.phase = phaseDespawned
 
 	delay := module.stream.respawnDelay(state.respawnMin, state.respawnMax)
-	tick.After(ticksIn(delay, tick.Interval()), func(later *world.Tick) {
+	tick.After(ticksIn(delay, tick.Interval()), func(later gametypes.Tick) {
 		module.respawn(later, victimID)
 	})
 }
 
 // respawn is rule 5.9.7: back at the anchor, at full health, with a freshly
 // drawn level.
-func (module *Module) respawn(tick *world.Tick, victimID uint64) {
+func (module *Module) respawn(tick gametypes.Tick, victimID uint64) {
 	entity := tick.Entity(victimID)
 	state, ok := module.mobs[victimID]
 	if entity == nil || !ok || state.phase != phaseDespawned {
@@ -290,8 +289,8 @@ func (module *Module) respawn(tick *world.Tick, victimID uint64) {
 	entity.Alive = true
 	entity.Replicated = true
 	entity.Heading = state.anchorYaw
-	entity.Velocity = world.Vec3{}
-	entity.Animation = world.AnimationStateIdle
+	entity.Velocity = gametypes.Vec3{}
+	entity.Animation = gametypes.AnimationStateIdle
 	tick.MoveTo(entity, state.anchor)
 
 	state.phase = phaseIdle
@@ -301,7 +300,7 @@ func (module *Module) respawn(tick *world.Tick, victimID uint64) {
 
 // shortestRange is how close a mob has to get to use any ability it carries.
 // Zero means it carries none and walks all the way in.
-func (module *Module) shortestRange(mob pack.Mob) float32 {
+func (module *Module) shortestRange(mob gametypes.Mob) float32 {
 	var shortest float32
 	for _, id := range mob.AbilityIDs {
 		ability, ok := module.rules.Ability(id)
@@ -316,6 +315,6 @@ func (module *Module) shortestRange(mob pack.Mob) float32 {
 }
 
 // headingOf is the yaw a unit direction faces, in radians.
-func headingOf(direction world.Vec3) float32 {
+func headingOf(direction gametypes.Vec3) float32 {
 	return float32(math.Atan2(float64(direction.Y), float64(direction.X)))
 }
