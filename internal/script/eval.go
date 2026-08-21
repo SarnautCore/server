@@ -112,23 +112,9 @@ func (evaluator *Evaluator) eval(ctx context.Context, node *Node, frame Frame) e
 	evaluator.ordinal++
 	frame.ActivationOrdinal = evaluator.ordinal
 
-	tier := node.Tier
-	if tier == TierInert && evaluator.options.StrictInert {
-		tier = TierRefused
-	}
-	evaluator.census.record(tier, node.Opcode)
-
-	switch tier {
-	case TierInert:
-		// Parsed, counted, no effect, and deliberately no descent: an inert node's
-		// children have no meaning without it.
-		return nil
-	case TierRefused:
-		return &RefusedError{
-			SourceID: frame.SourceID, NodeKey: node.Key,
-			Family: node.Family, Opcode: node.Opcode,
-			Reason: "opcode is outside the M3 implemented tier",
-		}
+	admitted, err := evaluator.admit(node, frame, "opcode is outside the M3 implemented tier")
+	if err != nil || !admitted {
+		return err
 	}
 
 	run, ok := evaluator.handlers[node.Opcode]
@@ -142,6 +128,35 @@ func (evaluator *Evaluator) eval(ctx context.Context, node *Node, frame Frame) e
 		}
 	}
 	return run(ctx, evaluator, node, frame)
+}
+
+// admit applies ADR 0036's coverage policy to one node and records the census
+// hit. It reports whether the node should run. Every family goes through it —
+// impacts, effects, calcers, scalers and finders — so that a node's tier is
+// enforced in exactly one place and the census counts every node the run
+// reached, which is what makes testdata/inst-league1-tier-counts.json a
+// reviewable diff rather than a hopeful one.
+func (evaluator *Evaluator) admit(node *Node, frame Frame, reason string) (bool, error) {
+	tier := node.Tier
+	if tier == TierInert && evaluator.options.StrictInert {
+		tier = TierRefused
+	}
+	evaluator.census.record(tier, node.Opcode)
+
+	switch tier {
+	case TierInert:
+		// Parsed, counted, no effect, and deliberately no descent: an inert node's
+		// children have no meaning without it.
+		return false, nil
+	case TierImplemented:
+		return true, nil
+	default:
+		return false, &RefusedError{
+			SourceID: frame.SourceID, NodeKey: node.Key,
+			Family: node.Family, Opcode: node.Opcode,
+			Reason: reason,
+		}
+	}
 }
 
 // evalAll runs a list-valued field's children in stored order, stopping at the
@@ -247,18 +262,51 @@ func (evaluator *Evaluator) queryRefEquals(
 	return got.Kind == ValueRef && got.Ref.ID == want.Ref.ID, nil
 }
 
-// m3Handlers registers the implemented-tier impact opcodes. The three below are
-// the keystone set: ImpactsDeferred is the most common impact in the tutorial at
-// 144 uses, ImpactIfTarget is the most common control-flow branch at 62, and
-// ImpactIncreaseQuestCount is the whole of quest-count-special and therefore the
-// whole of M3-26. The rest of the tier table lands in M3-17.
+// m3Handlers registers the implemented-tier opcodes this build executes.
+//
+// The control-flow set came first: ImpactsDeferred is the most common impact in
+// the tutorial at 144 uses, ImpactIfTarget is the most common branch at 62, and
+// ImpactIncreaseQuestCount is the whole of quest-count-special and therefore of
+// M3-26.
+//
+// The rest are the two count-special shapes of the survey §3 and the Warrior
+// auto-attack path of §6, which ADR 0036's amendment moved into the implemented
+// tier. An opcode in that tier with no row here is a build error rather than a
+// content error, and eval says so: the tier table and the handler set disagreeing
+// must never look like a node quietly doing nothing.
 func m3Handlers() map[string]handler {
 	return map[string]handler{
-		"ImpactsDeferred":          evalImpactsDeferred,
-		"ImpactIfTarget":           evalImpactIfRole,
-		"ImpactIfCaster":           evalImpactIfRole,
+		// Control flow.
+		"ImpactsDeferred": evalImpactsDeferred,
+		"ImpactIfTarget":  evalImpactIfRole,
+		"ImpactIfCaster":  evalImpactIfRole,
+		"ReturningImpact": evalReturningImpact,
+		"MarkedImpact":    evalMarkedImpact,
+
+		// Quest counting, both shapes.
 		"ImpactIncreaseQuestCount": evalImpactIncreaseQuestCount,
+		"TagMobForKill":            evalTagMobForKill,
+
+		// Trigger binding: shape B finds the mobs, shape A binds to the player.
+		"ImpactFindSpawnTable":     evalFindSpawnTable,
+		"ImpactAttachTrigger":      evalAttachTrigger,
+		"TriggerAgentSelf":         evalTriggerAgent,
+		"TriggerAgentInterlocutor": evalTriggerAgent,
+
+		// Warrior kit.
+		"ScaledPhysicalWeaponDamage": evalScaledPhysicalWeaponDamage,
+		"ImpactSetTarget":            evalImpactSetTarget,
 	}
+}
+
+// evalMarkedImpact is a transparent wrapper: it marks its child for the client's
+// combat log and runs it. ScaledPhysicalWeaponDamage carries its on-hit impacts
+// through one, so descending is the whole behaviour.
+func evalMarkedImpact(ctx context.Context, evaluator *Evaluator, node *Node, frame Frame) error {
+	if err := evaluator.evalAll(ctx, node, "impact", frame); err != nil {
+		return err
+	}
+	return evaluator.evalAll(ctx, node, "impacts", frame)
 }
 
 // evalImpactsDeferred schedules its children rather than running them. A child's
@@ -338,8 +386,14 @@ func evalImpactIncreaseQuestCount(ctx context.Context, evaluator *Evaluator, nod
 			Reason: "field \"id\" is missing or is not a QuestCountId reference",
 		}
 	}
+	// The delta field is spelled "value", not "count". The reflection schema in
+	// Types/types.xml gives ImpactIncreaseQuestCount exactly two fields — id,
+	// required, and value, an Integer defaulting to 1 — and the overwhelming
+	// majority of the 1486 uses omit it. Reading the wrong name was silent:
+	// every increment defaulted to 1, which is right until content asks for
+	// more.
 	count := int64(1)
-	if value, ok := node.Field("count"); ok && value.Kind == ValueInteger {
+	if value, ok := node.Field("value"); ok && value.Kind == ValueInteger {
 		count = value.Integer
 	}
 	return evaluator.host.Apply(ctx, Command{

@@ -132,6 +132,15 @@ type Ref struct {
 	RowType string
 }
 
+// Decimal is ADR 0036's exact signed mantissa plus base-10 scale, in the shape a
+// host command carries it: Mantissa * 10^-Scale. It exists so that a number can
+// cross the host boundary without becoming a float on the way — an auto-attack's
+// authored 8.75 average damage reaches the combat hook as 875 at scale 2.
+type Decimal struct {
+	Mantissa int64
+	Scale    int32
+}
+
 // Field returns the named field's value. Nodes carry few fields and the slice is
 // sorted, but linear scan over a handful of entries beats a map allocation per
 // node, and the evaluator visits every node of a tree.
