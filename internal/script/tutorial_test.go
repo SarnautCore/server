@@ -65,6 +65,20 @@ func TestImpactIfTargetReadsRetailSingularFields(t *testing.T) {
 	}
 }
 
+func TestBuffDetacherUsesTheAuthoredFalseDefault(t *testing.T) {
+	t.Parallel()
+	host := newFakeHost()
+	node := impact("quest/detach", "BuffDetacher", field("buff", script.Value{
+		Kind: script.ValueRef, Ref: script.Ref{ID: "buff.quest", RowType: "buff-resource"},
+	}))
+	if _, err := run(host, node, newFrame()); err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if len(host.commands) != 1 || host.commands[0].Kind != script.CommandDetachBuff || host.commands[0].Bool {
+		t.Fatalf("detach command = %+v", host.commands)
+	}
+}
+
 func TestDeferredAuditedDefaultsFailClosed(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {
