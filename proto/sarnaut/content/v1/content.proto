@@ -331,6 +331,17 @@ message Item {
   int64 vendor_buy = 8;
   // Localization key for the tooltip description (ADR 0007).
   string description_key = 9;
+  // Stable SarnautCore product id of the bag layout this item grants, for
+  // example `bag.layout.36`. This is empty for items that are not bags.
+  string bag_layout_id = 10;
+  // Total number of slots in the bag layout. This repeats the sum of
+  // `bag_partition_sizes` so consumers can reject an incomplete or mismatched
+  // compiled row before using it.
+  uint32 bag_capacity = 11;
+  // Slot counts of the authored multibag partitions, in display order.
+  // `bag_layout_id`, `bag_capacity`, and this list are either all absent or
+  // together name one of the product's admitted layouts.
+  repeated uint32 bag_partition_sizes = 12;
   // Untyped passthrough; see Zone.extra.
   map<string, string> extra = 15;
 }

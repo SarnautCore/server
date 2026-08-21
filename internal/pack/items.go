@@ -2,6 +2,7 @@ package pack
 
 import (
 	"fmt"
+	"slices"
 
 	"google.golang.org/protobuf/proto"
 
@@ -10,6 +11,34 @@ import (
 
 // tableItems holds one row per item definition.
 const tableItems = "items"
+
+const (
+	maxBagPartitions = 5
+	maxBagCapacity   = 60
+)
+
+// BagLayout is the product-native description of the ordered inventory
+// partitions granted by a bag item. Capacity repeats the partition sum on
+// purpose: a compiled row with a missing partition cannot silently shrink a
+// player's inventory.
+type BagLayout struct {
+	ID             string
+	Capacity       uint32
+	PartitionSizes []uint32
+}
+
+var admittedBagLayouts = map[string]BagLayout{
+	"bag.layout.12": {ID: "bag.layout.12", Capacity: 12, PartitionSizes: []uint32{12}},
+	"bag.layout.16": {ID: "bag.layout.16", Capacity: 16, PartitionSizes: []uint32{16}},
+	"bag.layout.18": {ID: "bag.layout.18", Capacity: 18, PartitionSizes: []uint32{12, 6}},
+	"bag.layout.24": {ID: "bag.layout.24", Capacity: 24, PartitionSizes: []uint32{16, 8}},
+	"bag.layout.30": {ID: "bag.layout.30", Capacity: 30, PartitionSizes: []uint32{30}},
+	"bag.layout.36": {ID: "bag.layout.36", Capacity: 36, PartitionSizes: []uint32{8, 8, 8, 6, 6}},
+	"bag.layout.42": {ID: "bag.layout.42", Capacity: 42, PartitionSizes: []uint32{30, 12}},
+	"bag.layout.48": {ID: "bag.layout.48", Capacity: 48, PartitionSizes: []uint32{12, 12, 12, 12}},
+	"bag.layout.54": {ID: "bag.layout.54", Capacity: 54, PartitionSizes: []uint32{30, 12, 12}},
+	"bag.layout.60": {ID: "bag.layout.60", Capacity: 60, PartitionSizes: []uint32{30, 30}},
+}
 
 // Item is one item definition, as far as the shard is concerned.
 //
@@ -29,6 +58,9 @@ type Item struct {
 	StackLimit int32
 	VendorSell int64
 	VendorBuy  int64
+	// BagLayout is nil for every item that does not grant inventory space.
+	// When present, it is one exact entry of the product layout catalog.
+	BagLayout *BagLayout
 }
 
 // Stack is the stack limit to actually pack with: the authored value, or 1 when
@@ -71,6 +103,13 @@ func (p *Pack) Item(id string) (Item, bool) {
 			// A key-hash collision. Legal, so try the next candidate.
 			continue
 		}
+		bagLayout, ok := readBagLayout(&row)
+		if !ok {
+			// The item exists, but its compiled layout contract is not one the
+			// runtime can represent. Refuse the whole lookup rather than hand a
+			// caller a bag with guessed capacity or partition boundaries.
+			return Item{}, false
+		}
 		return Item{
 			ID:            row.GetId(),
 			NameKey:       row.GetNameKey(),
@@ -80,9 +119,46 @@ func (p *Pack) Item(id string) (Item, bool) {
 			StackLimit:    row.GetStackLimit(),
 			VendorSell:    row.GetVendorSell(),
 			VendorBuy:     row.GetVendorBuy(),
+			BagLayout:     bagLayout,
 		}, true
 	}
 	return Item{}, false
+}
+
+// readBagLayout validates only the row Item already had to decode. Load keeps
+// the 36,000-row item table lazy, while a malformed bag row cannot cross the
+// lookup boundary.
+func readBagLayout(row *contentv1.Item) (*BagLayout, bool) {
+	id := row.GetBagLayoutId()
+	capacity := row.GetBagCapacity()
+	partitions := row.GetBagPartitionSizes()
+	if id == "" && capacity == 0 && len(partitions) == 0 {
+		return nil, true
+	}
+	if id == "" || capacity == 0 || len(partitions) == 0 || len(partitions) > maxBagPartitions {
+		return nil, false
+	}
+
+	var sum uint32
+	for _, size := range partitions {
+		if size == 0 || size > maxBagCapacity || sum > maxBagCapacity-size {
+			return nil, false
+		}
+		sum += size
+	}
+	if sum != capacity || capacity > maxBagCapacity {
+		return nil, false
+	}
+
+	want, ok := admittedBagLayouts[id]
+	if !ok || capacity != want.Capacity || !slices.Equal(partitions, want.PartitionSizes) {
+		return nil, false
+	}
+	return &BagLayout{
+		ID:             want.ID,
+		Capacity:       want.Capacity,
+		PartitionSizes: append([]uint32(nil), want.PartitionSizes...),
+	}, true
 }
 
 // ItemCount is how many item rows the pack carries, read from the table header

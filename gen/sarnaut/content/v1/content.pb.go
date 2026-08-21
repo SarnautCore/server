@@ -1839,6 +1839,17 @@ type Item struct {
 	VendorBuy  int64 `protobuf:"varint,8,opt,name=vendor_buy,json=vendorBuy,proto3" json:"vendor_buy,omitempty"`
 	// Localization key for the tooltip description (ADR 0007).
 	DescriptionKey string `protobuf:"bytes,9,opt,name=description_key,json=descriptionKey,proto3" json:"description_key,omitempty"`
+	// Stable SarnautCore product id of the bag layout this item grants, for
+	// example `bag.layout.36`. This is empty for items that are not bags.
+	BagLayoutId string `protobuf:"bytes,10,opt,name=bag_layout_id,json=bagLayoutId,proto3" json:"bag_layout_id,omitempty"`
+	// Total number of slots in the bag layout. This repeats the sum of
+	// `bag_partition_sizes` so consumers can reject an incomplete or mismatched
+	// compiled row before using it.
+	BagCapacity uint32 `protobuf:"varint,11,opt,name=bag_capacity,json=bagCapacity,proto3" json:"bag_capacity,omitempty"`
+	// Slot counts of the authored multibag partitions, in display order.
+	// `bag_layout_id`, `bag_capacity`, and this list are either all absent or
+	// together name one of the product's admitted layouts.
+	BagPartitionSizes []uint32 `protobuf:"varint,12,rep,packed,name=bag_partition_sizes,json=bagPartitionSizes,proto3" json:"bag_partition_sizes,omitempty"`
 	// Untyped passthrough; see Zone.extra.
 	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
@@ -1936,6 +1947,27 @@ func (x *Item) GetDescriptionKey() string {
 		return x.DescriptionKey
 	}
 	return ""
+}
+
+func (x *Item) GetBagLayoutId() string {
+	if x != nil {
+		return x.BagLayoutId
+	}
+	return ""
+}
+
+func (x *Item) GetBagCapacity() uint32 {
+	if x != nil {
+		return x.BagCapacity
+	}
+	return 0
+}
+
+func (x *Item) GetBagPartitionSizes() []uint32 {
+	if x != nil {
+		return x.BagPartitionSizes
+	}
+	return nil
 }
 
 func (x *Item) GetExtra() map[string]string {
@@ -4188,7 +4220,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\x04\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bname_key\x18\x02 \x01(\tR\anameKey\x12\x1a\n" +
@@ -4201,7 +4233,11 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"vendorSell\x12\x1d\n" +
 	"\n" +
 	"vendor_buy\x18\b \x01(\x03R\tvendorBuy\x12'\n" +
-	"\x0fdescription_key\x18\t \x01(\tR\x0edescriptionKey\x129\n" +
+	"\x0fdescription_key\x18\t \x01(\tR\x0edescriptionKey\x12\"\n" +
+	"\rbag_layout_id\x18\n" +
+	" \x01(\tR\vbagLayoutId\x12!\n" +
+	"\fbag_capacity\x18\v \x01(\rR\vbagCapacity\x12.\n" +
+	"\x13bag_partition_sizes\x18\f \x03(\rR\x11bagPartitionSizes\x129\n" +
 	"\x05extra\x18\x0f \x03(\v2#.sarnaut.content.v1.Item.ExtraEntryR\x05extra\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
