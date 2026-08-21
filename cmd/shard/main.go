@@ -13,6 +13,7 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/chat"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/config"
 	"github.com/SarnautCore/server/internal/health"
@@ -21,6 +22,7 @@ import (
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/observability"
 	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/party"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/script"
 	"github.com/SarnautCore/server/internal/session"
@@ -199,6 +201,14 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		logger,
 		settings.Persistence.SaveTimeout,
 	)
+	partyAuthority := party.New()
+	chatModule := chat.New(chat.Options{
+		Directory:     characterDirectory{characters: repository},
+		GroupAudience: partyChatAudience{parties: partyAuthority},
+		// Say remains disabled here until the production visibility, faction,
+		// and reverse-ignore adapters are wired. ZoneSpecial and World remain
+		// disabled until their exact one-unit currency debit is atomic.
+	})
 	// The bag is behind the repository, and the loot module is behind the bag:
 	// nothing in `internal/loot` can reach a database, and nothing in
 	// `internal/inventory` can reach the zone.
@@ -275,6 +285,8 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		Zones:               map[string]session.ZoneBinding{zone.ID(): binding},
 		Authority:           session.NewNATSAuthority(clients.NATS, instanceID, settings.Auth.RequestTimeout),
 		Characters:          characters,
+		Chat:                chatModule,
+		Party:               partyAuthority,
 		SaveInterval:        settings.Persistence.SaveInterval,
 		Logger:              logger,
 	}

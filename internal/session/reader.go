@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
+	"github.com/SarnautCore/server/internal/chat"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/quests"
@@ -73,6 +74,7 @@ func (writer *reliableWriter) write(message proto.Message) error {
 // commandReader turns client envelopes into zone commands. One instance serves
 // both reader goroutines, so the eligibility rules are stated once.
 type commandReader struct {
+	ctx        context.Context
 	connection transport.Connection
 	writer     *reliableWriter
 	zone       *world.Zone
@@ -87,6 +89,8 @@ type commandReader struct {
 	// characterID is the identity the quest log is keyed on. Unlike entityID it
 	// survives a reconnect, which is why the quest module is addressed by it.
 	characterID uuid.UUID
+	chat        *chat.Session
+	chatEvents  *chatSender
 	// scripts is the impact interpreter's adapter, nil on the default
 	// composition. Its methods are nil-receiver safe, so verbs call it
 	// without a branch.
@@ -187,12 +191,37 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 			return reader.refuseCarrier("quest_abandon", via)
 		}
 		return reader.questAbandon(payload.QuestAbandon)
+	case *sarnautv1.ClientMessage_ChatSendRequest:
+		if via != carrierReliable {
+			return reader.refuseCarrier("chat_send_request", via)
+		}
+		return reader.sendChat(payload.ChatSendRequest)
 	default:
 		return reader.refuse(
 			sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,
 			fmt.Sprintf("client message on the %s channel carries no supported payload case", via),
 		)
 	}
+}
+
+func (reader *commandReader) sendChat(message *sarnautv1.ChatSendRequest) error {
+	request := chatRequestFromProto(message)
+	result := chat.Result{Rejection: chat.RejectionUnsupportedChannel}
+	if reader.chat != nil {
+		result = reader.chat.Send(reader.ctx, request)
+	}
+	if result.Accepted {
+		return nil
+	}
+	rejection := chatRejectionMessage(request, result)
+	if reader.chatEvents != nil {
+		reader.chatEvents.offer(rejection)
+		return nil
+	}
+	if err := reader.writer.write(rejection); err != nil {
+		return fmt.Errorf("write chat rejection: %w", err)
+	}
+	return nil
 }
 
 func (reader *commandReader) applyMoveIntent(intent *sarnautv1.ClientMoveIntent, via carrier) error {
