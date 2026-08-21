@@ -30,11 +30,17 @@ import (
 //
 // A node with no finder falls back to the frame's addressee, which is how the
 // data spells the common case: the field is absent far more often than present.
-func (evaluator *Evaluator) resolveFinder(node *Node, frame Frame) (string, error) {
+func (evaluator *Evaluator) resolveFinder(ctx context.Context, node *Node, frame Frame) (string, error) {
 	finder := first(node.Nodes("addresseeFinder"))
 	if finder == nil {
 		return frame.Addressee, nil
 	}
+	return evaluator.resolveFinderNode(ctx, finder, frame)
+}
+
+func (evaluator *Evaluator) resolveFinderNode(
+	ctx context.Context, finder *Node, frame Frame,
+) (string, error) {
 
 	run, err := evaluator.admit(finder, frame, "addressee finder is outside the M3 implemented tier")
 	if err != nil {
@@ -58,6 +64,25 @@ func (evaluator *Evaluator) resolveFinder(node *Node, frame Frame) (string, erro
 		found = frame.Addressee
 	case "AddresseeFinderTarget":
 		found = frame.TargetID
+	case "AddresseeFinderSingleMob":
+		locator, err := requiredLocator(finder, frame, "mob")
+		if err != nil {
+			return "", err
+		}
+		entities, err := evaluator.host.Resolve(ctx, ResolveRequest{
+			Finder: finder.Opcode, Frame: frame, Locator: &locator,
+		})
+		if err != nil {
+			return "", fmt.Errorf("resolve %s: %w", finder.Opcode, err)
+		}
+		if len(entities) != 1 {
+			return "", &RefusedError{
+				SourceID: frame.SourceID, NodeKey: finder.Key,
+				Family: finder.Family, Opcode: finder.Opcode,
+				Reason: fmt.Sprintf("expected exactly one live entity, found %d", len(entities)),
+			}
+		}
+		found = entities[0]
 	default:
 		return "", &RefusedError{
 			SourceID: frame.SourceID, NodeKey: finder.Key,
@@ -90,7 +115,7 @@ func (evaluator *Evaluator) resolveFinder(node *Node, frame Frame) (string, erro
 // having exactly one field. It rests on one ability, so it is flagged as an open
 // question rather than written into the spec as fact.
 func evalImpactSetTarget(ctx context.Context, evaluator *Evaluator, node *Node, frame Frame) error {
-	target, err := evaluator.resolveFinder(node, frame)
+	target, err := evaluator.resolveFinder(ctx, node, frame)
 	if err != nil {
 		return err
 	}

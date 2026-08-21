@@ -263,16 +263,13 @@ func TestTheThreeTiersBehaveDifferently(t *testing.T) {
 // handler for is the tier table and the code disagreeing, and saying nothing
 // would make a coverage regression invisible.
 //
-// ImpactGiveItem is a real instance of that gap rather than an invented one:
-// ADR 0036's amendment puts it in the implemented tier at 54 uses, and this
-// build registers no handler for it yet — the give-item path waits for the
-// round that wires the inventory grant. All four TriggerAgent binders, which
-// previously played this role, now have handlers.
+// A synthetic future opcode pins the fail-closed rule without coupling the
+// test to whichever real tutorial opcode is implemented next.
 func TestAnImplementedOpcodeWithNoHandlerIsRefusedAsABuildError(t *testing.T) {
 	t.Parallel()
 
 	host := newFakeHost()
-	node := impact("q1-20/rewardImpacts[0]", "ImpactGiveItem")
+	node := impact("q1-20/rewardImpacts[0]", "ImpactFutureAuthoritativeState")
 
 	_, err := run(host, node, newFrame())
 	if err == nil {

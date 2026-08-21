@@ -186,6 +186,7 @@ func newAttachmentCleanup(
 				}
 			}
 		case "EquipTrigger":
+		case "CombatStateTrigger":
 		case "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
 			actions = append(actions, attachmentCleanupStep{kind: cleanupPersistentEffect, node: effect})
 		default:
@@ -308,6 +309,8 @@ func (kind EventKind) String() string {
 		return "health-changed"
 	case EventEquipChanged:
 		return "equip-changed"
+	case EventCombatStateChanged:
+		return "combat-state-changed"
 	default:
 		return fmt.Sprintf("event(%d)", uint8(kind))
 	}
@@ -327,7 +330,11 @@ func (evaluator *Evaluator) deliver(ctx context.Context, node *Node, frame Frame
 		return evaluator.deliverEquip(ctx, node, frame, event)
 	case "HealthTrigger":
 		return evaluator.deliverHealth(ctx, node, frame, event)
-	case "Switch", "EffectTrigger", "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
+	case "CombatStateTrigger":
+		return evaluator.deliverCombatState(ctx, node, frame, event)
+	case "EffectTrigger":
+		return evaluator.deliverEffectEvent(ctx, node, frame, event)
+	case "Switch", "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
 		// A lifecycle effect has no opinion about events; it runs on attach and
 		// detach. Reaching one here means it sat directly under the trigger
 		// rather than under a gate, which is legal and simply not this event.
@@ -339,6 +346,68 @@ func (evaluator *Evaluator) deliver(ctx context.Context, node *Node, frame Frame
 			Reason: "no trigger effect handler registered",
 		}
 	}
+}
+
+func (evaluator *Evaluator) deliverEffectEvent(
+	ctx context.Context, node *Node, frame Frame, event Event,
+) error {
+	if event.EventClass == "" {
+		return nil
+	}
+	matched := false
+	value, ok := node.Field("eventClasses")
+	if !ok || value.Kind != ValueList {
+		return &RefusedError{
+			SourceID: frame.SourceID, NodeKey: node.Key,
+			Family: node.Family, Opcode: node.Opcode,
+			Reason: "field \"eventClasses\" is missing or is not a list",
+		}
+	}
+	for _, entry := range value.List {
+		if entry.Kind != ValueText || entry.Text == "" {
+			return &RefusedError{
+				SourceID: frame.SourceID, NodeKey: node.Key,
+				Family: node.Family, Opcode: node.Opcode,
+				Reason: "field \"eventClasses\" contains a non-text or empty entry",
+			}
+		}
+		matched = matched || entry.Text == event.EventClass
+	}
+	if !matched {
+		return nil
+	}
+	sources := node.Nodes("eventsSource")
+	if len(sources) != 1 {
+		return &RefusedError{
+			SourceID: frame.SourceID, NodeKey: node.Key,
+			Family: node.Family, Opcode: node.Opcode,
+			Reason: "field \"eventsSource\" must contain exactly one finder",
+		}
+	}
+	source, err := evaluator.resolveFinderNode(ctx, sources[0], frame)
+	if err != nil {
+		return err
+	}
+	actualSource := event.SourceID
+	if actualSource == "" {
+		actualSource = event.EntityID
+	}
+	if source != actualSource {
+		return nil
+	}
+	return evaluator.evalAll(ctx, node, "impacts", frame)
+}
+
+func (evaluator *Evaluator) deliverCombatState(
+	ctx context.Context, node *Node, frame Frame, event Event,
+) error {
+	if event.Kind != EventCombatStateChanged {
+		return nil
+	}
+	if event.InCombat {
+		return evaluator.evalAll(ctx, node, "onEnter", frame)
+	}
+	return evaluator.evalAll(ctx, node, "onLeave", frame)
 }
 
 // deliverEquip is shape A's gate. DressTrigger holds two EquipTrigger effects,
@@ -460,11 +529,11 @@ func (evaluator *Evaluator) activate(ctx context.Context, node *Node, frame Fram
 		return err
 	}
 	switch node.Opcode {
-	case "Switch", "EffectTrigger":
+	case "Switch":
 		return evaluator.evalAll(ctx, node, "impactsOn", frame)
 	case "Guard", "ScalerAllInputDamage", "ScalerAllOutputDamage":
 		return evaluator.activatePersistentEffect(ctx, node, frame)
-	case "EquipTrigger", "HealthTrigger":
+	case "EquipTrigger", "HealthTrigger", "CombatStateTrigger", "EffectTrigger":
 		// Arming a gate runs nothing. Its impacts wait for an event.
 		return nil
 	default:

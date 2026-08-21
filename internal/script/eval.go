@@ -337,6 +337,46 @@ func m3Handlers() map[string]handler {
 		// Authored world state used by quest 4-30's Firewall sequence.
 		"ImpactTurnMob": evalImpactTurnMob,
 		"ImpactSummon":  evalImpactSummon,
+
+		// The remaining authored InstLeague1 quest surface. These handlers
+		// validate the concrete field shape and translate it into closed host
+		// commands. No source opcode reaches a gameplay module.
+		"ImpactGiveItem":                  evalGiveItem,
+		"ImpactClientData":                evalClientData,
+		"ImpactClientDataCoords":          evalClientDataCoords,
+		"BuffAttacher":                    evalBuffCommand,
+		"BuffDetacher":                    evalBuffCommand,
+		"AttachAbility":                   evalReferenceCommand,
+		"ImpactActivateAggro":             evalScalarCommand,
+		"ImpactClearTarget":               evalEntityCommand,
+		"ImpactAddExperience":             evalAddExperience,
+		"ImpactMobChat":                   evalReferenceCommand,
+		"ImpactStopTalk":                  evalEntityCommand,
+		"ImpactScriptZoneSetDisabled":     evalScriptZoneDisabled,
+		"ImpactScriptZoneVariableSummand": evalScriptZoneVariable,
+		"GoThroughPath":                   evalGoThroughPath,
+		"ImpactGoToLocator":               evalDestinationCommand,
+		"ImpactTeleportLoc":               evalDestinationCommand,
+		"ImpactKill":                      evalEntityCommand,
+		"ImpactDisintegrate":              evalEntityCommand,
+		"ImpactDeviceDisintergrate":       evalScalarCommand,
+		"ImpactDeviceSetVisualState":      evalTextCommand,
+		"DeviceDie":                       evalEntityCommand,
+		"DoorSwitch":                      evalTextCommand,
+		"SpawnSingleMob":                  evalSpawnSingle,
+		"SpawnSingleDevice":               evalSpawnSingle,
+		"SpawnTableObjects":               evalReferenceCommand,
+		"ResetSpawnTable":                 evalReferenceCommand,
+		"ImpactFindSingleMob":             evalLocatedEntities,
+		"ImpactFindSingleDevice":          evalLocatedEntities,
+		"ImpactFindPermanentDevice":       evalLocatedEntities,
+		"ImpactCreaturesAround":           evalNearbyEntities,
+		"ImpactDevicesAround":             evalNearbyEntities,
+		"ImpactsToInterlocutor":           evalImpactsToInterlocutor,
+		"ImpactInstantiating":             evalInstantiating,
+		"ImpactInstantiatingSimple":       evalInstantiating,
+		"ReturningInstantiatingImpact":    evalReturningImpact,
+		"DeviceImpactsDeferred":           evalImpactsDeferred,
 	}
 }
 
@@ -355,6 +395,16 @@ func evalMarkedImpact(ctx context.Context, evaluator *Evaluator, node *Node, fra
 // relative to execution of its parent. Zero-delay work still enters the queue,
 // which is what keeps ordering identical across a restart.
 func evalImpactsDeferred(ctx context.Context, evaluator *Evaluator, node *Node, frame Frame) error {
+	if limit, ok := node.Field("limit"); ok {
+		if limit.Kind != ValueInteger || limit.Integer != 1 {
+			return nodeRefusal(node, frame, "field \"limit\" must be the audited tutorial value 1")
+		}
+	}
+	if envelope, ok := node.Field("useSpellEnvelopeTargetEffects"); ok {
+		if envelope.Kind != ValueBool || envelope.Bool {
+			return nodeRefusal(node, frame, "field \"useSpellEnvelopeTargetEffects\" must be false")
+		}
+	}
 	var delay uint64
 	if value, ok := node.Field("delay"); ok {
 		switch value.Kind {
@@ -400,9 +450,18 @@ func evalImpactIfRole(ctx context.Context, evaluator *Evaluator, node *Node, fra
 		branch.Addressee = frame.TargetID
 	}
 
-	// The data spells the condition as a list even when it holds one entry, and
-	// a list of predicates is conjunctive.
-	for _, predicate := range node.Nodes("predicates") {
+	predicateField, impactField := "predicates", "impacts"
+	if node.Opcode == "ImpactIfTarget" {
+		// Retail's target form is singular and uses a distinct branch field.
+		if _, ok := node.Field("predicate"); ok {
+			predicateField = "predicate"
+		}
+		if _, ok := node.Field("impactsIf"); ok {
+			impactField = "impactsIf"
+		}
+	}
+	// ImpactIfCaster is conjunctive. ImpactIfTarget carries one predicate.
+	for _, predicate := range node.Nodes(predicateField) {
 		ok, err := evaluator.Predicate(ctx, predicate, branch)
 		if err != nil {
 			return err
@@ -411,7 +470,7 @@ func evalImpactIfRole(ctx context.Context, evaluator *Evaluator, node *Node, fra
 			return nil
 		}
 	}
-	return evaluator.evalAll(ctx, node, "impacts", branch)
+	return evaluator.evalAll(ctx, node, impactField, branch)
 }
 
 // evalImpactIncreaseQuestCount is the entire quest-count-special mechanism.
