@@ -48,6 +48,11 @@ type entry struct {
 	session  *Session
 }
 
+type deliveryTarget struct {
+	sink        Sink
+	characterID uuid.UUID
+}
+
 // Session binds all later operations to one authenticated identity.
 type Session struct {
 	module         *Module
@@ -351,9 +356,16 @@ func (session *Session) Send(ctx context.Context, request Request) Result {
 		}
 		return targets[left].presence.CharacterID.String() < targets[right].presence.CharacterID.String()
 	})
+	deliveryTargets := make([]deliveryTarget, len(targets))
+	for index, target := range targets {
+		deliveryTargets[index] = deliveryTarget{
+			sink:        target.sink,
+			characterID: target.presence.CharacterID,
+		}
+	}
 	module.mu.Unlock()
 
-	for _, recipient := range targets {
+	for _, recipient := range deliveryTargets {
 		delivery := Delivery{
 			MessageID:         messageID,
 			Channel:           request.Channel,
@@ -364,7 +376,7 @@ func (session *Session) Send(ctx context.Context, request Request) Result {
 			SenderAlive:       observation.Alive,
 			Body:              Body{Kind: BodyUserText, UserText: request.Text},
 		}
-		if factionID := readability[recipient.presence.CharacterID]; factionID != "" {
+		if factionID := readability[recipient.characterID]; factionID != "" {
 			delivery.Body = Body{
 				Kind:                      BodyUnreadableFaction,
 				FactionNameLocalizationID: factionID,
