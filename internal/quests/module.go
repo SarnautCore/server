@@ -27,12 +27,14 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/party"
 )
 
 // updateQueueSize bounds the backlog between the tick loop and the fan-out
@@ -113,6 +115,16 @@ type Module struct {
 
 	sinkMu sync.Mutex
 	sinks  map[uuid.UUID]Sink
+
+	// Quest-share invitations cross session boundaries, so the zone module owns
+	// the registry. The mutex also protects the party reader, the clock seam,
+	// and the monotonically increasing invitation id.
+	shareMu           sync.Mutex
+	partyAudience     party.AudienceReader
+	shareInvites      map[questShareInviteKey]HUDQuestShareInvite
+	sharePending      map[questSharePendingKey]questShareInviteKey
+	nextShareInviteID uint64
+	shareNow          func() time.Time
 }
 
 // questLog is one character's whole quest state.
@@ -140,14 +152,17 @@ func New(logger *slog.Logger, zone gametypes.Zone, catalog Catalog, granter Gran
 		logger = slog.Default()
 	}
 	module := &Module{
-		logger:  logger,
-		zone:    zone,
-		catalog: catalog,
-		granter: granter,
-		logs:    make(map[uuid.UUID]*questLog),
-		actors:  make(map[uint64]uuid.UUID),
-		updates: make(chan addressed, updateQueueSize),
-		sinks:   make(map[uuid.UUID]Sink),
+		logger:       logger,
+		zone:         zone,
+		catalog:      catalog,
+		granter:      granter,
+		logs:         make(map[uuid.UUID]*questLog),
+		actors:       make(map[uint64]uuid.UUID),
+		updates:      make(chan addressed, updateQueueSize),
+		sinks:        make(map[uuid.UUID]Sink),
+		shareInvites: make(map[questShareInviteKey]HUDQuestShareInvite),
+		sharePending: make(map[questSharePendingKey]questShareInviteKey),
+		shareNow:     time.Now,
 	}
 	for _, edge := range catalog.UnresolvedPrerequisites() {
 		logger.Warn("quest waits on a prerequisite this pack does not carry", "edge", edge)

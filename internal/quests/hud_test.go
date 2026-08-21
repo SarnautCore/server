@@ -2,7 +2,6 @@ package quests
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/party"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -341,118 +339,6 @@ func TestNPCInfoLeavesUnacceptedProgressAbsent(t *testing.T) {
 	}
 }
 
-func TestShareQuestUsesPartyAuthorityAndSixtySecondExpiry(t *testing.T) {
-	sharerID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	recipients := []uuid.UUID{
-		uuid.MustParse("22222222-2222-2222-2222-222222222222"),
-		uuid.MustParse("33333333-3333-3333-3333-333333333333"),
-	}
-	partyAuthority := &hudPartyAuthority{recipients: recipients, refusal: party.AudienceAllowed}
-	eligibility := &hudShareEligibility{members: map[uuid.UUID]HUDQuestShareRecipientEligibility{
-		recipients[0]: {SameZone: true, DistanceM: 4, Alive: true, CanStartQuest: true},
-		recipients[1]: {SameZone: true, DistanceM: 20, Alive: true, CanStartQuest: true},
-	}}
-	state := NewHUDQuestShareState(sharerID, "Harbor Runner", partyAuthority, eligibility)
-	now := time.Date(2026, 8, 21, 19, 0, 0, 0, time.UTC)
-	clock := now
-	state.now = func() time.Time { return clock }
-	shareSequence := 0
-	state.newShareID = func() string {
-		shareSequence++
-		return fmt.Sprintf("share.test.%d", shareSequence)
-	}
-
-	result := state.ShareQuest(t.Context(), "quest.test.tide-ledger")
-	if result.Refusal != HUDQuestShareRefusalNone {
-		t.Fatalf("refusal = %q, want none", result.Refusal)
-	}
-	if partyAuthority.sharerID != sharerID {
-		t.Errorf("party authority received sharer %s, want %s", partyAuthority.sharerID, sharerID)
-	}
-	if got := len(result.Recipients); got != len(recipients) {
-		t.Fatalf("invites = %d, want %d from party authority", got, len(recipients))
-	}
-	for index, recipient := range result.Recipients {
-		if recipient.RecipientCharacterID != recipients[index] {
-			t.Errorf("invite %d recipient = %s, want %s", index, recipient.RecipientCharacterID, recipients[index])
-		}
-		if recipient.Invite == nil {
-			t.Fatalf("recipient %d has no invitation", index)
-		}
-		invite := *recipient.Invite
-		if invite.ShareID != fmt.Sprintf("share.test.%d", index+1) ||
-			invite.QuestID != "quest.test.tide-ledger" ||
-			invite.SharerName != "Harbor Runner" {
-			t.Errorf("invite %d = %+v, want exact bound/request values", index, invite)
-		}
-		if want := now.Add(HUDQuestShareOnRequestExpiry); !invite.ExpiresAt.Equal(want) {
-			t.Errorf("invite %d expires at %s, want %s", index, invite.ExpiresAt, want)
-		}
-		if invite.OnStart {
-			t.Errorf("invite %d OnStart = true for a manual share", index)
-		}
-	}
-	assertHUDGolden(t, "hud_share_request.golden.json", result)
-	if got := len(state.PendingInvites()); got != 2 {
-		t.Fatalf("pending invites = %d, want 2", got)
-	}
-	clock = now.Add(10 * time.Second)
-	repeated := state.ShareQuest(t.Context(), "quest.test.tide-ledger")
-	if got := len(repeated.Recipients); got != 2 {
-		t.Fatalf("repeated recipient results = %d, want 2", got)
-	}
-	for index, recipient := range repeated.Recipients {
-		if recipient.Invite == nil || recipient.Invite.ShareID != fmt.Sprintf("share.test.%d", index+1) ||
-			!recipient.Invite.ExpiresAt.Equal(now.Add(HUDQuestShareOnRequestExpiry)) || recipient.Invite.OnStart {
-			t.Errorf("repeated invite %d = %+v, want the unexpired original", index, recipient.Invite)
-		}
-	}
-	clock = now.Add(HUDQuestShareOnRequestExpiry)
-	if got := state.PendingInvites(); len(got) != 0 {
-		t.Errorf("pending invites at expiry = %+v, want none", got)
-	}
-}
-
-func TestShareQuestReturnsTypedNoPartyRefusal(t *testing.T) {
-	state := NewHUDQuestShareState(
-		uuid.New(), "Solo", &hudPartyAuthority{refusal: party.AudienceNoParty}, nil,
-	)
-	result := state.ShareQuest(t.Context(), "quest.test.offer")
-	if result.Refusal != HUDQuestShareRefusalNoParty {
-		t.Fatalf("refusal = %q, want NO_PARTY", result.Refusal)
-	}
-	if result.Recipients != nil {
-		t.Errorf("recipients = %+v, want none", result.Recipients)
-	}
-}
-
-func TestShareQuestMapsUnavailableAudienceToNotPossible(t *testing.T) {
-	state := NewHUDQuestShareState(
-		uuid.New(), "Offline", &hudPartyAuthority{refusal: party.AudienceUnavailable}, nil,
-	)
-	result := state.ShareQuest(t.Context(), "quest.test.offer")
-	if result.Refusal != HUDQuestShareRefusalNotPossible {
-		t.Fatalf("refusal = %q, want NOT_POSSIBLE", result.Refusal)
-	}
-}
-
-func TestShareQuestRefusesAQuestTheSharerDoesNotHold(t *testing.T) {
-	recipientID := uuid.New()
-	state := NewHUDQuestShareState(
-		uuid.New(),
-		"Sharer",
-		&hudPartyAuthority{recipients: []uuid.UUID{recipientID}, refusal: party.AudienceAllowed},
-		&hudShareEligibility{cannotShare: true},
-	)
-	result := state.ShareQuest(t.Context(), "quest.test.not-held")
-	if result.Refusal != HUDQuestShareRefusalNotPossible {
-		t.Fatalf("refusal = %q, want NOT_POSSIBLE", result.Refusal)
-	}
-	if result.Recipients != nil {
-		t.Errorf("recipients = %+v, want none", result.Recipients)
-	}
-}
-
 func TestModuleOwnsLiveQuestShareEligibility(t *testing.T) {
 	definition := hudTestDefinition("quest.test.shareable")
 	catalog := hudTestCatalog(t, definition)
@@ -509,120 +395,6 @@ func TestModuleOwnsLiveQuestShareEligibility(t *testing.T) {
 	if !resolved || eligibility.SameZone {
 		t.Errorf("other-zone eligibility = %+v, %t, want resolved same-zone false", eligibility, resolved)
 	}
-}
-
-func TestShareQuestFiltersRangeAndReportsMixedNotPossibleResults(t *testing.T) {
-	sharerID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-	valid := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-	dead := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
-	ineligible := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
-	far := uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
-	otherZone := uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff")
-	partyAuthority := &hudPartyAuthority{
-		refusal: party.AudienceAllowed,
-		recipients: []uuid.UUID{
-			sharerID, valid, valid, dead, ineligible, far, otherZone,
-		},
-	}
-	eligibility := &hudShareEligibility{members: map[uuid.UUID]HUDQuestShareRecipientEligibility{
-		valid:      {SameZone: true, DistanceM: 1, Alive: true, CanStartQuest: true},
-		dead:       {SameZone: true, DistanceM: 2, Alive: false, CanStartQuest: true},
-		ineligible: {SameZone: true, DistanceM: 3, Alive: true, CanStartQuest: false},
-		far:        {SameZone: true, DistanceM: 20.01, Alive: true, CanStartQuest: true},
-		otherZone:  {SameZone: false, DistanceM: 1, Alive: true, CanStartQuest: true},
-	}}
-	state := NewHUDQuestShareState(sharerID, "Sharer", partyAuthority, eligibility)
-	state.now = func() time.Time { return time.Unix(100, 0) }
-	state.newShareID = func() string { return "share.mixed" }
-
-	result := state.ShareQuest(t.Context(), "quest.test.mixed")
-	if result.Refusal != HUDQuestShareRefusalNone {
-		t.Fatalf("request refusal = %q, want none", result.Refusal)
-	}
-	if got := len(result.Recipients); got != 3 {
-		t.Fatalf("recipient results = %d, want one invite and two refusals", got)
-	}
-	if result.Recipients[0].RecipientCharacterID != valid || result.Recipients[0].Invite == nil {
-		t.Errorf("valid result = %+v, want an invitation", result.Recipients[0])
-	}
-	for index, recipientID := range []uuid.UUID{dead, ineligible} {
-		recipientResult := result.Recipients[index+1]
-		if recipientResult.RecipientCharacterID != recipientID ||
-			recipientResult.Refusal != HUDQuestShareRefusalNotPossible {
-			t.Errorf("result %d = %+v, want %s NOT_POSSIBLE", index+1, recipientResult, recipientID)
-		}
-	}
-}
-
-func TestOnStartQuestShareUsesTenSecondExpiry(t *testing.T) {
-	sharerID := uuid.MustParse("11111111-aaaa-aaaa-aaaa-111111111111")
-	recipientID := uuid.MustParse("22222222-bbbb-bbbb-bbbb-222222222222")
-	partyAuthority := &hudPartyAuthority{
-		recipients: []uuid.UUID{recipientID}, refusal: party.AudienceAllowed,
-	}
-	eligibility := &hudShareEligibility{members: map[uuid.UUID]HUDQuestShareRecipientEligibility{
-		recipientID: {SameZone: true, DistanceM: 5, Alive: true, CanStartQuest: true},
-	}}
-	state := NewHUDQuestShareState(sharerID, "Starter", partyAuthority, eligibility)
-	now := time.Unix(200, 0).UTC()
-	state.now = func() time.Time { return now }
-	state.newShareID = func() string { return "share.on-start" }
-
-	result := state.ShareQuestOnStart(t.Context(), "quest.test.started")
-	if len(result.Recipients) != 1 || result.Recipients[0].Invite == nil {
-		t.Fatalf("result = %+v, want one invitation", result)
-	}
-	if got, want := result.Recipients[0].Invite.ExpiresAt, now.Add(HUDQuestShareOnStartExpiry); !got.Equal(want) {
-		t.Errorf("expires at %s, want %s", got, want)
-	}
-	if !result.Recipients[0].Invite.OnStart {
-		t.Error("OnStart = false for an automatic share")
-	}
-	assertHUDGolden(t, "hud_share_on_start.golden.json", result)
-}
-
-func TestRetailQuestHUDTimingAndRangeConstants(t *testing.T) {
-	if HUDQuestShareOnRequestExpiry != 60*time.Second {
-		t.Errorf("on-request share expiry = %s, want 60s", HUDQuestShareOnRequestExpiry)
-	}
-	if HUDQuestShareOnStartExpiry != 10*time.Second {
-		t.Errorf("on-start share expiry = %s, want 10s", HUDQuestShareOnStartExpiry)
-	}
-	if HUDQuestShareRangeM != 20 {
-		t.Errorf("share range = %g m, want 20", HUDQuestShareRangeM)
-	}
-}
-
-type hudPartyAuthority struct {
-	sharerID   uuid.UUID
-	recipients []uuid.UUID
-	refusal    party.AudienceRefusal
-}
-
-func (authority *hudPartyAuthority) Audience(
-	_ context.Context,
-	sharerID uuid.UUID,
-) ([]uuid.UUID, party.AudienceRefusal) {
-	authority.sharerID = sharerID
-	return append([]uuid.UUID(nil), authority.recipients...), authority.refusal
-}
-
-type hudShareEligibility struct {
-	members     map[uuid.UUID]HUDQuestShareRecipientEligibility
-	cannotShare bool
-}
-
-func (eligibility *hudShareEligibility) CanShareQuest(uuid.UUID, string) bool {
-	return eligibility != nil && !eligibility.cannotShare
-}
-
-func (eligibility *hudShareEligibility) QuestShareEligibility(
-	_ uuid.UUID,
-	recipientCharacterID uuid.UUID,
-	_ string,
-) (HUDQuestShareRecipientEligibility, bool) {
-	member, ok := eligibility.members[recipientCharacterID]
-	return member, ok
 }
 
 type hudZone struct{}

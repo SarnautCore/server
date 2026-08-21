@@ -1,18 +1,14 @@
 package quests
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"sort"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/pack"
-	"github.com/SarnautCore/server/internal/party"
 )
 
 // Retail quest UI capacities. Projection refuses content that does not fit.
@@ -344,9 +340,11 @@ func (book HUDQuestBook) Validate() error {
 // automatic ten-second offer from a manual sixty-second offer. The client's
 // incoming modal timeout is presentation state and is not represented here.
 type HUDQuestShareInvite struct {
-	ShareID              string    `json:"share_id"`
+	InviteID             uint64    `json:"invite_id"`
 	QuestID              string    `json:"quest_id"`
 	SharerName           string    `json:"sharer_name"`
+	SharerCharacterID    uuid.UUID `json:"sharer_character_id"`
+	SharerEntityID       uint64    `json:"sharer_entity_id"`
 	RecipientCharacterID uuid.UUID `json:"recipient_character_id"`
 	OnStart              bool      `json:"on_start"`
 	ExpiresAt            time.Time `json:"expires_at"`
@@ -356,9 +354,15 @@ type HUDQuestShareInvite struct {
 type HUDQuestShareRefusal string
 
 const (
-	HUDQuestShareRefusalNone        HUDQuestShareRefusal = ""
-	HUDQuestShareRefusalNoParty     HUDQuestShareRefusal = "NO_PARTY"
-	HUDQuestShareRefusalNotPossible HUDQuestShareRefusal = "NOT_POSSIBLE"
+	HUDQuestShareRefusalNone              HUDQuestShareRefusal = ""
+	HUDQuestShareRefusalUnknownQuest      HUDQuestShareRefusal = "UNKNOWN_QUEST"
+	HUDQuestShareRefusalNotShareable      HUDQuestShareRefusal = "NOT_SHAREABLE"
+	HUDQuestShareRefusalNoParty           HUDQuestShareRefusal = "NO_PARTY"
+	HUDQuestShareRefusalTargetUnavailable HUDQuestShareRefusal = "TARGET_UNAVAILABLE"
+	HUDQuestShareRefusalInviteNotFound    HUDQuestShareRefusal = "INVITE_NOT_FOUND"
+	HUDQuestShareRefusalLogFull           HUDQuestShareRefusal = "LOG_FULL"
+	HUDQuestShareRefusalDeclined          HUDQuestShareRefusal = "DECLINED"
+	HUDQuestShareRefusalInternal          HUDQuestShareRefusal = "INTERNAL"
 )
 
 // HUDQuestShareRecipientResult preserves which party member received an
@@ -378,6 +382,17 @@ type HUDQuestShareResult struct {
 	Refusal    HUDQuestShareRefusal           `json:"refusal,omitempty"`
 }
 
+// HUDQuestShareResponseResult is the authoritative answer to one recipient's
+// invitation response. QuestResult carries the inventory and save sequence a
+// successful accept committed, ready for the session to adopt.
+type HUDQuestShareResponseResult struct {
+	RecipientCharacterID uuid.UUID            `json:"recipient_character_id"`
+	InviteID             uint64               `json:"invite_id"`
+	QuestID              string               `json:"quest_id,omitempty"`
+	Refusal              HUDQuestShareRefusal `json:"refusal,omitempty"`
+	QuestResult          Result               `json:"-"`
+}
+
 // HUDQuestShareRecipientEligibility is the quest-owned view needed after
 // membership is known. Party authority does not decide zone distance, life,
 // or whether this character can start this quest.
@@ -389,7 +404,7 @@ type HUDQuestShareRecipientEligibility struct {
 }
 
 // HUDQuestShareEligibility resolves one party member against live world and
-// quest state. A false second result is treated as NOT_POSSIBLE.
+// quest state. A false second result is treated as TARGET_UNAVAILABLE.
 type HUDQuestShareEligibility interface {
 	CanShareQuest(sharerCharacterID uuid.UUID, questID string) bool
 	QuestShareEligibility(
@@ -397,130 +412,6 @@ type HUDQuestShareEligibility interface {
 		recipientCharacterID uuid.UUID,
 		questID string,
 	) (HUDQuestShareRecipientEligibility, bool)
-}
-
-// HUDQuestShareState binds the sharer identity and party authority so the
-// ShareQuest command itself takes only the quest id.
-type HUDQuestShareState struct {
-	sharerCharacterID uuid.UUID
-	sharerName        string
-	party             party.AudienceReader
-	eligibility       HUDQuestShareEligibility
-	now               func() time.Time
-	newShareID        func() string
-	mu                sync.Mutex
-	pending           map[string]HUDQuestShareInvite
-}
-
-func NewHUDQuestShareState(
-	sharerCharacterID uuid.UUID,
-	sharerName string,
-	partyAudience party.AudienceReader,
-	eligibility HUDQuestShareEligibility,
-) *HUDQuestShareState {
-	return &HUDQuestShareState{
-		sharerCharacterID: sharerCharacterID,
-		sharerName:        sharerName,
-		party:             partyAudience,
-		eligibility:       eligibility,
-		now:               time.Now,
-		newShareID:        func() string { return uuid.NewString() },
-		pending:           make(map[string]HUDQuestShareInvite),
-	}
-}
-
-// ShareQuest creates expiring invitations after party, zone, range, life, and
-// quest eligibility checks. Context is server-owned cancellation state. The
-// authenticated wire command supplies only questID and cannot pick recipients.
-func (state *HUDQuestShareState) ShareQuest(ctx context.Context, questID string) HUDQuestShareResult {
-	return state.shareQuest(ctx, questID, HUDQuestShareOnRequestExpiry, false)
-}
-
-// ShareQuestOnStart creates the automatic invitation with retail's shorter
-// lifetime. It shares pending state with manual offers, so an existing offer
-// is not duplicated or shortened.
-func (state *HUDQuestShareState) ShareQuestOnStart(
-	ctx context.Context,
-	questID string,
-) HUDQuestShareResult {
-	return state.shareQuest(ctx, questID, HUDQuestShareOnStartExpiry, true)
-}
-
-func (state *HUDQuestShareState) shareQuest(
-	ctx context.Context,
-	questID string,
-	expiry time.Duration,
-	onStart bool,
-) HUDQuestShareResult {
-	if state == nil || state.party == nil {
-		return HUDQuestShareResult{Refusal: HUDQuestShareRefusalNoParty}
-	}
-	recipientSnapshot, audienceRefusal := state.party.Audience(ctx, state.sharerCharacterID)
-	switch audienceRefusal {
-	case party.AudienceAllowed:
-	case party.AudienceNoParty:
-		return HUDQuestShareResult{Refusal: HUDQuestShareRefusalNoParty}
-	default:
-		return HUDQuestShareResult{Refusal: HUDQuestShareRefusalNotPossible}
-	}
-	if state.eligibility == nil || !state.eligibility.CanShareQuest(state.sharerCharacterID, questID) {
-		return HUDQuestShareResult{Refusal: HUDQuestShareRefusalNotPossible}
-	}
-	recipients := append([]uuid.UUID(nil), recipientSnapshot...)
-	now := state.now()
-	expiresAt := now.Add(expiry)
-	state.mu.Lock()
-	state.expirePendingLocked(now)
-	state.mu.Unlock()
-	result := HUDQuestShareResult{
-		Recipients: make([]HUDQuestShareRecipientResult, 0, len(recipients)),
-	}
-	seen := make(map[uuid.UUID]struct{}, len(recipients))
-	for _, recipientID := range recipients {
-		if recipientID == state.sharerCharacterID {
-			continue
-		}
-		if _, duplicate := seen[recipientID]; duplicate {
-			continue
-		}
-		seen[recipientID] = struct{}{}
-		eligibility, resolved := HUDQuestShareRecipientEligibility{}, false
-		if state.eligibility != nil {
-			eligibility, resolved = state.eligibility.QuestShareEligibility(
-				state.sharerCharacterID, recipientID, questID,
-			)
-		}
-		if resolved && (!eligibility.SameZone || eligibility.DistanceM > HUDQuestShareRangeM) {
-			continue
-		}
-		if !resolved || eligibility.DistanceM < 0 || !eligibility.Alive || !eligibility.CanStartQuest {
-			result.Recipients = append(result.Recipients, HUDQuestShareRecipientResult{
-				RecipientCharacterID: recipientID,
-				Refusal:              HUDQuestShareRefusalNotPossible,
-			})
-			continue
-		}
-		key := sharePendingKey(questID, recipientID)
-		state.mu.Lock()
-		invite, pending := state.pending[key]
-		if !pending {
-			invite = HUDQuestShareInvite{
-				ShareID:              state.newShareID(),
-				QuestID:              questID,
-				SharerName:           state.sharerName,
-				RecipientCharacterID: recipientID,
-				OnStart:              onStart,
-				ExpiresAt:            expiresAt,
-			}
-			state.pending[key] = invite
-		}
-		state.mu.Unlock()
-		result.Recipients = append(result.Recipients, HUDQuestShareRecipientResult{
-			RecipientCharacterID: recipientID,
-			Invite:               &invite,
-		})
-	}
-	return result
 }
 
 // CanShareQuest reports whether the sharer holds a real visible instance.
@@ -597,39 +488,6 @@ func (module *Module) entityForCharacter(characterID uuid.UUID) (uint64, bool) {
 		}
 	}
 	return 0, false
-}
-
-// PendingInvites returns unexpired invitations in stable recipient/share-id
-// order. The returned slice is a copy.
-func (state *HUDQuestShareState) PendingInvites() []HUDQuestShareInvite {
-	if state == nil {
-		return nil
-	}
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	state.expirePendingLocked(state.now())
-	keys := make([]string, 0, len(state.pending))
-	for key := range state.pending {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	invites := make([]HUDQuestShareInvite, 0, len(keys))
-	for _, key := range keys {
-		invites = append(invites, state.pending[key])
-	}
-	return invites
-}
-
-func (state *HUDQuestShareState) expirePendingLocked(now time.Time) {
-	for key, invite := range state.pending {
-		if !now.Before(invite.ExpiresAt) {
-			delete(state.pending, key)
-		}
-	}
-}
-
-func sharePendingKey(questID string, recipientID uuid.UUID) string {
-	return recipientID.String() + "\x00" + questID
 }
 
 // HUDInfo returns the authored information and rewards for one definition.
