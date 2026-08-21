@@ -11,6 +11,7 @@ import (
 	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/chat"
 	"github.com/SarnautCore/server/internal/chataudience"
+	"github.com/SarnautCore/server/internal/currency"
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/party"
 	"github.com/SarnautCore/server/internal/social"
@@ -45,6 +46,37 @@ func TestCharacterDirectoryUsesAuthoritativeNameNormalizationAndDeletionState(t 
 	repository.err = errors.New("database unavailable")
 	if _, _, err := directory.ResolveCharacterName(t.Context(), "Obrien"); err == nil {
 		t.Fatal("repository failure = nil, want propagated error")
+	}
+}
+
+func TestPaidChatCurrenciesPreserveExactProductIdentityAndOneUnitCost(t *testing.T) {
+	t.Parallel()
+
+	ledger := currency.NewMemory()
+	characterID := uuid.New()
+	if _, err := ledger.Credit(t.Context(), characterID, currency.WorldChatResource(), 1); err != nil {
+		t.Fatalf("Credit() error = %v", err)
+	}
+	adapter := paidChatCurrencies{ledger: ledger}
+	spent, err := adapter.Spend(t.Context(), characterID, chat.AlternativeCurrency{
+		ResourceID: chat.WorldChatCurrencyResourceID,
+		SysName:    chat.WorldChatCurrencySysName,
+	}, 1)
+	if err != nil || !spent {
+		t.Fatalf("exact Spend() = %v, %v, want true", spent, err)
+	}
+	spent, err = adapter.Spend(t.Context(), characterID, chat.AlternativeCurrency{
+		ResourceID: chat.WorldChatCurrencyResourceID,
+		SysName:    chat.WorldChatCurrencySysName,
+	}, 1)
+	if err != nil || spent {
+		t.Fatalf("empty Spend() = %v, %v, want false without error", spent, err)
+	}
+	if _, err := adapter.Spend(t.Context(), characterID, chat.AlternativeCurrency{
+		ResourceID: chat.WorldChatCurrencyResourceID,
+		SysName:    chat.ZoneSpecialCurrencySysName,
+	}, 1); err == nil {
+		t.Fatal("mismatched product identity was accepted")
 	}
 }
 

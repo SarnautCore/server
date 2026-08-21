@@ -12,6 +12,7 @@ import (
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/chat"
+	"github.com/SarnautCore/server/internal/cohort"
 	"github.com/SarnautCore/server/internal/party"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
@@ -47,6 +48,7 @@ func TestChatRequestCrossesTheSessionWithAuthenticatedSenderAndNoServerEcho(t *t
 		"bob":   {CharacterID: bob.CharacterID, Name: bob.CharacterName},
 	}})
 	parties := party.New()
+	cohorts := cohort.NewPresenceRegistry()
 	server := Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "chat-integration",
@@ -55,6 +57,7 @@ func TestChatRequestCrossesTheSessionWithAuthenticatedSenderAndNoServerEcho(t *t
 		Characters:      newFakeCharacters(testTemplate(charstore.Vec3{})),
 		Chat:            chatModule,
 		Party:           parties,
+		Cohorts:         cohorts,
 		Logger:          slog.New(slog.DiscardHandler),
 		sessions:        newSessionRegistry(),
 	}
@@ -107,6 +110,9 @@ func TestChatRequestCrossesTheSessionWithAuthenticatedSenderAndNoServerEcho(t *t
 	if _, refusal := parties.Membership(alice.CharacterID); refusal != party.AudienceNoParty {
 		t.Fatalf("live authenticated party presence = %v, want connected solo", refusal)
 	}
+	if !cohorts.Connected(alice.CharacterID) {
+		t.Fatal("live authenticated cohort presence is missing")
+	}
 	aliceClient.close()
 	select {
 	case <-aliceClient.result:
@@ -115,6 +121,9 @@ func TestChatRequestCrossesTheSessionWithAuthenticatedSenderAndNoServerEcho(t *t
 	}
 	if _, refusal := parties.Membership(alice.CharacterID); refusal != party.AudienceNotMember {
 		t.Fatalf("closed party presence = %v, want not member", refusal)
+	}
+	if cohorts.Connected(alice.CharacterID) {
+		t.Fatal("closed authenticated cohort presence is still connected")
 	}
 }
 
