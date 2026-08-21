@@ -84,7 +84,10 @@ func evalBuffCommand(ctx context.Context, evaluator *Evaluator, node *Node, fram
 	if node.Opcode == "BuffDetacher" {
 		kind = CommandDetachBuff
 	}
-	checkCaster := true
+	// The source field is a primitive boolean. Rows that omit it carry Java's
+	// authored default false; the corpus contains both explicit-false and
+	// omitted forms.
+	checkCaster := false
 	if value, ok := node.Field("checkCaster"); ok {
 		if value.Kind != ValueBool {
 			return nodeRefusal(node, frame, "field \"checkCaster\" must be boolean")
