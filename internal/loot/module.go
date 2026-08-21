@@ -3,6 +3,7 @@ package loot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -113,14 +114,14 @@ func (module *Module) Release(entityID uint64) {
 // The roll happens here and not when a player opens the corpse (rule 5.1.1), so
 // re-opening cannot re-roll and a disconnect mid-loot cannot change what is
 // there.
-func (module *Module) MobKilled(tick gametypes.Tick, kill Kill) {
+func (module *Module) MobKilled(tick gametypes.Tick, kill Kill) uint64 {
 	table, ok := module.rules.Table(kill.LootTableID)
 	if !ok {
 		// A mob that names no table, or one this pack does not carry, drops
 		// nothing and gets no container. loot.md section 7.2 notes that the
 		// modifier chain which would gate a roll is deferred, so "no table" is
 		// the only way content says "no loot" in M2.
-		return
+		return 0
 	}
 
 	owner := module.owners[kill.KillerEntityID]
@@ -146,7 +147,7 @@ func (module *Module) MobKilled(tick gametypes.Tick, kill Kill) {
 	if err != nil {
 		module.logger.Error("loot roll failed",
 			"loot_table_id", table.ID, "loot_seed", digest, "error", err)
-		return
+		return 0
 	}
 	// Rule 5.2.6: the drop plus its seed plus its draw count is enough to
 	// replay the roll offline with no server state.
@@ -160,7 +161,7 @@ func (module *Module) MobKilled(tick gametypes.Tick, kill Kill) {
 	if drop.Empty() {
 		// Nothing to hold, so nothing to stand up. A container with no drop is
 		// a prop, and a prop that has to be despawned is a prop that can leak.
-		return
+		return 0
 	}
 
 	container := tick.SpawnNPC(gametypes.NPCSpec{
@@ -198,6 +199,40 @@ func (module *Module) MobKilled(tick gametypes.Tick, kill Kill) {
 	tick.After(delay, func(later gametypes.Tick) {
 		module.despawn(later, containerID)
 	})
+	return containerID
+}
+
+// DeviceOpen is the loot projection of one authored chest interaction.
+type DeviceOpen struct {
+	ActorEntityID  uint64
+	DeviceEntityID uint64
+	ContentID      string
+	PlacementID    string
+	LootTableID    string
+	Position       gametypes.Vec3
+	Heading        float32
+	DespawnTick    uint64
+}
+
+// OpenDevice stands a chest-sourced drop up through the same seeded roll,
+// ownership, container, and Take path used for mob loot.
+func (module *Module) OpenDevice(tick gametypes.Tick, open DeviceOpen) (uint64, error) {
+	if tick == nil || tick.Entity(open.ActorEntityID) == nil || tick.Entity(open.DeviceEntityID) == nil {
+		return 0, fmt.Errorf("loot: device interaction names an unknown entity")
+	}
+	if open.ContentID == "" || open.PlacementID == "" || open.LootTableID == "" || !open.Position.Finite() {
+		return 0, fmt.Errorf("loot: device interaction is malformed")
+	}
+	containerID := module.MobKilled(tick, Kill{
+		VictimEntityID: open.DeviceEntityID, KillerEntityID: open.ActorEntityID,
+		VictimContentID: open.ContentID, PlacementID: open.PlacementID,
+		LootTableID: open.LootTableID, Position: open.Position, Heading: open.Heading,
+		DeathTick: tick.Number(), DespawnTick: open.DespawnTick,
+	})
+	if containerID == 0 {
+		return 0, fmt.Errorf("loot: device %s produced no container", open.PlacementID)
+	}
+	return containerID, nil
 }
 
 // despawn is rule 5.1.2: the container and its drop go together.

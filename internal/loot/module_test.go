@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -34,6 +35,50 @@ func TestAKillStandsUpACorpseHoldingTheRolledDrop(t *testing.T) {
 	again, _ := fixture.loot.Look(fixture.ownerEntity, containerID)
 	if len(again.Items) != 1 || again.Items[0] != offer.Items[0] {
 		t.Errorf("a second look reported %+v, want %+v", again.Items, offer.Items)
+	}
+}
+
+func TestDeviceOpenUsesTheExistingLootContainerAndTakePath(t *testing.T) {
+	fixture := newHarness(t, harnessOptions{})
+	var (
+		deviceID    uint64
+		position    world.Vec3
+		containerID uint64
+	)
+	err := fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		owner := tick.Entity(fixture.ownerEntity)
+		position = tick.Position(owner).Add(world.Vec3{X: 1})
+		device := tick.SpawnNPC(gametypes.NPCSpec{
+			ContentID: "device.fixture.elixir-chest", PlacementID: "placement.fixture.elixir-chest",
+			Position: position,
+		})
+		device.Alive = false
+		deviceID = device.ID
+		var openErr error
+		containerID, openErr = fixture.loot.OpenDevice(tick, loot.DeviceOpen{
+			ActorEntityID: fixture.ownerEntity, DeviceEntityID: deviceID,
+			ContentID: device.ContentID, PlacementID: device.PlacementID,
+			LootTableID: flatTableID, Position: position,
+			DespawnTick: tick.Number() + 90,
+		})
+		return openErr
+	})
+	if err != nil {
+		t.Fatalf("OpenDevice() error = %v", err)
+	}
+	if containerID == 0 {
+		t.Fatal("OpenDevice() returned no container")
+	}
+	offer, refusal := fixture.loot.Look(fixture.ownerEntity, containerID)
+	if refusal != loot.RefusalNone || offer.LootTableID != flatTableID {
+		t.Fatalf("device offer = %#v, refusal %s", offer, refusal)
+	}
+	result, err := fixture.loot.Take(context.Background(), fixture.ownerEntity, containerID)
+	if err != nil || result.Refusal != loot.RefusalNone {
+		t.Fatalf("device Take() = %#v, %v", result, err)
+	}
+	if got := unitsOf(fixture.inventoryOf(fixture.ownerID), tonicItemID); got != dropCount {
+		t.Fatalf("device loot granted %d units, want %d", got, dropCount)
 	}
 }
 
