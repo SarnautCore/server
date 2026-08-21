@@ -79,6 +79,17 @@ func newFixture(t *testing.T, level uint32, inventory []charstore.InventoryItem)
 	if err != nil {
 		t.Fatalf("CatalogFromPack() error = %v", err)
 	}
+	return newFixtureWithCatalog(t, level, inventory, content, catalog)
+}
+
+func newFixtureWithCatalog(
+	t *testing.T,
+	level uint32,
+	inventory []charstore.InventoryItem,
+	content *pack.Pack,
+	catalog quests.Catalog,
+) *fixture {
+	t.Helper()
 
 	zone, err := world.NewZone(world.ZoneConfig{
 		ID:               "QuestTestZone",
@@ -293,6 +304,11 @@ type bagGranter struct {
 	// grants counts committed transactions, so "exactly once" is a number and
 	// not an inference from the resulting rows.
 	grants int
+	// blockEntered and blockRelease hold one grant between the module's
+	// in-flight marker and the repository transaction. A concurrency test uses
+	// the pause to make a duplicate arrive inside that exact window.
+	blockEntered chan struct{}
+	blockRelease chan struct{}
 }
 
 func (granter *bagGranter) fail(err error) {
@@ -307,13 +323,35 @@ func (granter *bagGranter) committed() int {
 	return granter.grants
 }
 
+func (granter *bagGranter) blockNextGrant() (<-chan struct{}, func()) {
+	granter.mu.Lock()
+	defer granter.mu.Unlock()
+	if granter.blockEntered != nil {
+		panic("a quest grant is already blocked")
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	granter.blockEntered = entered
+	granter.blockRelease = release
+	var once sync.Once
+	return entered, func() { once.Do(func() { close(release) }) }
+}
+
 func (granter *bagGranter) GrantQuestReward(
 	ctx context.Context,
 	grant charstore.QuestGrant,
 ) (charstore.QuestGrantResult, error) {
 	granter.mu.Lock()
 	forced := granter.failWith
+	entered := granter.blockEntered
+	release := granter.blockRelease
+	granter.blockEntered = nil
+	granter.blockRelease = nil
 	granter.mu.Unlock()
+	if entered != nil {
+		close(entered)
+		<-release
+	}
 	if forced != nil {
 		return charstore.QuestGrantResult{}, forced
 	}

@@ -233,6 +233,19 @@ func (module *Module) TurnIn(
 	questID string,
 	finisherEntityID uint64,
 ) (Result, error) {
+	return module.TurnInWithChoice(ctx, actorEntityID, questID, finisherEntityID, 0)
+}
+
+// TurnInWithChoice applies ReturnQuest's zero-based alternative reward index.
+// Mandatory rewards remain part of every successful grant. A quest with no
+// alternatives ignores rewardIndex, preserving the original turn-in contract.
+func (module *Module) TurnInWithChoice(
+	ctx context.Context,
+	actorEntityID uint64,
+	questID string,
+	finisherEntityID uint64,
+	rewardIndex int32,
+) (Result, error) {
 	definition, ok := module.catalog.Definition(questID)
 	if !ok {
 		return refused(questID, RefusalUnknownQuest)
@@ -273,6 +286,11 @@ func (module *Module) TurnIn(
 			case !module.inRange(tick, actorEntityID, finisher):
 				refusal = RefusalOutOfRange
 			default:
+				rewards, valid := rewardItems(definition, rewardIndex)
+				if !valid {
+					refusal = RefusalInvalidRewardChoice
+					return nil
+				}
 				committed := *held
 				committed.state = StateTurnedIn
 				row, err := committed.row()
@@ -284,7 +302,7 @@ func (module *Module) TurnIn(
 				grant = Grant{
 					CharacterID: characterID,
 					Consume:     consumedItems(definition, log),
-					Grants:      rewardItems(definition),
+					Grants:      rewards,
 					Experience:  definition.Rewards.Experience,
 					Money:       definition.Rewards.Money,
 					Honor:       definition.Rewards.Honor,
@@ -546,15 +564,26 @@ func abandonedItems(definition pack.Quest, log *questLog) []ItemCount {
 	return consumed
 }
 
-func rewardItems(definition pack.Quest) []ItemCount {
+func rewardItems(definition pack.Quest, rewardIndex int32) ([]ItemCount, bool) {
 	var items []ItemCount
 	for _, reward := range definition.Rewards.MandatoryItems {
-		if reward.Count <= 0 {
-			continue
-		}
-		items = append(items, ItemCount{ItemID: reward.ItemID, Count: reward.Count})
+		items = appendReward(items, reward)
 	}
-	return items
+	if len(definition.Rewards.AlternativeItems) == 0 {
+		return items, true
+	}
+	if rewardIndex < 0 || int64(rewardIndex) >= int64(len(definition.Rewards.AlternativeItems)) {
+		return nil, false
+	}
+	items = appendReward(items, definition.Rewards.AlternativeItems[rewardIndex])
+	return items, true
+}
+
+func appendReward(items []ItemCount, reward pack.QuestRewardItem) []ItemCount {
+	if reward.Count <= 0 {
+		return items
+	}
+	return append(items, ItemCount{ItemID: reward.ItemID, Count: reward.Count})
 }
 
 func refused(questID string, refusal Refusal) (Result, error) {

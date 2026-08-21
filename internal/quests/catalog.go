@@ -144,7 +144,7 @@ func CatalogFromPack(content *pack.Pack, options CatalogOptions) (Catalog, error
 }
 
 // NewCatalog builds a catalog directly, for a test that has definitions but no
-// pack. `items` may be nil, which skips the reward-item check.
+// pack. `items` may be nil, which skips reward-item existence checks.
 func NewCatalog(definitions []pack.Quest, items ItemSource) (Catalog, error) {
 	return newCatalog(definitions, items, false)
 }
@@ -268,12 +268,21 @@ func checkPrerequisites(definition pack.Quest) error {
 // no stack limit has no defined slot cost, so the failure would otherwise
 // surface at the moment a player turns a quest in.
 func checkRewards(definition pack.Quest, items ItemSource) error {
-	if items == nil {
-		return nil
-	}
-	for _, reward := range definition.Rewards.MandatoryItems {
+	for _, reward := range append(
+		append([]pack.QuestRewardItem(nil), definition.Rewards.MandatoryItems...),
+		definition.Rewards.AlternativeItems...,
+	) {
 		if reward.ItemID == "" {
 			return fmt.Errorf("quest %q grants a reward item with no id", definition.ID)
+		}
+		if reward.Count <= 0 {
+			return fmt.Errorf(
+				"quest %q grants %d of %q; a reward count must be positive",
+				definition.ID, reward.Count, reward.ItemID,
+			)
+		}
+		if items == nil {
+			continue
 		}
 		if _, ok := items.Item(reward.ItemID); !ok {
 			return fmt.Errorf(

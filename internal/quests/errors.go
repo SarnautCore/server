@@ -44,6 +44,10 @@ const (
 	// quest. It never reaches a client: `interact` is the generic "use the
 	// thing I am looking at" verb, and a corpse is not a protocol error.
 	RefusalNotAQuestGiver
+	// RefusalInvalidRewardChoice means a quest offers alternative rewards but
+	// the selected zero-based index names none of them. The turn-in remains
+	// completable and no part of its grant commits.
+	RefusalInvalidRewardChoice
 )
 
 func (refusal Refusal) String() string {
@@ -72,6 +76,8 @@ func (refusal Refusal) String() string {
 		return "internal"
 	case RefusalNotAQuestGiver:
 		return "not_a_quest_giver"
+	case RefusalInvalidRewardChoice:
+		return "invalid_reward_choice"
 	default:
 		return "unknown"
 	}
@@ -91,6 +97,7 @@ var (
 	ErrBagFull                = errors.New("quests: the bag cannot hold the reward")
 	ErrQuestCannotBeCancelled = errors.New("quests: this quest cannot be abandoned")
 	ErrNotAQuestGiver         = errors.New("quests: that entity gives no quest")
+	ErrInvalidRewardChoice    = errors.New("quests: the selected alternative reward does not exist")
 )
 
 func (refusal Refusal) err() error {
@@ -115,6 +122,8 @@ func (refusal Refusal) err() error {
 		return ErrQuestCannotBeCancelled
 	case RefusalNotAQuestGiver:
 		return ErrNotAQuestGiver
+	case RefusalInvalidRewardChoice:
+		return ErrInvalidRewardChoice
 	case RefusalNone, RefusalInternal:
 		return nil
 	default:

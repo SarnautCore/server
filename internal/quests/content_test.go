@@ -223,6 +223,64 @@ func TestARewardNamingAnAbsentItemIsRefused(t *testing.T) {
 	}
 }
 
+func TestAnAlternativeRewardNamingAnAbsentItemIsRefused(t *testing.T) {
+	t.Parallel()
+
+	content, err := pack.Load(filepath.Join("..", "..", "testdata", "packs", "demo"), pack.Options{})
+	if err != nil {
+		t.Fatalf("pack.Load() error = %v", err)
+	}
+	_, err = quests.NewCatalog([]pack.Quest{{
+		ID: "quest.demo.generous",
+		Rewards: pack.QuestRewards{
+			AlternativeItems: []pack.QuestRewardItem{{ItemID: "item.demo.does-not-exist", Count: 1}},
+		},
+	}}, content)
+	if err == nil {
+		t.Fatal("NewCatalog() error = nil, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "item.demo.does-not-exist") {
+		t.Errorf("error = %q, want it to name the missing alternative item", err)
+	}
+}
+
+func TestANonPositiveRewardCountIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name    string
+		rewards pack.QuestRewards
+	}{
+		{
+			name: "mandatory zero",
+			rewards: pack.QuestRewards{
+				MandatoryItems: []pack.QuestRewardItem{{ItemID: tonicItem, Count: 0}},
+			},
+		},
+		{
+			name: "alternative negative",
+			rewards: pack.QuestRewards{
+				AlternativeItems: []pack.QuestRewardItem{{ItemID: tonicItem, Count: -1}},
+			},
+		},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := quests.NewCatalog([]pack.Quest{{
+				ID:      "quest.demo.generous",
+				Rewards: testCase.rewards,
+			}}, nil)
+			if err == nil {
+				t.Fatal("NewCatalog() error = nil, want a refusal")
+			}
+			if !strings.Contains(err.Error(), "must be positive") {
+				t.Errorf("error = %q, want it to reject the reward count", err)
+			}
+		})
+	}
+}
+
 // TestAnUnresolvedPrerequisiteIsReportedNotRefused is the deliberate
 // non-failure of a single-zone pack.
 //
