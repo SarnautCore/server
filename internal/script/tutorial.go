@@ -21,16 +21,13 @@ func evalGiveItem(ctx context.Context, evaluator *Evaluator, node *Node, frame F
 		}
 		count = value.Integer
 	}
-	isCursed := false
-	if value, ok := node.Field("isCursed"); ok {
-		if value.Kind != ValueBool {
-			return nodeRefusal(node, frame, "field \"isCursed\" must be boolean")
-		}
-		isCursed = value.Bool
+	isCursed, ok := node.Field("isCursed")
+	if !ok || isCursed.Kind != ValueBool {
+		return nodeRefusal(node, frame, "field \"isCursed\" is missing or is not boolean")
 	}
 	return evaluator.host.Apply(ctx, Command{
 		Kind: CommandGiveItem, EntityID: frame.Addressee, Ref: item, Count: count,
-		IsCursed:     isCursed,
+		IsCursed:     isCursed.Bool,
 		ExecutionKey: executionKey(frame, node),
 	})
 }

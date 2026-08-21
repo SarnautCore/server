@@ -33,6 +33,22 @@ func TestGiveItemEmitsTypedAuthoritativeGrant(t *testing.T) {
 	}
 }
 
+func TestGiveItemRequiresExplicitMutableCurseState(t *testing.T) {
+	t.Parallel()
+	host := newFakeHost()
+	node := impact("quest/start/give", "ImpactGiveItem", field("item", script.Value{
+		Kind: script.ValueRef, Ref: script.Ref{ID: "item.x", RowType: "item"},
+	}))
+	_, err := run(host, node, newFrame())
+	var refusal *script.RefusedError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("Evaluate() error = %v, want refusal", err)
+	}
+	if len(host.commands) != 0 {
+		t.Fatalf("commands = %+v, want none", host.commands)
+	}
+}
+
 func TestImpactIfTargetReadsRetailSingularFields(t *testing.T) {
 	t.Parallel()
 	host := newFakeHost()
