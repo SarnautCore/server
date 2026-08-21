@@ -14,9 +14,11 @@ CREATE TABLE shard.social_friend_sets (
 CREATE TABLE shard.social_friends (
     owner_character_id  uuid NOT NULL,
     friend_character_id uuid NOT NULL,
+    display_name        text NOT NULL,
     roster_position     integer NOT NULL,
     PRIMARY KEY (owner_character_id, friend_character_id),
     CONSTRAINT social_friends_distinct_check CHECK (owner_character_id <> friend_character_id),
+    CONSTRAINT social_friends_display_name_check CHECK (display_name <> ''),
     CONSTRAINT social_friends_position_check CHECK (roster_position >= 0),
     CONSTRAINT social_friends_owner_position_key UNIQUE (owner_character_id, roster_position)
 );
