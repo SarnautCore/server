@@ -19,12 +19,19 @@ import (
 // A binding with neither module returns a sink that does nothing rather than
 // nil, so a caller never has to decide whether to install one.
 func (binding ZoneBinding) KillSink() combat.KillSink {
-	sinks := make(combat.KillSinks, 0, 2)
+	sinks := make(combat.KillSinks, 0, 3)
 	if binding.Loot != nil {
 		sinks = append(sinks, lootKills{module: binding.Loot})
 	}
 	if binding.Quests != nil {
 		sinks = append(sinks, questKills{module: binding.Quests})
+	}
+	// The script driver goes last: shape B's health triggers credit the killer
+	// through the quest module, and running after questKills means the plain
+	// count-kill path has already seen the death when a scripted counter moves
+	// in the same tick.
+	if binding.Scripts != nil {
+		sinks = append(sinks, binding.Scripts)
 	}
 	return sinks
 }

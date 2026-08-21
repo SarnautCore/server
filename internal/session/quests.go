@@ -122,9 +122,20 @@ func (reader *commandReader) questInteract(targetEntityID uint64) (bool, error) 
 // absence of a quest module is worth an error frame, because then the verb can
 // never be served here.
 func (reader *commandReader) questAccept(request *sarnautv1.QuestAccept) error {
-	return reader.runQuestVerb(func(ctx context.Context) (quests.Result, error) {
+	if err := reader.runQuestVerb(func(ctx context.Context) (quests.Result, error) {
 		return reader.quests.Accept(ctx, reader.entityID, request.GetQuestId(), request.GetStarterEntityId())
-	})
+	}); err != nil {
+		return err
+	}
+	// A committed accept activates the quest's script surface: startImpacts
+	// run and trigger agents bind. It happens after the client has its state
+	// update, mirroring the authored order — a quest exists before its
+	// impacts run — and it is a no-op on the default composition, where the
+	// catalog admits no quest that would need it.
+	if reader.lastQuestVerbCommitted {
+		reader.scripts.QuestActivated(reader.entityID, request.GetQuestId())
+	}
+	return nil
 }
 
 func (reader *commandReader) questTurnIn(request *sarnautv1.QuestTurnIn) error {
@@ -140,6 +151,7 @@ func (reader *commandReader) questAbandon(request *sarnautv1.QuestAbandon) error
 }
 
 func (reader *commandReader) runQuestVerb(verb func(context.Context) (quests.Result, error)) error {
+	reader.lastQuestVerbCommitted = false
 	if reader.quests == nil {
 		return reader.refuse(
 			sarnautv1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,
@@ -161,6 +173,7 @@ func (reader *commandReader) runQuestVerb(verb func(context.Context) (quests.Res
 	if !result.Committed {
 		return nil
 	}
+	reader.lastQuestVerbCommitted = true
 
 	// The session's own view of the bag is refreshed before the client is told
 	// anything else, so the next periodic checkpoint saves what the grant

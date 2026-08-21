@@ -57,6 +57,14 @@ type CatalogOptions struct {
 	// this build cannot advance. Every other validation failure remains fatal.
 	// Default false preserves mechanics/quests.md rule 5.5.6's fail-fast boot.
 	SkipUnsupportedQuests bool
+	// AllowCountSpecial admits `count-special` objectives instead of refusing
+	// or skipping them. It is set by the composition exactly when the script
+	// interpreter is wired to drive their counters — the quest module itself
+	// remains impact-ignorant and only ever moves them through
+	// [Module.CreditSpecial]. Default false keeps the M2 behaviour: without an
+	// interpreter these counters can never advance, and a quest that can never
+	// complete must not be offered.
+	AllowCountSpecial bool
 	// Logger receives one warning per omitted quest and one summary warning.
 	Logger *slog.Logger
 }
@@ -107,7 +115,7 @@ func CatalogFromPack(content *pack.Pack, options CatalogOptions) (Catalog, error
 		if !ok {
 			continue
 		}
-		if err := checkObjectives(definition); err != nil {
+		if err := checkObjectives(definition, options.AllowCountSpecial); err != nil {
 			var unsupported *UnsupportedObjectiveError
 			if !options.SkipUnsupportedQuests || !errors.As(err, &unsupported) {
 				return Catalog{}, fmt.Errorf("content pack %s: %w", content.ID(), err)
@@ -124,7 +132,7 @@ func CatalogFromPack(content *pack.Pack, options CatalogOptions) (Catalog, error
 		}
 		definitions = append(definitions, definition)
 	}
-	catalog, err := NewCatalog(definitions, content)
+	catalog, err := newCatalog(definitions, content, options.AllowCountSpecial)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("content pack %s: %w", content.ID(), err)
 	}
@@ -138,6 +146,18 @@ func CatalogFromPack(content *pack.Pack, options CatalogOptions) (Catalog, error
 // NewCatalog builds a catalog directly, for a test that has definitions but no
 // pack. `items` may be nil, which skips the reward-item check.
 func NewCatalog(definitions []pack.Quest, items ItemSource) (Catalog, error) {
+	return newCatalog(definitions, items, false)
+}
+
+// NewCatalogWithOptions builds a catalog directly under the same admission
+// policy CatalogFromPack applies, for a composition that has definitions but
+// no pack. Only AllowCountSpecial is honoured: skipping is a per-pack loading
+// concern and does not apply to a hand-built definition list.
+func NewCatalogWithOptions(definitions []pack.Quest, items ItemSource, options CatalogOptions) (Catalog, error) {
+	return newCatalog(definitions, items, options.AllowCountSpecial)
+}
+
+func newCatalog(definitions []pack.Quest, items ItemSource, allowCountSpecial bool) (Catalog, error) {
 	catalog := Catalog{
 		quests:     make(map[string]pack.Quest, len(definitions)),
 		byStarter:  make(map[string][]string),
@@ -151,7 +171,7 @@ func NewCatalog(definitions []pack.Quest, items ItemSource) (Catalog, error) {
 		if _, duplicate := catalog.quests[definition.ID]; duplicate {
 			return Catalog{}, fmt.Errorf("quest %q is defined twice", definition.ID)
 		}
-		if err := checkObjectives(definition); err != nil {
+		if err := checkObjectives(definition, allowCountSpecial); err != nil {
 			return Catalog{}, err
 		}
 		if err := checkPrerequisites(definition); err != nil {
@@ -184,24 +204,32 @@ func NewCatalog(definitions []pack.Quest, items ItemSource) (Catalog, error) {
 }
 
 // checkObjectives is rule 5.5.6 and the two shapes that cannot be evaluated.
-func checkObjectives(definition pack.Quest) error {
+//
+// `count-special` moves from refused to admitted only when the composition
+// says an interpreter drives it. An admitted count-special objective names no
+// targets — its incrementer is a script impact, not a mob or an item — so the
+// no-target check applies only to the kinds whose progress is matched against
+// TargetIDs here.
+func checkObjectives(definition pack.Quest, allowCountSpecial bool) error {
 	for index, objective := range definition.Objectives {
 		switch objective.Kind {
 		case pack.QuestObjectiveCountKill, pack.QuestObjectiveCountItem:
-		case pack.QuestObjectiveCountSpecial, pack.QuestObjectiveUnspecified:
-			return &UnsupportedObjectiveError{
-				QuestID: definition.ID, ObjectiveIndex: index, Kind: objective.Kind,
+			if objective.Limit > 0 && len(objective.TargetIDs) == 0 {
+				return fmt.Errorf(
+					"quest %q objective %d asks for %d of nothing: it names no target",
+					definition.ID, index, objective.Limit,
+				)
+			}
+		case pack.QuestObjectiveCountSpecial:
+			if !allowCountSpecial {
+				return &UnsupportedObjectiveError{
+					QuestID: definition.ID, ObjectiveIndex: index, Kind: objective.Kind,
+				}
 			}
 		default:
 			return &UnsupportedObjectiveError{
 				QuestID: definition.ID, ObjectiveIndex: index, Kind: objective.Kind,
 			}
-		}
-		if objective.Limit > 0 && len(objective.TargetIDs) == 0 {
-			return fmt.Errorf(
-				"quest %q objective %d asks for %d of nothing: it names no target",
-				definition.ID, index, objective.Limit,
-			)
 		}
 	}
 	return nil

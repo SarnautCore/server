@@ -346,6 +346,11 @@ type ZoneBinding struct {
 	// Quests may be nil, in which case a session in this zone refuses the three
 	// quest verbs and interact falls through to the loot handler.
 	Quests *quests.Module
+	// Scripts is the impact interpreter's adapter, and nil is the default
+	// composition: no script evaluates, no zone hook fires, and the quest
+	// catalog keeps skipping count-special definitions. Wiring it is the
+	// flag-on path that lets those quests progress.
+	Scripts *ScriptDriver
 }
 
 // DefaultSaveInterval is protocol/session.md's PERIODIC_SAVE_INTERVAL_S: the
@@ -620,6 +625,7 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 		combat:      binding.Combat,
 		loot:        binding.Loot,
 		quests:      binding.Quests,
+		scripts:     binding.Scripts,
 		character:   character,
 		entityID:    entityID,
 		characterID: admission.CharacterID,
