@@ -223,6 +223,7 @@ func (module *Module) walkToward(
 // kill is rule 5.9: death, the corpse, and the respawn behind it.
 func (module *Module) kill(tick gametypes.Tick, victim *gametypes.EntityData, killerID uint64) {
 	victim.Alive = false
+	module.clearSelectedTarget(victim.ID)
 	victim.Velocity = gametypes.Vec3{}
 	victim.Animation = gametypes.AnimationStateIdle
 

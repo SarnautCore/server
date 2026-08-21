@@ -149,8 +149,48 @@ func (module *Module) Populate(spawns []gametypes.NPCSpawn) error {
 	return nil
 }
 
-// Admit gives a joined player its combat identity, from the pack.
+// Admit gives a joined player its combat identity and the legacy content-pack
+// action list. New session code should call AdmitWithActions so character
+// content, rather than the complete pack, decides what the player knows.
 func (module *Module) Admit(entityID uint64) error {
+	abilityIDs := module.rules.AbilityIDs()
+	bindings := make([]ActionBinding, 0, min(len(abilityIDs), ActionBarSlotCount))
+	for index, abilityID := range abilityIDs {
+		if index == ActionBarSlotCount {
+			break
+		}
+		bindings = append(bindings, ActionBinding{SlotIndex: uint32(index), AbilityID: abilityID})
+	}
+	return module.admit(entityID, abilityIDs, bindings)
+}
+
+// AdmitWithActions gives a joined player only the abilities and slot bindings
+// authored for that character. Every binding is validated before the player
+// entity or caster state changes.
+func (module *Module) AdmitWithActions(entityID uint64, bindings []ActionBinding) error {
+	abilities, actionBar, err := module.validateActionBindings(bindings)
+	if err != nil {
+		return err
+	}
+	return module.admitValidated(entityID, abilities, actionBar)
+}
+
+func (module *Module) admit(entityID uint64, abilities []string, bindings []ActionBinding) error {
+	validatedAbilities, actionBar, err := module.validateActionBindings(bindings)
+	if err != nil {
+		return err
+	}
+	// Legacy Admit deliberately preserves direct UseAbility access to every
+	// pack ability, including any beyond the 36 visible slots.
+	validatedAbilities = append(validatedAbilities[:0], abilities...)
+	return module.admitValidated(entityID, validatedAbilities, actionBar)
+}
+
+func (module *Module) admitValidated(
+	entityID uint64,
+	abilities []string,
+	actionBar [ActionBarSlotCount]string,
+) error {
 	return module.zone.GameCommand(func(tick gametypes.Tick) error {
 		entity := tick.Entity(entityID)
 		if entity == nil || entity.Kind != gametypes.EntityKindPlayer {
@@ -161,10 +201,10 @@ func (module *Module) Admit(entityID uint64) error {
 		entity.MaxHealth = MaxHealth(module.level, defaultHPMod)
 		entity.Health = entity.MaxHealth
 		entity.Alive = true
-		// Until ADR 0032's chargen row reaches the pack, a character knows
-		// every ability the pack carries. The seam is here, not in the rules:
-		// narrowing it later is a change to this one line.
-		module.casters[entityID] = &casterState{abilities: module.rules.AbilityIDs()}
+		module.casters[entityID] = &casterState{
+			abilities: append([]string(nil), abilities...),
+			actionBar: actionBar,
+		}
 		return nil
 	})
 }
@@ -264,6 +304,8 @@ func (module *Module) publish(event Event) {
 // casterState is one entity's ability bookkeeping, in ticks.
 type casterState struct {
 	abilities    []string
+	actionBar    [ActionBarSlotCount]string
+	selected     uint64
 	gcdReadyTick uint64
 	readyTick    map[string]uint64
 	lastSeq      uint64

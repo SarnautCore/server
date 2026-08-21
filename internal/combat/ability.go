@@ -27,80 +27,86 @@ type AbilityRequest struct {
 // its error and changes nothing at all — no damage, no threat, and no
 // cooldown, which is what mechanics/combat.md section 6.2 requires.
 func (module *Module) UseAbility(casterID uint64, request AbilityRequest) (Event, error) {
-	var (
-		event    Event
-		outcome  error
-		rejected Rejection
-	)
+	var event Event
 	err := module.zone.GameCommand(func(tick gametypes.Tick) error {
-		caster := tick.Entity(casterID)
-		state := module.casters[casterID]
-		if caster == nil || state == nil {
-			return gametypes.ErrUnknownEntity
-		}
-		if request.Seq != 0 && state.hasSeq && request.Seq <= state.lastSeq {
-			return ErrDuplicateCommand
-		}
-
-		abilityID := request.AbilityID
-		if abilityID == "" {
-			abilityID = state.defaultAbility()
-		}
-		ability, ok := module.rules.Ability(abilityID)
-		if !ok || !state.knows(abilityID) {
-			rejected = RejectionUnknownAbility
-		} else {
-			rejected = module.validate(tick, caster, ability, request.TargetID)
-		}
-
-		if rejected != RejectionNone {
-			event = Event{
-				Kind:       EventKindAbility,
-				ServerTick: tick.Number(),
-				ZoneID:     tick.ZoneID(),
-				CasterID:   casterID,
-				TargetID:   request.TargetID,
-				AbilityID:  abilityID,
-				Rejection:  rejected,
-				PrivateTo:  casterID,
-			}
-			outcome = rejected.err()
-			module.publish(event)
-			return nil
-		}
-
-		damage := Damage(ability, caster.Level, tick.Entity(request.TargetID).Level)
-		if module.damageEffects != nil {
-			damage, outcome = module.damageEffects.ScaleDamage(tick, DamageEffectRequest{
-				Magnitude: damage,
-				CasterID:  caster.ID,
-				TargetID:  request.TargetID,
-				AbilityID: ability.ID,
-			})
-			if outcome != nil {
-				return nil
-			}
-		}
-		state.hasSeq, state.lastSeq = true, request.Seq
-
-		// Rule 5.4.3: the cooldown is consumed before damage resolves, so an
-		// ability that kills its target still costs the caster its turn.
-		state.gcdReadyTick = tick.Number() + module.gcdTicks(tick)
-		if ability.Cooldown > 0 {
-			if state.readyTick == nil {
-				state.readyTick = make(map[string]uint64)
-			}
-			state.readyTick[ability.ID] = tick.Number() + ticksIn(ability.Cooldown, tick.Interval())
-		}
-		// applyDamage publishes: the ability event has to reach the client
-		// before the death it caused, and only it knows the order.
-		event = module.applyDamage(tick, caster, tick.Entity(request.TargetID), ability, damage)
-		return nil
+		var outcome error
+		event, outcome = module.useAbility(tick, casterID, request)
+		return outcome
 	})
-	if err != nil {
-		return Event{}, err
+	return event, err
+}
+
+// useAbility resolves an already server-owned request while the zone lock is
+// held. Keeping this apart from GameCommand lets ActivateSlot resolve its slot
+// and target in the same critical section as the existing validation and use.
+func (module *Module) useAbility(
+	tick gametypes.Tick,
+	casterID uint64,
+	request AbilityRequest,
+) (Event, error) {
+	caster := tick.Entity(casterID)
+	state := module.casters[casterID]
+	if caster == nil || state == nil {
+		return Event{}, gametypes.ErrUnknownEntity
 	}
-	return event, outcome
+	if request.Seq != 0 && state.hasSeq && request.Seq <= state.lastSeq {
+		return Event{}, ErrDuplicateCommand
+	}
+
+	abilityID := request.AbilityID
+	if abilityID == "" {
+		abilityID = state.defaultAbility()
+	}
+	ability, ok := module.rules.Ability(abilityID)
+	rejected := RejectionNone
+	if !ok || !state.knows(abilityID) {
+		rejected = RejectionUnknownAbility
+	} else {
+		rejected = module.validate(tick, caster, ability, request.TargetID)
+	}
+
+	if rejected != RejectionNone {
+		event := Event{
+			Kind:       EventKindAbility,
+			ServerTick: tick.Number(),
+			ZoneID:     tick.ZoneID(),
+			CasterID:   casterID,
+			TargetID:   request.TargetID,
+			AbilityID:  abilityID,
+			Rejection:  rejected,
+			PrivateTo:  casterID,
+		}
+		module.publish(event)
+		return event, rejected.err()
+	}
+
+	damage := Damage(ability, caster.Level, tick.Entity(request.TargetID).Level)
+	if module.damageEffects != nil {
+		var err error
+		damage, err = module.damageEffects.ScaleDamage(tick, DamageEffectRequest{
+			Magnitude: damage,
+			CasterID:  caster.ID,
+			TargetID:  request.TargetID,
+			AbilityID: ability.ID,
+		})
+		if err != nil {
+			return Event{}, err
+		}
+	}
+	state.hasSeq, state.lastSeq = true, request.Seq
+
+	// Rule 5.4.3: the cooldown is consumed before damage resolves, so an
+	// ability that kills its target still costs the caster its turn.
+	state.gcdReadyTick = tick.Number() + module.gcdTicks(tick)
+	if ability.Cooldown > 0 {
+		if state.readyTick == nil {
+			state.readyTick = make(map[string]uint64)
+		}
+		state.readyTick[ability.ID] = tick.Number() + ticksIn(ability.Cooldown, tick.Interval())
+	}
+	// applyDamage publishes: the ability event has to reach the client before
+	// the death it caused, and only it knows the order.
+	return module.applyDamage(tick, caster, tick.Entity(request.TargetID), ability, damage), nil
 }
 
 // validate runs rules 5.2 to 5.4 in the order the spec states them, because
