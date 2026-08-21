@@ -249,9 +249,9 @@ message LootTakeAll {
 }
 
 message LootClose {
+  // Retail Close59 is bodyless and operates on the authenticated session's
+  // current loot context. The product request id exists only for correlation.
   uint64 request_id = 1;
-  uint64 loot_entity_id = 2;
-  uint64 expected_revision = 3;
 }
 
 message LootItemState {
@@ -443,6 +443,9 @@ message QuestShareInvite {
   uint64 sender_entity_id = 3;
   string sender_name = 4;
   uint64 remaining_milliseconds = 5;
+  // True for the automatic on-start offer with a 10000 ms server TTL. False
+  // is the manual/on-request offer with a 60000 ms server TTL.
+  bool on_start = 6;
 }
 
 message QuestShareResult {

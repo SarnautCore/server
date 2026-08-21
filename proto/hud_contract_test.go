@@ -70,7 +70,7 @@ func TestGameplayUIWireGolden(t *testing.T) {
 		"client_loot_close": &sarnautv1.ClientMessage{
 			ClientSeq: 16,
 			Payload: &sarnautv1.ClientMessage_LootClose{LootClose: &sarnautv1.LootClose{
-				RequestId: 17, LootEntityId: 18, ExpectedRevision: 19,
+				RequestId: 17,
 			}},
 		},
 		"client_quest_share": &sarnautv1.ClientMessage{
@@ -156,7 +156,7 @@ func TestGameplayUIWireGolden(t *testing.T) {
 				Revision:         38,
 				VisibleQuests:    []*sarnautv1.QuestLogEntry{{QuestId: "quest.rat-killer", State: sarnautv1.QuestUiState_QUEST_UI_STATE_READY_TO_RETURN, Name: "Rat Killer", Level: 4}},
 				BookmarkQuestIds: []string{"quest.rat-killer"},
-				ShareInvites:     []*sarnautv1.QuestShareInvite{{InviteId: 39, QuestId: "quest.shared", SenderEntityId: 40, SenderName: "Borin", RemainingMilliseconds: 60_000}},
+				ShareInvites:     []*sarnautv1.QuestShareInvite{{InviteId: 39, QuestId: "quest.shared", SenderEntityId: 40, SenderName: "Borin", RemainingMilliseconds: 10_000, OnStart: true}},
 			}},
 		},
 		"server_quest_info_replacement": &sarnautv1.ServerMessage{
@@ -415,6 +415,17 @@ func TestItemStateCarriesOnlyProductIdentityAndMutableAuthority(t *testing.T) {
 }
 
 func TestLootContractPreservesRetailPagingAndSelectors(t *testing.T) {
+	closeRequest := (&sarnautv1.LootClose{}).ProtoReflect().Descriptor()
+	if closeRequest.Fields().Len() != 1 {
+		t.Fatalf("LootClose fields = %d, want request_id only", closeRequest.Fields().Len())
+	}
+	assertHUDField(t, closeRequest, "request_id", 1, protoreflect.Uint64Kind)
+	for _, forbidden := range []protoreflect.Name{"loot_entity_id", "expected_revision"} {
+		if closeRequest.Fields().ByName(forbidden) != nil {
+			t.Errorf("LootClose exposes non-session-local field %q", forbidden)
+		}
+	}
+
 	takeItem := (&sarnautv1.LootTakeItem{}).ProtoReflect().Descriptor()
 	index := takeItem.Fields().ByName("item_index")
 	assertHUDFieldOption(t, index, sarnautv1.E_MinSint, int64(-1))
@@ -575,6 +586,7 @@ func TestQuestDetailAndCardinalitiesAreFrozen(t *testing.T) {
 	assertHUDField(t, shareResponse, "expected_revision", 4, protoreflect.Uint64Kind)
 	shareInvite := (&sarnautv1.QuestShareInvite{}).ProtoReflect().Descriptor()
 	assertHUDField(t, shareInvite, "remaining_milliseconds", 5, protoreflect.Uint64Kind)
+	assertHUDField(t, shareInvite, "on_start", 6, protoreflect.BoolKind)
 	shareResult := (&sarnautv1.QuestShareResult{}).ProtoReflect().Descriptor()
 	assertHUDField(t, shareResult, "recipient_entity_id", 5, protoreflect.Uint64Kind)
 	assertHUDField(t, shareResult, "recipient_name", 6, protoreflect.StringKind)

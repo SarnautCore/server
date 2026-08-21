@@ -1993,12 +1993,12 @@ func (x *LootTakeAll) GetExpectedRevision() uint64 {
 }
 
 type LootClose struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	RequestId        uint64                 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	LootEntityId     uint64                 `protobuf:"varint,2,opt,name=loot_entity_id,json=lootEntityId,proto3" json:"loot_entity_id,omitempty"`
-	ExpectedRevision uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Retail Close59 is bodyless and operates on the authenticated session's
+	// current loot context. The product request id exists only for correlation.
+	RequestId     uint64 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LootClose) Reset() {
@@ -2034,20 +2034,6 @@ func (*LootClose) Descriptor() ([]byte, []int) {
 func (x *LootClose) GetRequestId() uint64 {
 	if x != nil {
 		return x.RequestId
-	}
-	return 0
-}
-
-func (x *LootClose) GetLootEntityId() uint64 {
-	if x != nil {
-		return x.LootEntityId
-	}
-	return 0
-}
-
-func (x *LootClose) GetExpectedRevision() uint64 {
-	if x != nil {
-		return x.ExpectedRevision
 	}
 	return 0
 }
@@ -3244,8 +3230,11 @@ type QuestShareInvite struct {
 	SenderEntityId        uint64                 `protobuf:"varint,3,opt,name=sender_entity_id,json=senderEntityId,proto3" json:"sender_entity_id,omitempty"`
 	SenderName            string                 `protobuf:"bytes,4,opt,name=sender_name,json=senderName,proto3" json:"sender_name,omitempty"`
 	RemainingMilliseconds uint64                 `protobuf:"varint,5,opt,name=remaining_milliseconds,json=remainingMilliseconds,proto3" json:"remaining_milliseconds,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// True for the automatic on-start offer with a 10000 ms server TTL. False
+	// is the manual/on-request offer with a 60000 ms server TTL.
+	OnStart       bool `protobuf:"varint,6,opt,name=on_start,json=onStart,proto3" json:"on_start,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QuestShareInvite) Reset() {
@@ -3311,6 +3300,13 @@ func (x *QuestShareInvite) GetRemainingMilliseconds() uint64 {
 		return x.RemainingMilliseconds
 	}
 	return 0
+}
+
+func (x *QuestShareInvite) GetOnStart() bool {
+	if x != nil {
+		return x.OnStart
+	}
+	return false
 }
 
 type QuestShareResult struct {
@@ -4193,12 +4189,10 @@ const file_sarnaut_v1_hud_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x01 \x01(\x04R\trequestId\x12$\n" +
 	"\x0eloot_entity_id\x18\x02 \x01(\x04R\flootEntityId\x12+\n" +
-	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\"}\n" +
+	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\"*\n" +
 	"\tLootClose\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\x04R\trequestId\x12$\n" +
-	"\x0eloot_entity_id\x18\x02 \x01(\x04R\flootEntityId\x12+\n" +
-	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\"\x93\x01\n" +
+	"request_id\x18\x01 \x01(\x04R\trequestId\"\x93\x01\n" +
 	"\rLootItemState\x12'\n" +
 	"\n" +
 	"item_index\x18\x01 \x01(\x05B\b\xe8\xf3\x18\x00\xf0\xf3\x18&R\titemIndex\x12&\n" +
@@ -4327,14 +4321,15 @@ const file_sarnaut_v1_hud_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\x04R\trequestId\x12\x1b\n" +
 	"\tinvite_id\x18\x02 \x01(\x04R\binviteId\x12\x16\n" +
 	"\x06accept\x18\x03 \x01(\bR\x06accept\x12+\n" +
-	"\x11expected_revision\x18\x04 \x01(\x04R\x10expectedRevision\"\xcc\x01\n" +
+	"\x11expected_revision\x18\x04 \x01(\x04R\x10expectedRevision\"\xe7\x01\n" +
 	"\x10QuestShareInvite\x12\x1b\n" +
 	"\tinvite_id\x18\x01 \x01(\x04R\binviteId\x12\x19\n" +
 	"\bquest_id\x18\x02 \x01(\tR\aquestId\x12(\n" +
 	"\x10sender_entity_id\x18\x03 \x01(\x04R\x0esenderEntityId\x12\x1f\n" +
 	"\vsender_name\x18\x04 \x01(\tR\n" +
 	"senderName\x125\n" +
-	"\x16remaining_milliseconds\x18\x05 \x01(\x04R\x15remainingMilliseconds\"\xf9\x01\n" +
+	"\x16remaining_milliseconds\x18\x05 \x01(\x04R\x15remainingMilliseconds\x12\x19\n" +
+	"\bon_start\x18\x06 \x01(\bR\aonStart\"\xf9\x01\n" +
 	"\x10QuestShareResult\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\x04R\trequestId\x12\x19\n" +
