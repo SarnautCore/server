@@ -125,9 +125,8 @@ type Directory interface {
 	ResolveCharacterName(context.Context, string) (Character, bool, error)
 }
 
-// PaidChannels atomically authorizes and debits a channel whose authored cost
-// is not part of protocol v1. With no adapter the module refuses the channel;
-// it never guesses an amount.
+// AlternativeCurrency is one baked product identity. Both fields are passed
+// to persistence so a stale or mismatched identity fails closed.
 type AlternativeCurrency struct {
 	ResourceID uint32
 	SysName    string
