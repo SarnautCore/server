@@ -31,6 +31,7 @@ import (
 
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/quests"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 )
 
 // Sentinel errors. Callers match with [errors.Is]; the Postgres implementation
@@ -221,9 +222,17 @@ type Quests interface {
 	LoadQuestStates(ctx context.Context, characterID uuid.UUID) ([]QuestState, error)
 }
 
-// Repository is the whole persistence surface. It is one interface rather than
-// five so that [Repository.RunInTx] can hand a caller a transactional view of
-// every table at once — which is what a character save needs.
+// DeferredScripts is the write-only half of the durable script outbox. Queue
+// claiming and dispatch stay in internal/scriptqueue; the repository exposes
+// only insertion so a quest row, rewards and its activation outbox can share
+// one transaction.
+type DeferredScripts interface {
+	EnqueueDeferredScript(context.Context, scriptqueue.Work) (scriptqueue.Work, error)
+}
+
+// Repository is the whole persistence surface. One combined interface lets
+// [Repository.RunInTx] hand a caller a transactional view of every table that
+// participates in a character save or quest grant.
 type Repository interface {
 	Accounts
 	Characters
@@ -231,6 +240,7 @@ type Repository interface {
 	CharacterStates
 	Inventory
 	Quests
+	DeferredScripts
 
 	// RunInTx runs fn inside one transaction, committing when fn returns nil and
 	// rolling back on any error or panic. The Repository handed to fn is scoped

@@ -9,6 +9,7 @@ import (
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 )
 
 // Granter commits one quest grant as a single transaction.
@@ -34,6 +35,7 @@ type Result struct {
 	// Committed is true when a transaction ran. An accept and an abandon commit
 	// too: the quest row is the thing that makes them survive a crash.
 	Committed bool
+	Deferred  []scriptqueue.Work
 }
 
 // Interact answers the generic interact verb against a quest giver
@@ -112,6 +114,18 @@ func (module *Module) Accept(
 	questID string,
 	starterEntityID uint64,
 ) (Result, error) {
+	return module.AcceptWithDeferred(ctx, actorEntityID, questID, starterEntityID, nil)
+}
+
+// AcceptWithDeferred commits the planned activation outbox in the same storage
+// transaction as the accepted quest row and its inventory snapshot.
+func (module *Module) AcceptWithDeferred(
+	ctx context.Context,
+	actorEntityID uint64,
+	questID string,
+	starterEntityID uint64,
+	deferred []scriptqueue.Work,
+) (Result, error) {
 	definition, ok := module.catalog.Definition(questID)
 	if !ok {
 		return refused(questID, RefusalUnknownQuest)
@@ -173,6 +187,7 @@ func (module *Module) Accept(
 	granted, err := module.granter.GrantQuestReward(ctx, Grant{
 		CharacterID: characterID,
 		Quest:       row,
+		Deferred:    deferred,
 	})
 	if err != nil {
 		module.rollBackAccept(characterID, questID)
@@ -203,6 +218,7 @@ func (module *Module) Accept(
 		Currency:  granted.Currency,
 		SaveSeq:   granted.SaveSeq,
 		Committed: true,
+		Deferred:  granted.Deferred,
 	}, nil
 }
 

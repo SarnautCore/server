@@ -19,9 +19,16 @@ var (
 	ErrLeaseLost = errors.New("script queue: lease lost")
 )
 
+const (
+	ScopeActivation = "activation"
+	ScopeCharacter  = "character"
+	ScopeSpawn      = "spawn"
+)
+
 type Work struct {
 	ID            string
 	ZoneID        string
+	ScopeKind     string
 	ScopeID       string
 	DueAtMS       int64
 	AvailableAtMS int64
@@ -29,6 +36,7 @@ type Work struct {
 	Payload       []byte
 	Attempts      int32
 	LeaseOwner    string
+	LeaseToken    string
 	LeaseUntilMS  int64
 	LastError     string
 }
@@ -49,9 +57,9 @@ type Claim struct {
 type Store interface {
 	Enqueue(context.Context, Work) (Work, error)
 	LoadZone(context.Context, string) ([]Work, error)
-	Claim(context.Context, string, string, int64, int64) (Claim, error)
-	Complete(context.Context, string, string) error
-	Retry(context.Context, string, string, int64, string) error
+	Claim(context.Context, string, string, string, int64, int64) (Claim, error)
+	Complete(context.Context, string, string, string) error
+	Retry(context.Context, string, string, string, int64, string) error
 	RunInTx(context.Context, func(context.Context, Store) error) error
 }
 
@@ -85,6 +93,11 @@ func Validate(work Work) error {
 	if work.ZoneID == "" {
 		return errors.New("script queue: zone id is required")
 	}
+	switch work.ScopeKind {
+	case ScopeActivation, ScopeCharacter, ScopeSpawn:
+	default:
+		return fmt.Errorf("script queue: invalid scope kind %q", work.ScopeKind)
+	}
 	if work.ScopeID == "" {
 		return errors.New("script queue: scope id is required")
 	}
@@ -99,9 +112,13 @@ func Validate(work Work) error {
 
 func sameWork(left, right Work) bool {
 	return left.ID == right.ID && left.ZoneID == right.ZoneID &&
-		left.ScopeID == right.ScopeID && left.DueAtMS == right.DueAtMS &&
+		left.ScopeKind == right.ScopeKind && left.ScopeID == right.ScopeID && left.DueAtMS == right.DueAtMS &&
 		string(left.Payload) == string(right.Payload)
 }
+
+// Equivalent reports whether two rows describe the same immutable work. Lease,
+// retry and sequence fields are deliberately excluded.
+func Equivalent(left, right Work) bool { return sameWork(left, right) }
 
 func retryDelay(attempts int32, interval time.Duration) time.Duration {
 	if interval <= 0 {

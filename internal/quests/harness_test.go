@@ -16,6 +16,7 @@ import (
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/quests"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -358,12 +359,21 @@ func (granter *bagGranter) GrantQuestReward(
 		if err := tx.UpsertQuestState(ctx, grant.CharacterID, grant.Quest); err != nil {
 			return err
 		}
+		deferred := make([]scriptqueue.Work, 0, len(grant.Deferred))
+		for _, work := range grant.Deferred {
+			row, err := tx.EnqueueDeferredScript(ctx, work)
+			if err != nil {
+				return err
+			}
+			deferred = append(deferred, row)
+		}
 		result = charstore.QuestGrantResult{
 			Inventory:  granter.pack(held),
 			Currency:   state.Currency,
 			Experience: state.Experience,
 			Honor:      state.Honor,
 			SaveSeq:    state.SaveSeq,
+			Deferred:   deferred,
 		}
 		return nil
 	})

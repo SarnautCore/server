@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/SarnautCore/server/internal/scriptqueue"
 )
 
 // memoryState is the whole database as plain maps. It is a value that can be
@@ -23,6 +25,8 @@ type memoryState struct {
 	states       map[uuid.UUID]CharacterState
 	inventory    map[uuid.UUID]map[int32]InventoryItem
 	quests       map[uuid.UUID]map[string]QuestState
+	deferred     map[string]scriptqueue.Work
+	deferredSeq  int64
 }
 
 func newMemoryState() *memoryState {
@@ -35,6 +39,8 @@ func newMemoryState() *memoryState {
 		states:       make(map[uuid.UUID]CharacterState),
 		inventory:    make(map[uuid.UUID]map[int32]InventoryItem),
 		quests:       make(map[uuid.UUID]map[string]QuestState),
+		deferred:     make(map[string]scriptqueue.Work),
+		deferredSeq:  1,
 	}
 }
 
@@ -48,6 +54,8 @@ func (state *memoryState) clone() *memoryState {
 		states:       copyMap(state.states),
 		inventory:    make(map[uuid.UUID]map[int32]InventoryItem, len(state.inventory)),
 		quests:       make(map[uuid.UUID]map[string]QuestState, len(state.quests)),
+		deferred:     make(map[string]scriptqueue.Work, len(state.deferred)),
+		deferredSeq:  state.deferredSeq,
 	}
 	for characterID, slots := range state.inventory {
 		copied.inventory[characterID] = copyMap(slots)
@@ -60,7 +68,39 @@ func (state *memoryState) clone() *memoryState {
 		}
 		copied.quests[characterID] = byQuest
 	}
+	for id, row := range state.deferred {
+		row.Payload = slices.Clone(row.Payload)
+		copied.deferred[id] = row
+	}
 	return copied
+}
+
+func (store *memoryStore) EnqueueDeferredScript(
+	ctx context.Context, work scriptqueue.Work,
+) (scriptqueue.Work, error) {
+	if work.AvailableAtMS == 0 {
+		work.AvailableAtMS = work.DueAtMS
+	}
+	if err := scriptqueue.Validate(work); err != nil {
+		return scriptqueue.Work{}, err
+	}
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return scriptqueue.Work{}, err
+	}
+	defer done()
+	if existing, ok := state.deferred[work.ID]; ok {
+		if !scriptqueue.Equivalent(existing, work) {
+			return scriptqueue.Work{}, scriptqueue.ErrConflict
+		}
+		existing.Payload = slices.Clone(existing.Payload)
+		return existing, nil
+	}
+	work.Sequence = state.deferredSeq
+	state.deferredSeq++
+	work.Payload = slices.Clone(work.Payload)
+	state.deferred[work.ID] = work
+	return work, nil
 }
 
 func copyMap[K comparable, V any](source map[K]V) map[K]V {

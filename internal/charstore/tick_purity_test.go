@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 	"github.com/SarnautCore/server/internal/world"
 	"github.com/google/uuid"
 )
@@ -116,6 +117,13 @@ func (repository *failingRepository) UpsertQuestState(context.Context, uuid.UUID
 func (repository *failingRepository) LoadQuestStates(context.Context, uuid.UUID) ([]charstore.QuestState, error) {
 	repository.fail("LoadQuestStates")
 	return nil, nil
+}
+
+func (repository *failingRepository) EnqueueDeferredScript(
+	context.Context, scriptqueue.Work,
+) (scriptqueue.Work, error) {
+	repository.fail("EnqueueDeferredScript")
+	return scriptqueue.Work{}, nil
 }
 
 func (repository *failingRepository) RunInTx(context.Context, func(context.Context, charstore.Repository) error) error {

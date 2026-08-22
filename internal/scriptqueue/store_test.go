@@ -9,7 +9,7 @@ import (
 
 func testWork(id, scope string, due int64) Work {
 	return Work{
-		ID: id, ZoneID: "zone.inst-league1", ScopeID: scope,
+		ID: id, ZoneID: "zone.inst-league1", ScopeKind: ScopeActivation, ScopeID: scope,
 		DueAtMS: due, Payload: []byte(`{"node":"` + id + `"}`),
 	}
 }
@@ -59,35 +59,61 @@ func TestEarlierFailureBlocksOnlyItsOwnScope(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	claim, err := store.Claim(ctx, "a2", "worker", 10, 100)
+	claim, err := store.Claim(ctx, "a2", "worker", "a2-1", 10, 100)
 	if err != nil || claim.State != ClaimBlocked {
 		t.Fatalf("Claim(a2) = %#v, %v, want blocked", claim, err)
 	}
-	claim, err = store.Claim(ctx, "b1", "worker", 10, 100)
+	claim, err = store.Claim(ctx, "b1", "worker", "b1-1", 10, 100)
 	if err != nil || claim.State != ClaimAcquired {
 		t.Fatalf("Claim(b1) = %#v, %v, want acquired", claim, err)
 	}
-	claim, err = store.Claim(ctx, "a1", "worker", 10, 100)
+	claim, err = store.Claim(ctx, "a1", "worker", "a1-1", 10, 100)
 	if err != nil || claim.State != ClaimAcquired || claim.Work.Attempts != 1 {
 		t.Fatalf("Claim(a1) = %#v, %v, want first attempt", claim, err)
 	}
-	if err := store.Retry(ctx, "a1", "worker", 20, "temporary"); err != nil {
+	if err := store.Retry(ctx, "a1", "worker", "a1-1", 20, "temporary"); err != nil {
 		t.Fatal(err)
 	}
-	claim, err = store.Claim(ctx, "a2", "worker", 20, 100)
+	claim, err = store.Claim(ctx, "a2", "worker", "a2-2", 20, 100)
 	if err != nil || claim.State != ClaimBlocked {
 		t.Fatalf("Claim(a2 after retry) = %#v, %v, want blocked", claim, err)
 	}
-	claim, err = store.Claim(ctx, "a1", "worker-2", 20, 100)
+	claim, err = store.Claim(ctx, "a1", "worker-2", "a1-2", 20, 100)
 	if err != nil || claim.State != ClaimAcquired || claim.Work.Attempts != 2 {
 		t.Fatalf("retry Claim(a1) = %#v, %v, want second attempt", claim, err)
 	}
-	if err := store.Complete(ctx, "a1", "worker-2"); err != nil {
+	if err := store.Complete(ctx, "a1", "worker-2", "a1-2"); err != nil {
 		t.Fatal(err)
 	}
-	claim, err = store.Claim(ctx, "a2", "worker", 20, 100)
+	claim, err = store.Claim(ctx, "a2", "worker", "a2-3", 20, 100)
 	if err != nil || claim.State != ClaimAcquired {
 		t.Fatalf("Claim(a2 after complete) = %#v, %v, want acquired", claim, err)
+	}
+}
+
+func TestSameScopeIDInAnotherKindDoesNotBlock(t *testing.T) {
+	t.Parallel()
+	store := NewMemory()
+	activation := testWork("activation", "shared", 10)
+	character := testWork("character", "shared", 10)
+	character.ScopeKind = ScopeCharacter
+	for _, work := range []Work{activation, character} {
+		if _, err := store.Enqueue(t.Context(), work); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claim, err := store.Claim(t.Context(), character.ID, "worker", "token", 10, 100)
+	if err != nil || claim.State != ClaimAcquired {
+		t.Fatalf("Claim(character) = %#v, %v, want acquired", claim, err)
+	}
+}
+
+func TestEnqueueRejectsUnknownScopeKind(t *testing.T) {
+	t.Parallel()
+	work := testWork("unknown-scope", "scope", 1)
+	work.ScopeKind = "account"
+	if _, err := NewMemory().Enqueue(t.Context(), work); err == nil {
+		t.Fatal("Enqueue() accepted an unknown scope kind")
 	}
 }
 
@@ -146,7 +172,7 @@ func TestConcurrentClaimHasOneWinner(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			<-start
-			claim, err := store.Claim(context.Background(), "one", owner, 1, 100)
+			claim, err := store.Claim(context.Background(), "one", owner, owner+"-token", 1, 100)
 			results <- claim
 			errorsFound <- err
 		}()
@@ -177,18 +203,53 @@ func TestExpiredLeaseCanBeRecoveredButOldOwnerCannotComplete(t *testing.T) {
 	if _, err := store.Enqueue(t.Context(), testWork("one", "quest", 1)); err != nil {
 		t.Fatal(err)
 	}
-	if claim, err := store.Claim(t.Context(), "one", "dead-worker", 1, 10); err != nil || claim.State != ClaimAcquired {
+	if claim, err := store.Claim(t.Context(), "one", "dead-worker", "dead-token", 1, 10); err != nil || claim.State != ClaimAcquired {
 		t.Fatalf("first Claim() = %#v, %v", claim, err)
 	}
-	claim, err := store.Claim(t.Context(), "one", "restart-worker", 10, 20)
+	claim, err := store.Claim(t.Context(), "one", "restart-worker", "restart-token", 10, 20)
 	if err != nil || claim.State != ClaimAcquired || claim.Work.Attempts != 2 {
 		t.Fatalf("recovery Claim() = %#v, %v", claim, err)
 	}
-	if err := store.Complete(t.Context(), "one", "dead-worker"); !errors.Is(err, ErrLeaseLost) {
+	if err := store.Complete(t.Context(), "one", "dead-worker", "dead-token"); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("old Complete() error = %v, want ErrLeaseLost", err)
 	}
-	if err := store.Complete(t.Context(), "one", "restart-worker"); err != nil {
+	if err := store.Complete(t.Context(), "one", "restart-worker", "restart-token"); err != nil {
 		t.Fatalf("new Complete() error = %v", err)
+	}
+}
+
+func TestLeaseTokenRejectsStaleAttemptFromSameWorker(t *testing.T) {
+	t.Parallel()
+	store := NewMemory()
+	if _, err := store.Enqueue(t.Context(), testWork("one", "quest", 1)); err != nil {
+		t.Fatal(err)
+	}
+	if claim, err := store.Claim(t.Context(), "one", "worker", "old-token", 1, 10); err != nil || claim.State != ClaimAcquired {
+		t.Fatalf("first Claim() = %#v, %v", claim, err)
+	}
+	claim, err := store.Claim(t.Context(), "one", "worker", "new-token", 10, 20)
+	if err != nil || claim.State != ClaimAcquired || claim.Work.Attempts != 2 {
+		t.Fatalf("recovery Claim() = %#v, %v", claim, err)
+	}
+	if err := store.Complete(t.Context(), "one", "worker", "old-token"); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("stale Complete() error = %v, want ErrLeaseLost", err)
+	}
+	if err := store.Complete(t.Context(), "one", "worker", "new-token"); err != nil {
+		t.Fatalf("current Complete() error = %v", err)
+	}
+}
+
+func TestRetryRejectsNegativeAvailableTime(t *testing.T) {
+	t.Parallel()
+	store := NewMemory()
+	if _, err := store.Enqueue(t.Context(), testWork("one", "quest", 1)); err != nil {
+		t.Fatal(err)
+	}
+	if claim, err := store.Claim(t.Context(), "one", "worker", "token", 1, 10); err != nil || claim.State != ClaimAcquired {
+		t.Fatalf("Claim() = %#v, %v", claim, err)
+	}
+	if err := store.Retry(t.Context(), "one", "worker", "token", -1, "bad clock"); err == nil {
+		t.Fatal("Retry() accepted a negative available time")
 	}
 }
 

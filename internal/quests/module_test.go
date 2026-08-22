@@ -8,6 +8,7 @@ import (
 
 	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/quests"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -16,6 +17,30 @@ import (
 // already satisfied — which is what makes it the fixture for rule 5.5.3.
 var startingTonics = []charstore.InventoryItem{
 	{Slot: 0, ItemID: tonicItem, Quantity: 3},
+}
+
+func TestAcceptCommitsDeferredActivationWithQuestState(t *testing.T) {
+	t.Parallel()
+	fixture := newFixture(t, 1, nil)
+	work := scriptqueue.Work{
+		ID: "quest-accept|deferred|1", ZoneID: fixture.zone.ID(),
+		ScopeKind: scriptqueue.ScopeActivation, ScopeID: "quest-accept",
+		DueAtMS: 1_000, Payload: []byte(`{"schema":1}`),
+	}
+	result, err := fixture.module.AcceptWithDeferred(
+		t.Context(), fixture.entityID, welcomeQuest, fixture.giverEntity, []scriptqueue.Work{work},
+	)
+	if err != nil {
+		t.Fatalf("AcceptWithDeferred() error = %v", err)
+	}
+	if len(result.Deferred) != 1 || result.Deferred[0].Sequence == 0 {
+		t.Fatalf("committed deferred rows = %#v, want one sequenced row", result.Deferred)
+	}
+	conflict := work
+	conflict.Payload = []byte(`{"schema":2}`)
+	if _, err := fixture.repository.EnqueueDeferredScript(t.Context(), conflict); !errors.Is(err, scriptqueue.ErrConflict) {
+		t.Fatalf("conflicting outbox insert error = %v, want ErrConflict", err)
+	}
 }
 
 // TestAcceptingWithAnUnfinishedPrerequisiteIsRefused is rule 5.3.3 and

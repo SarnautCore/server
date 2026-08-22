@@ -11,6 +11,7 @@ import (
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/script"
 	"github.com/SarnautCore/server/internal/scriptqueue"
+	"github.com/google/uuid"
 )
 
 const (
@@ -21,6 +22,127 @@ const (
 type deferredDocument struct {
 	Schema   int             `json:"schema"`
 	Deferred script.Deferred `json:"deferred"`
+}
+
+// QuestScriptPlan is the immutable result of evaluating one activation against
+// a collecting host. No command has touched gameplay state and no queue row has
+// been written yet.
+type QuestScriptPlan struct {
+	Commands []script.Command
+	Deferred []scriptqueue.Work
+}
+
+func (driver *ScriptDriver) PlanQuestActivation(
+	ctx context.Context, entityID uint64, questID string,
+) (QuestScriptPlan, error) {
+	return driver.planQuestActivation(ctx, entityID, questID, true)
+}
+
+func (driver *ScriptDriver) planQuestActivation(
+	ctx context.Context, entityID uint64, questID string, strict bool,
+) (QuestScriptPlan, error) {
+	if driver == nil {
+		return QuestScriptPlan{}, nil
+	}
+	activation, ok := driver.source.QuestActivation(questID)
+	if !ok {
+		return QuestScriptPlan{}, nil
+	}
+	var plan QuestScriptPlan
+	err := driver.zone.GameCommand(func(tick gametypes.Tick) error {
+		batch, err := driver.beginDeferredBatch()
+		if err != nil {
+			return err
+		}
+		commands := make([]script.Command, 0)
+		driver.plannedCommands = &commands
+		driver.tick = tick
+		defer func() {
+			driver.tick = nil
+			driver.plannedCommands = nil
+			if driver.activeDeferred == batch {
+				driver.endDeferredBatch(batch)
+			}
+		}()
+
+		driver.evaluations++
+		actor := formatEntityID(entityID)
+		frame := script.Frame{
+			EvaluationID: fmt.Sprintf("%s|%d|%s|%d", questID, entityID, driver.evaluationBoot, driver.evaluations),
+			ZoneID:       driver.zone.ID(), SourceID: questID,
+			CasterID: actor, TargetID: actor, Addressee: actor,
+		}
+		for _, node := range activation.StartImpacts {
+			if err := driver.evaluator.Evaluate(ctx, node, frame); err != nil {
+				if strict {
+					return fmt.Errorf("plan quest %s node %s: %w", questID, node.Key, err)
+				}
+				driver.logger.Warn("quest activation script failed",
+					"quest_id", questID, "entity_id", entityID, "error", err)
+			}
+		}
+		for _, agent := range activation.TriggerAgents {
+			if err := driver.evaluator.Evaluate(ctx, agent, frame); err != nil {
+				if strict {
+					return fmt.Errorf("plan quest %s trigger %s: %w", questID, agent.Key, err)
+				}
+				driver.logger.Warn("quest trigger agent failed",
+					"quest_id", questID, "entity_id", entityID, "error", err)
+			}
+		}
+		deferred := driver.endDeferredBatch(batch)
+		works := make([]scriptqueue.Work, 0, len(deferred))
+		for _, item := range deferred {
+			work, err := driver.deferredWork(item, "", "")
+			if err != nil {
+				return err
+			}
+			works = append(works, work)
+		}
+		plan = QuestScriptPlan{Commands: append([]script.Command(nil), commands...), Deferred: works}
+		return nil
+	})
+	return plan, err
+}
+
+// ApplyQuestPlan projects a committed plan into live zone state and schedules
+// the rows returned by the transaction. It performs no database operation
+// while the zone lock is held.
+func (driver *ScriptDriver) ApplyQuestPlan(
+	ctx context.Context, plan QuestScriptPlan, persisted []scriptqueue.Work,
+) error {
+	if driver == nil {
+		return nil
+	}
+	var commitErr error
+	err := driver.zone.GameCommand(func(tick gametypes.Tick) error {
+		batch, err := driver.beginDeferredBatch()
+		if err != nil {
+			return err
+		}
+		driver.tick = tick
+		defer func() {
+			driver.tick = nil
+			if driver.activeDeferred == batch {
+				driver.endDeferredBatch(batch)
+			}
+		}()
+		for _, command := range plan.Commands {
+			if err := (scriptHost{driver: driver}).Apply(ctx, command); err != nil {
+				return fmt.Errorf("apply planned script command %d: %w", command.Kind, err)
+			}
+		}
+		for _, row := range persisted {
+			driver.scheduleDeferred(tick, row)
+		}
+		extra := driver.endDeferredBatch(batch)
+		return afterUnlock(tick, func() {
+			unlock := driver.lockDeferredCommit()
+			defer unlock()
+			commitErr = driver.persistBatch(ctx, extra)
+		})
+	})
+	return errors.Join(err, commitErr)
 }
 
 // BindDeferredQueue replaces the driver's process-local test queue with a
@@ -69,12 +191,14 @@ func (driver *ScriptDriver) beginDeferredBatch() (*[]script.Deferred, error) {
 	}
 	batch := make([]script.Deferred, 0)
 	driver.activeDeferred = &batch
+	driver.deferredBatchNow = driver.deferredNow().UTC()
 	return &batch, nil
 }
 
 func (driver *ScriptDriver) endDeferredBatch(batch *[]script.Deferred) []script.Deferred {
 	if driver.activeDeferred == batch {
 		driver.activeDeferred = nil
+		driver.deferredBatchNow = time.Time{}
 	}
 	return append([]script.Deferred(nil), (*batch)...)
 }
@@ -94,7 +218,7 @@ func (driver *ScriptDriver) persistBatch(ctx context.Context, deferred []script.
 	}
 	works := make([]scriptqueue.Work, 0, len(deferred))
 	for _, item := range deferred {
-		work, err := driver.deferredWork(item, "")
+		work, err := driver.deferredWork(item, "", "")
 		if err != nil {
 			return err
 		}
@@ -112,7 +236,9 @@ func (driver *ScriptDriver) persistBatch(ctx context.Context, deferred []script.
 	})
 }
 
-func (driver *ScriptDriver) deferredWork(item script.Deferred, scopeID string) (scriptqueue.Work, error) {
+func (driver *ScriptDriver) deferredWork(
+	item script.Deferred, scopeKind, scopeID string,
+) (scriptqueue.Work, error) {
 	if item.Node == nil || item.Node.Key == "" {
 		return scriptqueue.Work{}, errors.New("session: deferred impact has no keyed node")
 	}
@@ -137,10 +263,13 @@ func (driver *ScriptDriver) deferredWork(item script.Deferred, scopeID string) (
 	if scopeID == "" {
 		scopeID = item.Frame.EvaluationID
 	}
+	if scopeKind == "" {
+		scopeKind = scriptqueue.ScopeActivation
+	}
 	return scriptqueue.Work{
 		ID: fmt.Sprintf("%s|%d|%s",
 			item.Frame.EvaluationID, item.Frame.ActivationOrdinal, item.Node.Key),
-		ZoneID: zoneID, ScopeID: scopeID,
+		ZoneID: zoneID, ScopeKind: scopeKind, ScopeID: scopeID,
 		DueAtMS: int64(item.DueAtMS), Payload: payload,
 	}, nil
 }
@@ -171,7 +300,7 @@ func (driver *ScriptDriver) scheduleDeferred(tick gametypes.Tick, work scriptque
 			"work_id", work.ID, "interval", tick.Interval())
 		return
 	}
-	nowMS := int64(tick.Number()) * intervalMS
+	nowMS := driver.deferredNow().UnixMilli()
 	dueMS := work.DueAtMS
 	if work.AvailableAtMS > dueMS {
 		dueMS = work.AvailableAtMS
@@ -182,7 +311,7 @@ func (driver *ScriptDriver) scheduleDeferred(tick gametypes.Tick, work scriptque
 	}
 	tick.After(delayTicks, func(later gametypes.Tick) {
 		delete(driver.deferredRows, work.ID)
-		now := int64(later.Number()) * later.Interval().Milliseconds()
+		now := driver.deferredNow().UnixMilli()
 		if err := afterUnlock(later, func() { driver.claimDeferred(work.ID, now) }); err != nil {
 			driver.logger.Error("deferred script work cannot leave zone lock",
 				"work_id", work.ID, "error", err)
@@ -191,8 +320,9 @@ func (driver *ScriptDriver) scheduleDeferred(tick gametypes.Tick, work scriptque
 }
 
 func (driver *ScriptDriver) claimDeferred(id string, nowMS int64) {
+	leaseToken := uuid.NewString()
 	claim, err := driver.deferredStore.Claim(
-		driver.deferredCtx, id, driver.deferredWorker, nowMS, nowMS+deferredLeaseMS,
+		driver.deferredCtx, id, driver.deferredWorker, leaseToken, nowMS, nowMS+deferredLeaseMS,
 	)
 	if err != nil {
 		driver.logger.Warn("deferred script claim failed", "work_id", id, "error", err)
@@ -257,11 +387,12 @@ func (driver *ScriptDriver) retryDeferred(work scriptqueue.Work, nowMS int64, ca
 	next := scriptqueue.RetryAtMS(nowMS, work.Attempts, time.Second)
 	for {
 		err := driver.deferredStore.Retry(
-			driver.deferredCtx, work.ID, driver.deferredWorker, next, cause.Error(),
+			driver.deferredCtx, work.ID, driver.deferredWorker, work.LeaseToken, next, cause.Error(),
 		)
 		if err == nil {
 			work.AvailableAtMS = next
 			work.LeaseOwner = ""
+			work.LeaseToken = ""
 			work.LeaseUntilMS = 0
 			driver.rescheduleDeferred(work)
 			return
@@ -280,7 +411,7 @@ func (driver *ScriptDriver) retryDeferred(work scriptqueue.Work, nowMS int64, ca
 func (driver *ScriptDriver) completeDeferred(work scriptqueue.Work, nested []script.Deferred) {
 	nestedRows := make([]scriptqueue.Work, 0, len(nested))
 	for _, item := range nested {
-		row, err := driver.deferredWork(item, work.ScopeID)
+		row, err := driver.deferredWork(item, work.ScopeKind, work.ScopeID)
 		if err != nil {
 			driver.retryDeferred(work, work.DueAtMS, err)
 			return
@@ -290,7 +421,7 @@ func (driver *ScriptDriver) completeDeferred(work scriptqueue.Work, nested []scr
 	for {
 		var inserted []scriptqueue.Work
 		err := driver.deferredStore.RunInTx(driver.deferredCtx, func(ctx context.Context, tx scriptqueue.Store) error {
-			if err := tx.Complete(ctx, work.ID, driver.deferredWorker); err != nil {
+			if err := tx.Complete(ctx, work.ID, driver.deferredWorker, work.LeaseToken); err != nil {
 				return err
 			}
 			for _, row := range nestedRows {

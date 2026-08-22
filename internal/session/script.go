@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/quests"
@@ -120,12 +122,16 @@ type ScriptDriver struct {
 
 	// activeDeferred is an evaluation-local collector used only under the zone
 	// lock. Store calls happen after unlock through a PostCommitTick.
-	activeDeferred *[]script.Deferred
-	deferredStore  scriptqueue.Store
-	deferredWorker string
-	deferredRows   map[string]bool
-	deferredCtx    context.Context
-	deferredMu     sync.Mutex
+	activeDeferred   *[]script.Deferred
+	plannedCommands  *[]script.Command
+	deferredStore    scriptqueue.Store
+	deferredWorker   string
+	deferredRows     map[string]bool
+	deferredCtx      context.Context
+	deferredMu       sync.Mutex
+	deferredNow      func() time.Time
+	deferredBatchNow time.Time
+	evaluationBoot   string
 }
 
 // NewScriptDriver wires the interpreter to one zone's quest module. The
@@ -156,6 +162,8 @@ func NewScriptDriver(
 		deferredWorker:       "memory|" + zone.ID(),
 		deferredRows:         make(map[string]bool),
 		deferredCtx:          context.Background(),
+		deferredNow:          time.Now,
+		evaluationBoot:       uuid.NewString(),
 	}
 	driver.evaluator = script.New(scriptHost{driver: driver}, options)
 	return driver
@@ -231,7 +239,15 @@ func (driver *ScriptDriver) ScaleDamage(
 // operator problem — the census and the log line carry the row id — not a
 // reason to kill the player's connection.
 func (driver *ScriptDriver) QuestActivated(entityID uint64, questID string) {
-	if err := driver.QuestActivatedCommitted(context.Background(), entityID, questID); err != nil {
+	plan, err := driver.planQuestActivation(context.Background(), entityID, questID, false)
+	if err == nil {
+		var rows []scriptqueue.Work
+		rows, err = scriptqueue.EnqueueBatch(context.Background(), driver.deferredStore, plan.Deferred)
+		if err == nil {
+			err = driver.ApplyQuestPlan(context.Background(), plan, rows)
+		}
+	}
+	if err != nil {
 		driver.logger.Warn("quest activation deferred commit failed",
 			"quest_id", questID, "entity_id", entityID, "error", err)
 	}
@@ -243,57 +259,15 @@ func (driver *ScriptDriver) QuestActivated(entityID uint64, questID string) {
 func (driver *ScriptDriver) QuestActivatedCommitted(
 	ctx context.Context, entityID uint64, questID string,
 ) error {
-	if driver == nil {
-		return nil
+	plan, err := driver.PlanQuestActivation(ctx, entityID, questID)
+	if err != nil {
+		return err
 	}
-	activation, ok := driver.source.QuestActivation(questID)
-	if !ok {
-		return nil
+	rows, err := scriptqueue.EnqueueBatch(ctx, driver.deferredStore, plan.Deferred)
+	if err != nil {
+		return fmt.Errorf("session: commit quest activation outbox: %w", err)
 	}
-	var commitErr error
-	err := driver.zone.GameCommand(func(tick gametypes.Tick) error {
-		batch, err := driver.beginDeferredBatch()
-		if err != nil {
-			return err
-		}
-		driver.tick = tick
-		defer func() {
-			driver.tick = nil
-			if driver.activeDeferred == batch {
-				driver.endDeferredBatch(batch)
-			}
-		}()
-
-		driver.evaluations++
-		actor := formatEntityID(entityID)
-		frame := script.Frame{
-			EvaluationID: fmt.Sprintf("%s|%d|%d", questID, entityID, driver.evaluations),
-			ZoneID:       driver.zone.ID(),
-			SourceID:     questID,
-			CasterID:     actor,
-			TargetID:     actor,
-			Addressee:    actor,
-		}
-		for _, node := range activation.StartImpacts {
-			if err := driver.evaluator.Evaluate(context.Background(), node, frame); err != nil {
-				driver.logger.Warn("quest activation script failed",
-					"quest_id", questID, "entity_id", entityID, "error", err)
-			}
-		}
-		for _, agent := range activation.TriggerAgents {
-			if err := driver.evaluator.Evaluate(context.Background(), agent, frame); err != nil {
-				driver.logger.Warn("quest trigger agent failed",
-					"quest_id", questID, "entity_id", entityID, "error", err)
-			}
-		}
-		deferred := driver.endDeferredBatch(batch)
-		return afterUnlock(tick, func() {
-			unlock := driver.lockDeferredCommit()
-			defer unlock()
-			commitErr = driver.persistBatch(ctx, deferred)
-		})
-	})
-	return errors.Join(err, commitErr)
+	return driver.ApplyQuestPlan(ctx, plan, rows)
 }
 
 // MobKilled implements combat.KillSink. It is the zone event that fires shape
@@ -542,13 +516,14 @@ type scriptHost struct {
 	driver *ScriptDriver
 }
 
-// Now is the zone's tick clock, not the wall clock: tick number times tick
-// interval. Deferred due times computed from it survive a replay identically,
-// which is the property ADR 0036 wants from the deferred queue, and Enqueue
-// schedules against the same clock.
+// Now is durable wall time. Tick numbers restart at zero with the process and
+// would restart every pending delay; wall-clock deadlines make downtime count
+// and make overdue work eligible immediately after recovery.
 func (host scriptHost) Now() time.Time {
-	tick := host.driver.tick
-	return time.UnixMilli(int64(tick.Number()) * tick.Interval().Milliseconds())
+	if !host.driver.deferredBatchNow.IsZero() {
+		return host.driver.deferredBatchNow
+	}
+	return host.driver.deferredNow().UTC()
 }
 
 func (host scriptHost) Query(_ context.Context, query script.Query) (script.Value, error) {
@@ -648,6 +623,10 @@ func (host scriptHost) Resolve(_ context.Context, request script.ResolveRequest)
 
 func (host scriptHost) Apply(ctx context.Context, command script.Command) error {
 	driver := host.driver
+	if driver.plannedCommands != nil {
+		*driver.plannedCommands = append(*driver.plannedCommands, command)
+		return nil
+	}
 	switch command.Kind {
 	case script.CommandAttachTrigger:
 		attachment := *command.Attachment

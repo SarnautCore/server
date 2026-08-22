@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -75,7 +76,7 @@ func newIntegrationRepository(t *testing.T) charstore.Repository {
 	pool := migratedPool(t)
 
 	const truncate = `
-		TRUNCATE shard.character_quests, shard.character_inventory, shard.character_state,
+		TRUNCATE shard.deferred_script_impacts, shard.character_quests, shard.character_inventory, shard.character_state,
 		         auth.name_reservations, auth.characters, auth.accounts
 		RESTART IDENTITY CASCADE`
 	if _, err := pool.Exec(t.Context(), truncate); err != nil {
@@ -300,6 +301,41 @@ func TestRunInTxCommitIsVisibleToOtherConnections(t *testing.T) {
 	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_state WHERE character_id = $1`, 1, characterID)
 	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_inventory WHERE character_id = $1`, 2, characterID)
 	assertRowCount(t, ctx, pool, `SELECT count(*) FROM shard.character_quests WHERE character_id = $1`, 1, characterID)
+}
+
+func TestDeferredScriptOutboxSharesTheCharacterTransaction(t *testing.T) {
+	repository := newIntegrationRepository(t)
+	pool := migratedPool(t)
+	ctx := t.Context()
+	work := scriptqueue.Work{
+		ID: "integration|outbox|1", ZoneID: "zone.integration",
+		ScopeKind: scriptqueue.ScopeActivation, ScopeID: "activation.integration",
+		DueAtMS: 1_000, Payload: []byte(`{"schema":1}`),
+	}
+
+	sentinel := errors.New("roll back outbox")
+	err := repository.RunInTx(ctx, func(ctx context.Context, tx charstore.Repository) error {
+		if _, err := tx.EnqueueDeferredScript(ctx, work); err != nil {
+			return err
+		}
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("RunInTx error = %v, want sentinel", err)
+	}
+	assertRowCount(t, ctx, pool,
+		`SELECT count(*) FROM shard.deferred_script_impacts WHERE id = $1`, 0, work.ID)
+
+	err = repository.RunInTx(ctx, func(ctx context.Context, tx charstore.Repository) error {
+		_, err := tx.EnqueueDeferredScript(ctx, work)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("commit deferred outbox: %v", err)
+	}
+	assertRowCount(t, ctx, pool,
+		`SELECT count(*) FROM shard.deferred_script_impacts WHERE id = $1 AND scope_kind = $2`,
+		1, work.ID, work.ScopeKind)
 }
 
 // The save worker under a real database: the checkpoint path end to end.

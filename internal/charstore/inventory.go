@@ -9,6 +9,7 @@ import (
 
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/quests"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 )
 
 // InventoryService owns the transaction adapter that persists inventory and
@@ -102,9 +103,18 @@ func (service *InventoryService) GrantQuestReward(ctx context.Context, grant que
 		if err := tx.UpsertQuestState(ctx, grant.CharacterID, grant.Quest); err != nil {
 			return fmt.Errorf("write quest state: %w", err)
 		}
+		deferred := make([]scriptqueue.Work, 0, len(grant.Deferred))
+		for _, work := range grant.Deferred {
+			row, err := tx.EnqueueDeferredScript(ctx, work)
+			if err != nil {
+				return fmt.Errorf("write quest script outbox: %w", err)
+			}
+			deferred = append(deferred, row)
+		}
 		result = quests.GrantResult{
 			Inventory: inventory.ToStore(placed), Currency: state.Currency,
 			Experience: state.Experience, Honor: state.Honor, SaveSeq: state.SaveSeq,
+			Deferred: deferred,
 		}
 		return nil
 	})

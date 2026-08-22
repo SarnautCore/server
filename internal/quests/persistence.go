@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/SarnautCore/server/internal/inventory"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 )
 
 var ErrGrantWouldNotFit = errors.New("quests: the quest grant does not fit in the bag")
@@ -31,6 +32,9 @@ type Grant struct {
 	Money       int64
 	Honor       int64
 	Quest       QuestState
+	// Deferred is the activation outbox planned before accept. The granter
+	// inserts these rows in the same transaction as Quest and rewards.
+	Deferred []scriptqueue.Work
 }
 
 type GrantResult struct {
@@ -39,4 +43,5 @@ type GrantResult struct {
 	Experience int64
 	Honor      int64
 	SaveSeq    int64
+	Deferred   []scriptqueue.Work
 }

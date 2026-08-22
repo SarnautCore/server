@@ -15,8 +15,9 @@ linters:
     depguard:
       rules:
         # ADR 0033 section 2: session is the shard dispatch and composition
-        # module. The 2026-08-21 amendment adds script and pack for its one
-        # interpreter adapter; generated wire packages are outside internal/.
+        # module. The 2026-08-21 amendment adds script, its durable queue, and
+        # pack for the interpreter adapter; generated wire packages are outside
+        # internal/.
         session-module:
           list-mode: lax
           files:
@@ -32,6 +33,7 @@ linters:
             - "github.com/SarnautCore/server/internal/charstore$"
             - "github.com/SarnautCore/server/internal/chat$"
             - "github.com/SarnautCore/server/internal/script$"
+            - "github.com/SarnautCore/server/internal/scriptqueue$"
             - "github.com/SarnautCore/server/internal/transport$"
             - "github.com/SarnautCore/server/internal/pack$"
             - "github.com/SarnautCore/server/internal/gametypes$"
@@ -94,8 +96,9 @@ linters:
                 ADR 0033 section 2 permits loot to import only inventory,
                 pack, and gametypes.
 
-        # ADR 0033 section 2: quest rewards leave through inventory; pack and
-        # gametypes are leaf dependencies.
+        # ADR 0033 section 2: quest rewards leave through inventory. The
+        # accepted quest row carries its ADR 0036 script outbox into the same
+        # transaction; pack and gametypes remain leaf dependencies.
         quests-module:
           list-mode: lax
           files:
@@ -106,14 +109,16 @@ linters:
             - "github.com/SarnautCore/server/internal/inventory$"
             - "github.com/SarnautCore/server/internal/pack$"
             - "github.com/SarnautCore/server/internal/gametypes$"
+            - "github.com/SarnautCore/server/internal/scriptqueue$"
           deny:
             - pkg: github.com/SarnautCore/server/internal
               desc: >-
                 ADR 0033 section 2 permits quests to import only inventory,
-                pack, and gametypes.
+                scriptqueue, pack, and gametypes.
 
         # ADR 0033 section 2 and ADR 0031: charstore is the shard.* writer and
-        # persists snapshots owned by inventory and quests.
+        # persists snapshots owned by inventory and quests, including the
+        # durable script outbox committed with a quest grant.
         charstore-module:
           list-mode: lax
           files:
@@ -124,11 +129,12 @@ linters:
             - "github.com/SarnautCore/server/internal/inventory$"
             - "github.com/SarnautCore/server/internal/quests$"
             - "github.com/SarnautCore/server/internal/gametypes$"
+            - "github.com/SarnautCore/server/internal/scriptqueue$"
           deny:
             - pkg: github.com/SarnautCore/server/internal
               desc: >-
                 ADR 0033 section 2 permits charstore to import only inventory,
-                quests, and gametypes.
+                quests, scriptqueue, and gametypes.
 
         # ADR 0033 section 2: inventory owns bag rules; content and shared
         # values are its only internal dependencies.
@@ -216,7 +222,8 @@ linters:
                 process composition under cmd.
 
         # ADR 0031: direct PostgreSQL and Valkey clients stay in persistence,
-        # infrastructure, auth, and composition packages.
+        # infrastructure, auth, and composition packages. Scriptqueue is the
+        # ADR 0036 persistence package for scheduled interpreter work.
         database-client-imports:
           list-mode: lax
           files:
@@ -228,6 +235,8 @@ linters:
             - "!**/internal/charstore/**/*.go"
             - "!**/internal/infra/*.go"
             - "!**/internal/infra/**/*.go"
+            - "!**/internal/scriptqueue/*.go"
+            - "!**/internal/scriptqueue/**/*.go"
             - "!**/cmd/**/*.go"
           deny:
             - pkg: github.com/jackc/pgx

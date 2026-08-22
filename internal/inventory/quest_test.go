@@ -9,6 +9,7 @@ import (
 
 	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/inventory"
+	"github.com/SarnautCore/server/internal/scriptqueue"
 )
 
 // questRow is the row a turn-in writes. Its shape belongs to `internal/quests`;
@@ -265,5 +266,55 @@ func TestAQuestGrantForAnUnknownCharacterFails(t *testing.T) {
 	})
 	if !errors.Is(err, charstore.ErrNotFound) {
 		t.Errorf("GrantQuestReward() error = %v, want store.ErrNotFound", err)
+	}
+}
+
+func TestQuestGrantRollsBackStateRewardsAndOutboxOnDeferredConflict(t *testing.T) {
+	repository := charstore.NewMemory()
+	characterID := newCharacter(t, repository)
+	service := newService(t, repository, 8)
+	existing := scriptqueue.Work{
+		ID: "activation|1", ZoneID: "shard-a|zone-a", ScopeKind: scriptqueue.ScopeActivation,
+		ScopeID: characterID.String(),
+		DueAtMS: 10, Payload: []byte("existing"),
+	}
+	if _, err := repository.EnqueueDeferredScript(t.Context(), existing); err != nil {
+		t.Fatal(err)
+	}
+	first := scriptqueue.Work{
+		ID: "activation|0", ZoneID: existing.ZoneID, ScopeKind: existing.ScopeKind, ScopeID: existing.ScopeID,
+		DueAtMS: 10, Payload: []byte("first"),
+	}
+	conflict := existing
+	conflict.Payload = []byte("different")
+	_, err := service.GrantQuestReward(t.Context(), charstore.QuestGrant{
+		CharacterID: characterID, Experience: 9, Quest: questRow("accepted"),
+		Deferred: []scriptqueue.Work{first, conflict},
+	})
+	if !errors.Is(err, scriptqueue.ErrConflict) {
+		t.Fatalf("GrantQuestReward() error = %v, want deferred conflict", err)
+	}
+	state, err := repository.LoadCharacterState(t.Context(), characterID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Experience != 0 || state.SaveSeq != 1 {
+		t.Fatalf("state after rollback = %+v, want original", state)
+	}
+	if _, err := repository.LoadQuestStates(t.Context(), characterID); err != nil {
+		t.Fatal(err)
+	} else if rows, _ := repository.LoadQuestStates(t.Context(), characterID); len(rows) != 0 {
+		t.Fatalf("quest rows after rollback = %+v, want none", rows)
+	}
+	// The first outbox insert happened before the conflict. Change its immutable
+	// payload so an insert can succeed only if the transaction rolled it back.
+	replacement := first
+	replacement.Payload = []byte("after rollback")
+	inserted, err := repository.EnqueueDeferredScript(t.Context(), replacement)
+	if err != nil {
+		t.Fatalf("enqueue first after rollback: %v", err)
+	}
+	if string(inserted.Payload) != string(replacement.Payload) {
+		t.Fatalf("payload after rollback = %q, want %q", inserted.Payload, replacement.Payload)
 	}
 }

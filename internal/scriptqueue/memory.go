@@ -19,8 +19,7 @@ func newMemoryState() *memoryState {
 func (state *memoryState) clone() *memoryState {
 	copyState := &memoryState{nextSequence: state.nextSequence, rows: make(map[string]Work, len(state.rows))}
 	for id, row := range state.rows {
-		row.Payload = append([]byte(nil), row.Payload...)
-		copyState.rows[id] = row
+		copyState.rows[id] = cloneWork(row)
 	}
 	return copyState
 }
@@ -78,8 +77,7 @@ func (store *memoryStore) Enqueue(ctx context.Context, work Work) (Work, error) 
 		if !sameWork(existing, work) {
 			return Work{}, ErrConflict
 		}
-		existing.Payload = append([]byte(nil), existing.Payload...)
-		return existing, nil
+		return cloneWork(existing), nil
 	}
 	work.Sequence = state.nextSequence
 	state.nextSequence++
@@ -97,8 +95,7 @@ func (store *memoryStore) LoadZone(ctx context.Context, zoneID string) ([]Work, 
 	rows := make([]Work, 0)
 	for _, row := range state.rows {
 		if row.ZoneID == zoneID {
-			row.Payload = append([]byte(nil), row.Payload...)
-			rows = append(rows, row)
+			rows = append(rows, cloneWork(row))
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -111,9 +108,9 @@ func (store *memoryStore) LoadZone(ctx context.Context, zoneID string) ([]Work, 
 }
 
 func (store *memoryStore) Claim(
-	ctx context.Context, id, owner string, nowMS, leaseUntilMS int64,
+	ctx context.Context, id, owner, token string, nowMS, leaseUntilMS int64,
 ) (Claim, error) {
-	if owner == "" || leaseUntilMS <= nowMS {
+	if owner == "" || token == "" || nowMS < 0 || leaseUntilMS <= nowMS {
 		return Claim{}, fmt.Errorf("script queue: invalid lease for %q", id)
 	}
 	state, done, err := store.withState(ctx)
@@ -126,36 +123,51 @@ func (store *memoryStore) Claim(
 		return Claim{State: ClaimMissing}, nil
 	}
 	for _, earlier := range state.rows {
-		if earlier.ZoneID != row.ZoneID || earlier.ScopeID != row.ScopeID || earlier.ID == row.ID {
+		if earlier.ZoneID != row.ZoneID || earlier.ScopeKind != row.ScopeKind ||
+			earlier.ScopeID != row.ScopeID || earlier.ID == row.ID {
 			continue
 		}
 		if earlier.DueAtMS < row.DueAtMS ||
 			(earlier.DueAtMS == row.DueAtMS && earlier.Sequence < row.Sequence) {
-			return Claim{State: ClaimBlocked, Work: row}, nil
+			blockedUntil := earlier.AvailableAtMS
+			if earlier.LeaseUntilMS > blockedUntil {
+				blockedUntil = earlier.LeaseUntilMS
+			}
+			if blockedUntil <= nowMS {
+				blockedUntil = nowMS + 1_000
+			}
+			row.AvailableAtMS = blockedUntil
+			return Claim{State: ClaimBlocked, Work: cloneWork(row)}, nil
 		}
 	}
-	if row.AvailableAtMS > nowMS ||
-		(row.LeaseOwner != "" && row.LeaseOwner != owner && row.LeaseUntilMS > nowMS) {
-		return Claim{State: ClaimBlocked, Work: row}, nil
+	if row.AvailableAtMS > nowMS {
+		return Claim{State: ClaimBlocked, Work: cloneWork(row)}, nil
 	}
-	if row.LeaseOwner != owner || row.LeaseUntilMS <= nowMS {
-		row.Attempts++
+	if row.LeaseOwner != "" && row.LeaseUntilMS > nowMS {
+		row.AvailableAtMS = row.LeaseUntilMS
+		return Claim{State: ClaimBlocked, Work: cloneWork(row)}, nil
 	}
+	row.Attempts++
 	row.LeaseOwner = owner
+	row.LeaseToken = token
 	row.LeaseUntilMS = leaseUntilMS
 	state.rows[id] = row
-	row.Payload = append([]byte(nil), row.Payload...)
-	return Claim{State: ClaimAcquired, Work: row}, nil
+	return Claim{State: ClaimAcquired, Work: cloneWork(row)}, nil
 }
 
-func (store *memoryStore) Complete(ctx context.Context, id, owner string) error {
+func cloneWork(work Work) Work {
+	work.Payload = append([]byte(nil), work.Payload...)
+	return work
+}
+
+func (store *memoryStore) Complete(ctx context.Context, id, owner, token string) error {
 	state, done, err := store.withState(ctx)
 	if err != nil {
 		return err
 	}
 	defer done()
 	row, ok := state.rows[id]
-	if !ok || row.LeaseOwner != owner {
+	if !ok || row.LeaseOwner != owner || row.LeaseToken != token {
 		return ErrLeaseLost
 	}
 	delete(state.rows, id)
@@ -163,19 +175,23 @@ func (store *memoryStore) Complete(ctx context.Context, id, owner string) error 
 }
 
 func (store *memoryStore) Retry(
-	ctx context.Context, id, owner string, availableAtMS int64, lastError string,
+	ctx context.Context, id, owner, token string, availableAtMS int64, lastError string,
 ) error {
+	if availableAtMS < 0 {
+		return fmt.Errorf("script queue: invalid retry time for %q", id)
+	}
 	state, done, err := store.withState(ctx)
 	if err != nil {
 		return err
 	}
 	defer done()
 	row, ok := state.rows[id]
-	if !ok || row.LeaseOwner != owner {
+	if !ok || row.LeaseOwner != owner || row.LeaseToken != token {
 		return ErrLeaseLost
 	}
 	row.AvailableAtMS = availableAtMS
 	row.LeaseOwner = ""
+	row.LeaseToken = ""
 	row.LeaseUntilMS = 0
 	row.LastError = lastError
 	state.rows[id] = row

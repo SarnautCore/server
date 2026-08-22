@@ -122,24 +122,19 @@ func (reader *commandReader) questInteract(targetEntityID uint64) (bool, error) 
 // absence of a quest module is worth an error frame, because then the verb can
 // never be served here.
 func (reader *commandReader) questAccept(request *sarnautv1.QuestAccept) error {
-	if err := reader.runQuestVerb(func(ctx context.Context) (quests.Result, error) {
-		return reader.quests.Accept(ctx, reader.entityID, request.GetQuestId(), request.GetStarterEntityId())
-	}); err != nil {
-		return err
+	ctx, cancel := context.WithTimeout(context.Background(), questGrantTimeout)
+	defer cancel()
+	plan, err := reader.scripts.PlanQuestActivation(ctx, reader.entityID, request.GetQuestId())
+	if err != nil {
+		return fmt.Errorf("plan quest activation scripts: %w", err)
 	}
-	// A committed accept activates the quest's script surface: startImpacts
-	// run and trigger agents bind. It happens after the client has its state
-	// update, mirroring the authored order — a quest exists before its
-	// impacts run — and it is a no-op on the default composition, where the
-	// catalog admits no quest that would need it.
-	if reader.lastQuestVerbCommitted {
-		ctx, cancel := context.WithTimeout(context.Background(), questGrantTimeout)
-		defer cancel()
-		if err := reader.scripts.QuestActivatedCommitted(ctx, reader.entityID, request.GetQuestId()); err != nil {
-			return fmt.Errorf("commit quest activation scripts: %w", err)
-		}
-	}
-	return nil
+	return reader.runQuestVerbAfter(func(ctx context.Context) (quests.Result, error) {
+		return reader.quests.AcceptWithDeferred(
+			ctx, reader.entityID, request.GetQuestId(), request.GetStarterEntityId(), plan.Deferred,
+		)
+	}, func(result quests.Result) error {
+		return reader.scripts.ApplyQuestPlan(ctx, plan, result.Deferred)
+	})
 }
 
 func (reader *commandReader) questTurnIn(request *sarnautv1.QuestTurnIn) error {
@@ -155,6 +150,13 @@ func (reader *commandReader) questAbandon(request *sarnautv1.QuestAbandon) error
 }
 
 func (reader *commandReader) runQuestVerb(verb func(context.Context) (quests.Result, error)) error {
+	return reader.runQuestVerbAfter(verb, nil)
+}
+
+func (reader *commandReader) runQuestVerbAfter(
+	verb func(context.Context) (quests.Result, error),
+	afterCommit func(quests.Result) error,
+) error {
 	reader.lastQuestVerbCommitted = false
 	if reader.quests == nil {
 		return reader.refuse(
@@ -171,11 +173,13 @@ func (reader *commandReader) runQuestVerb(verb func(context.Context) (quests.Res
 		// is recorded for an operator and not turned into a frame of its own.
 		reader.span.RecordError(err)
 	}
-	if err := reader.writeQuestUpdate(result.Update); err != nil {
-		return err
-	}
 	if !result.Committed {
-		return nil
+		return reader.writeQuestUpdate(result.Update)
+	}
+	if afterCommit != nil {
+		if err := afterCommit(result); err != nil {
+			return fmt.Errorf("project committed quest state: %w", err)
+		}
 	}
 	reader.lastQuestVerbCommitted = true
 
@@ -187,6 +191,9 @@ func (reader *commandReader) runQuestVerb(verb func(context.Context) (quests.Res
 	}
 	if reader.quests != nil && reader.characterID != uuid.Nil {
 		reader.quests.InventoryChanged(reader.characterID, result.Inventory)
+	}
+	if err := reader.writeQuestUpdate(result.Update); err != nil {
+		return err
 	}
 	return reader.writer.write(&sarnautv1.ServerMessage{
 		Payload: &sarnautv1.ServerMessage_InventoryUpdate{
