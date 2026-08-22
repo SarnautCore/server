@@ -138,7 +138,7 @@ type HUDQuestInfo struct {
 	IsTutorial          *bool              `json:"is_tutorial,omitempty"`
 	IsRepeatable        *bool              `json:"is_repeatable,omitempty"`
 	CanRepeat           *bool              `json:"can_repeat,omitempty"`
-	RepeatPeriodMS      *int64             `json:"repeat_period_ms,omitempty"`
+	RepeatPeriod        *int32             `json:"repeat_period,omitempty"`
 	IsSecret            *bool              `json:"is_secret,omitempty"`
 	ZoneName            *HUDLocalizedText  `json:"zone_name,omitempty"`
 	ZonesMapID          *string            `json:"zones_map_id,omitempty"`
@@ -911,6 +911,7 @@ func hudProgress(definition pack.Quest, held *instance) (HUDQuestProgress, error
 }
 
 func hudInfo(definition pack.Quest) HUDQuestInfo {
+	repeatPeriod := max(int32(0), definition.RepeatPeriod)
 	return HUDQuestInfo{
 		ID:            definition.ID,
 		Name:          HUDLocalizedText{LocalizationKey: definition.NameKey},
@@ -922,6 +923,7 @@ func hudInfo(definition pack.Quest) HUDQuestInfo {
 		FinishText:    HUDLocalizedText{LocalizationKey: definition.FinishKey},
 		CanCancel:     definition.CanCancel,
 		Type:          definition.QuestType,
+		RepeatPeriod:  &repeatPeriod,
 		ZoneID:        definition.ZoneID,
 		StarterID:     definition.StarterID,
 		FinisherID:    definition.FinisherID,

@@ -7,6 +7,7 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/quests"
 	"google.golang.org/protobuf/proto"
 )
@@ -108,11 +109,12 @@ func TestQuestLogReplacementRequiresExactProgressForEveryVisibleRow(t *testing.T
 func TestQuestDetailProjectionPreservesPresenceAndVisibleRewards(t *testing.T) {
 	debugName := "alpha debug"
 	mapID := "map.league.01"
+	repeatPeriod := int32(17)
 	duration, remaining := int64(60_000), int64(14_500)
 	detail := quests.HUDQuestDetail{
 		Info: quests.HUDQuestInfo{
 			ID: "quest.alpha", Name: quests.HUDLocalizedText{LocalizationKey: "quest.alpha.name"},
-			DebugName: &debugName, ZonesMapID: &mapID,
+			DebugName: &debugName, ZonesMapID: &mapID, RepeatPeriod: &repeatPeriod,
 		},
 		Progress: quests.HUDQuestProgress{
 			ID: "quest.alpha", State: quests.HUDQuestStateInProgress,
@@ -137,7 +139,8 @@ func TestQuestDetailProjectionPreservesPresenceAndVisibleRewards(t *testing.T) {
 		t.Fatalf("detail envelope = %+v", got)
 	}
 	if got.Info.DebugName == nil || *got.Info.DebugName != debugName ||
-		got.Info.ZonesMapId == nil || *got.Info.ZonesMapId != mapID {
+		got.Info.ZonesMapId == nil || *got.Info.ZonesMapId != mapID ||
+		got.Info.GetRepeatPeriod() != repeatPeriod {
 		t.Fatalf("optional quest info fields = %+v", got.Info)
 	}
 	if got.Progress.TimerDurationMilliseconds == nil ||
@@ -197,7 +200,6 @@ func TestQuestNPCOfferCarriesObjectivesWithoutInventingInstanceState(t *testing.
 
 func TestQuestProjectionRejectsLossyOrMalformedAuthority(t *testing.T) {
 	negativeTimer := int64(-1)
-	period := int64(86_400_000)
 	position := quests.HUDPosition{X: 1}
 	tests := []struct {
 		name string
@@ -214,10 +216,6 @@ func TestQuestProjectionRejectsLossyOrMalformedAuthority(t *testing.T) {
 			_, err := questRewardToProto(quests.HUDQuestRewards{
 				MandatoryItems: []quests.HUDRewardItem{{ItemID: "item.bad", Count: -1}},
 			})
-			return err
-		}},
-		{"repeat period type mismatch", func() error {
-			_, err := questInfoToProto(quests.HUDQuestInfo{ID: "quest.period", RepeatPeriodMS: &period})
 			return err
 		}},
 		{"unknown state", func() error {
@@ -278,7 +276,7 @@ func TestActionBarReplacementProjectsAllAuthoredSlots(t *testing.T) {
 	}
 }
 
-func TestActionBarProjectionRejectsUnrepresentableState(t *testing.T) {
+func TestActionBarProjectionMapsNoResourceAndRejectsMalformedState(t *testing.T) {
 	var bar combat.ActionBar
 	for index := range bar.Slots {
 		bar.Slots[index] = combat.ActionSlotState{
@@ -286,15 +284,111 @@ func TestActionBarProjectionRejectsUnrepresentableState(t *testing.T) {
 		}
 	}
 	bar.Slots[0].UnavailableReason = combat.ActionUnavailableNoResource
-	if _, err := actionBarReplacementToProto(1, 2, bar, combat.ActionRejectionNone); err == nil ||
-		!strings.Contains(err.Error(), "no_resource") {
+	message, err := actionBarReplacementToProto(1, 2, bar, combat.ActionRejectionNone)
+	if err != nil {
 		t.Fatalf("no-resource projection error = %v", err)
+	}
+	if got := message.GetActionBarReplacement().Slots[0].GetUnavailableReason(); got != sarnautv1.ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_NO_RESOURCE {
+		t.Fatalf("no-resource reason = %s", got)
+	}
+	bar.Slots[0].UnavailableReason = combat.ActionUnavailableReason(255)
+	if _, err := actionBarReplacementToProto(1, 2, bar, combat.ActionRejectionNone); err == nil {
+		t.Fatal("unknown action reason was projected")
 	}
 	bar.Slots[0].UnavailableReason = combat.ActionUnavailableEmptySlot
 	bar.Slots[17].SlotIndex = 18
 	if _, err := actionBarReplacementToProto(1, 2, bar, combat.ActionRejectionNone); err == nil ||
 		!strings.Contains(err.Error(), "carries slot index") {
 		t.Fatalf("out-of-order projection error = %v", err)
+	}
+}
+
+func TestLootStateReplacementProjectsOrderedCursedEntries(t *testing.T) {
+	offer := &loot.Offer{
+		CorpseEntityID: 88,
+		Money:          19,
+		Items: []loot.ItemGrant{
+			{ItemID: "item.same", Count: 2, IsCursed: false},
+			{ItemID: "item.same", Count: 3, IsCursed: true},
+		},
+	}
+	message, err := lootStateReplacementToProto(7, 8, true, offer, loot.RefusalNone, false)
+	if err != nil {
+		t.Fatalf("lootStateReplacementToProto() error = %v", err)
+	}
+	got := message.GetLootStateReplacement()
+	if !got.GetOpen() || got.GetLootEntityId() != 88 || got.GetMoney() != 19 ||
+		got.GetTotalCount() != 2 || got.GetPageSize() != 4 {
+		t.Fatalf("loot replacement header = %+v", got)
+	}
+	if len(got.Items) != 2 || got.Items[0].GetItemIndex() != 0 ||
+		got.Items[1].GetItemIndex() != 1 || got.Items[0].GetIsCursed() ||
+		!got.Items[1].GetIsCursed() {
+		t.Fatalf("ordered cursed loot entries = %+v", got.Items)
+	}
+}
+
+func TestLootCloseProjectsClosedCurrentSessionContext(t *testing.T) {
+	message, err := lootStateReplacementToProto(12, 17, false, nil, loot.RefusalNone, false)
+	if err != nil {
+		t.Fatalf("closed loot projection error = %v", err)
+	}
+	got := message.GetLootStateReplacement()
+	if got.GetOpen() || got.GetLootEntityId() != 0 || got.GetRequestId() != 17 ||
+		got.GetRefusal() != sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_NONE ||
+		got.GetPageSize() != 4 || len(got.Items) != 0 {
+		t.Fatalf("closed loot replacement = %+v", got)
+	}
+}
+
+func TestLootStateReplacementMapsEveryRefusalIncludingStale(t *testing.T) {
+	tests := []struct {
+		domain loot.Refusal
+		stale  bool
+		wire   sarnautv1.LootUiRefusal
+	}{
+		{loot.RefusalNone, false, sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_NONE},
+		{loot.RefusalNoCorpse, false, sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_NO_CORPSE},
+		{loot.RefusalNotYourLoot, false, sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_NOT_YOUR_LOOT},
+		{loot.RefusalAlreadyLooted, false, sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_ALREADY_LOOTED},
+		{loot.RefusalBagFull, false, sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_BAG_FULL},
+		{loot.RefusalInProgress, false, sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_IN_PROGRESS},
+		{loot.RefusalInternal, false, sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_INTERNAL},
+		{loot.RefusalInvalidItemIndex, false, sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_INVALID_INDEX},
+		{loot.RefusalNone, true, sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_STALE_REVISION},
+	}
+	for _, test := range tests {
+		got, err := lootUIRefusalToProto(test.domain, test.stale)
+		if err != nil || got != test.wire {
+			t.Errorf("lootUIRefusalToProto(%s, %t) = %s, %v; want %s",
+				test.domain, test.stale, got, err, test.wire)
+		}
+	}
+	if _, err := lootUIRefusalToProto(loot.RefusalBagFull, true); err == nil {
+		t.Fatal("stale and domain refusal were both accepted")
+	}
+	if _, err := lootUIRefusalToProto(loot.Refusal(255), false); err == nil {
+		t.Fatal("unknown loot refusal was projected")
+	}
+}
+
+func TestLootStateReplacementRejectsMalformedObservableState(t *testing.T) {
+	badCount := &loot.Offer{
+		CorpseEntityID: 1,
+		Items:          []loot.ItemGrant{{ItemID: "item.zero", Count: 0}},
+	}
+	if _, err := lootStateReplacementToProto(1, 2, true, badCount, loot.RefusalNone, false); err == nil {
+		t.Fatal("zero-count loot entry was projected")
+	}
+	tooMany := &loot.Offer{CorpseEntityID: 1, Items: make([]loot.ItemGrant, 21)}
+	for index := range tooMany.Items {
+		tooMany.Items[index] = loot.ItemGrant{ItemID: "item.test", Count: 1}
+	}
+	if _, err := lootStateReplacementToProto(1, 2, true, tooMany, loot.RefusalNone, false); err == nil {
+		t.Fatal("21-entry loot offer was projected")
+	}
+	if _, err := lootStateReplacementToProto(1, 2, true, nil, loot.RefusalNone, false); err == nil {
+		t.Fatal("open loot state without an offer was projected")
 	}
 }
 

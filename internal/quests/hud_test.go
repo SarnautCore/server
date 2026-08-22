@@ -34,16 +34,34 @@ func TestHUDInfoGoldenPreservesOnlyAuthoredFields(t *testing.T) {
 		entry.Info.PlotLine != nil || entry.Info.Shared != nil || entry.Info.IsPvP != nil ||
 		entry.Info.IsInSecretSequence != nil || entry.Info.IsTutorial != nil ||
 		entry.Info.IsRepeatable != nil || entry.Info.CanRepeat != nil ||
-		entry.Info.RepeatPeriodMS != nil || entry.Info.IsSecret != nil || entry.Info.ZoneName != nil ||
+		entry.Info.IsSecret != nil || entry.Info.ZoneName != nil ||
 		entry.Info.ZonesMapID != nil || entry.Info.GoalLocation != nil || entry.Info.ReturnLocation != nil ||
 		entry.Info.AdditionalLocations != nil {
 		t.Fatal("HUDInfo() filled a field the quest pack cannot author")
+	}
+	if entry.Info.RepeatPeriod == nil || *entry.Info.RepeatPeriod != 0 {
+		t.Fatalf("repeat period = %v, want authored zero", entry.Info.RepeatPeriod)
 	}
 	if entry.Rewards.Reputations != nil || entry.Rewards.Currencies != nil {
 		t.Fatal("HUDInfo() invented reputation or currency reward rows")
 	}
 
 	assertHUDGolden(t, "hud_info.golden.json", entry)
+}
+
+func TestHUDInfoClampsNegativeRawRepeatPeriod(t *testing.T) {
+	definition := hudTestDefinition("quest.test.negative-repeat")
+	definition.RepeatPeriod = -17
+
+	entry := hudInfo(definition)
+	if entry.RepeatPeriod == nil || *entry.RepeatPeriod != 0 {
+		t.Fatalf("repeat period = %v, want clamped zero", entry.RepeatPeriod)
+	}
+	definition.RepeatPeriod = 23
+	entry = hudInfo(definition)
+	if entry.RepeatPeriod == nil || *entry.RepeatPeriod != 23 {
+		t.Fatalf("repeat period = %v, want raw 23", entry.RepeatPeriod)
+	}
 }
 
 func TestHUDDetailGoldenCarriesVisibleItemObjectives(t *testing.T) {

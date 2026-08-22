@@ -120,6 +120,9 @@ type Quest struct {
 	StartKey  string
 	CheckKey  string
 	FinishKey string
+	// RepeatPeriod is the raw authored QuestResource.cooldown value. Its source
+	// does not establish a time unit, so the pack preserves it as an integer.
+	RepeatPeriod int32
 }
 
 // Quest resolves one definition by canonical id.
@@ -181,6 +184,7 @@ func readQuests(tables map[string]*table) (map[string]Quest, error) {
 			StartKey:      row.GetStartKey(),
 			CheckKey:      row.GetCheckKey(),
 			FinishKey:     row.GetFinishKey(),
+			RepeatPeriod:  row.GetRepeatPeriod(),
 		}
 		for _, prerequisite := range row.GetPrerequisites() {
 			quest.Prerequisites = append(quest.Prerequisites, QuestPrerequisite{

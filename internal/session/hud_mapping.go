@@ -5,6 +5,7 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/quests"
 )
 
@@ -175,11 +176,6 @@ func questInfoServerMessage(replacement *sarnautv1.QuestInfoReplacement) *sarnau
 }
 
 func questInfoToProto(info quests.HUDQuestInfo) (*sarnautv1.QuestInfo, error) {
-	if info.RepeatPeriodMS != nil {
-		return nil, fmt.Errorf(
-			"quest %q repeat period milliseconds have no exact string projection", info.ID,
-		)
-	}
 	wire := &sarnautv1.QuestInfo{
 		Id:            info.ID,
 		Name:          info.Name.LocalizationKey,
@@ -220,6 +216,9 @@ func questInfoToProto(info quests.HUDQuestInfo) (*sarnautv1.QuestInfo, error) {
 	}
 	if info.CanRepeat != nil {
 		wire.CanRepeat = *info.CanRepeat
+	}
+	if info.RepeatPeriod != nil {
+		wire.RepeatPeriod = *info.RepeatPeriod
 	}
 	if info.IsSecret != nil {
 		wire.IsSecret = *info.IsSecret
@@ -540,7 +539,7 @@ func actionUnavailableReasonToProto(
 	case combat.ActionUnavailableDisabled:
 		return sarnautv1.ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_DISABLED, nil
 	case combat.ActionUnavailableNoResource:
-		return 0, fmt.Errorf("action unavailable reason no_resource has no wire value")
+		return sarnautv1.ActionUnavailableReason_ACTION_UNAVAILABLE_REASON_NO_RESOURCE, nil
 	default:
 		return 0, fmt.Errorf("action unavailable reason %d has no wire value", uint8(reason))
 	}
@@ -597,6 +596,96 @@ func targetSelectRefusalToProto(rejection combat.Rejection) (sarnautv1.TargetSel
 		return sarnautv1.TargetSelectRefusal_TARGET_SELECT_REFUSAL_TARGET_DEAD, nil
 	default:
 		return 0, fmt.Errorf("combat rejection %d has no target-selection wire value", uint8(rejection))
+	}
+}
+
+// lootStateReplacementToProto maps the current complete corpse view. A nil
+// offer emits open=false and no entity id, which is also the exact response to
+// the bodyless LootClose request. A stale command preserves the supplied open
+// view and reports the session-owned revision refusal.
+func lootStateReplacementToProto(
+	revision uint64,
+	requestID uint64,
+	open bool,
+	offer *loot.Offer,
+	refusal loot.Refusal,
+	stale bool,
+) (*sarnautv1.ServerMessage, error) {
+	if open != (offer != nil) {
+		return nil, fmt.Errorf("loot open flag and current offer disagree")
+	}
+	wireRefusal, err := lootUIRefusalToProto(refusal, stale)
+	if err != nil {
+		return nil, err
+	}
+	replacement := &sarnautv1.LootStateReplacement{
+		Revision:  revision,
+		RequestId: requestID,
+		Refusal:   wireRefusal,
+		PageSize:  loot.LootPageSize,
+	}
+	if open {
+		if offer.CorpseEntityID == 0 {
+			return nil, fmt.Errorf("open loot offer has no corpse entity id")
+		}
+		if offer.Money < 0 {
+			return nil, fmt.Errorf("loot offer carries negative money %d", offer.Money)
+		}
+		if len(offer.Items) > loot.MaxObservableLootEntries {
+			return nil, fmt.Errorf(
+				"loot offer has %d items, maximum is %d",
+				len(offer.Items), loot.MaxObservableLootEntries,
+			)
+		}
+		replacement.Open = true
+		replacement.LootEntityId = offer.CorpseEntityID
+		replacement.Money = offer.Money
+		replacement.TotalCount = uint32(len(offer.Items))
+		for index, grant := range offer.Items {
+			if grant.Count <= 0 {
+				return nil, fmt.Errorf("loot item %d has nonpositive count %d", index, grant.Count)
+			}
+			replacement.Items = append(replacement.Items, &sarnautv1.LootItemState{
+				ItemIndex:     int32(index),
+				ProductItemId: grant.ItemID,
+				Count:         uint32(grant.Count),
+				IsCursed:      grant.IsCursed,
+			})
+		}
+	}
+	return &sarnautv1.ServerMessage{
+		Payload: &sarnautv1.ServerMessage_LootStateReplacement{
+			LootStateReplacement: replacement,
+		},
+	}, nil
+}
+
+func lootUIRefusalToProto(refusal loot.Refusal, stale bool) (sarnautv1.LootUiRefusal, error) {
+	if stale {
+		if refusal != loot.RefusalNone {
+			return 0, fmt.Errorf("stale loot state also carries domain refusal %s", refusal)
+		}
+		return sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_STALE_REVISION, nil
+	}
+	switch refusal {
+	case loot.RefusalNone:
+		return sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_NONE, nil
+	case loot.RefusalNoCorpse:
+		return sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_NO_CORPSE, nil
+	case loot.RefusalNotYourLoot:
+		return sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_NOT_YOUR_LOOT, nil
+	case loot.RefusalAlreadyLooted:
+		return sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_ALREADY_LOOTED, nil
+	case loot.RefusalBagFull:
+		return sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_BAG_FULL, nil
+	case loot.RefusalInProgress:
+		return sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_IN_PROGRESS, nil
+	case loot.RefusalInternal:
+		return sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_INTERNAL, nil
+	case loot.RefusalInvalidItemIndex:
+		return sarnautv1.LootUiRefusal_LOOT_UI_REFUSAL_INVALID_INDEX, nil
+	default:
+		return 0, fmt.Errorf("loot refusal %d has no HUD wire value", uint8(refusal))
 	}
 }
 

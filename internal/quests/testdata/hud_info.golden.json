@@ -20,6 +20,7 @@
     },
     "can_cancel": true,
     "type": "STORY",
+    "repeat_period": 0,
     "zone_id": "zone.test.paper-harbor",
     "starter_id": "mob.test.quartermaster",
     "finisher_id": "mob.test.harbor-master"

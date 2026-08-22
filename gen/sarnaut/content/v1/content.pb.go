@@ -3145,9 +3145,12 @@ type Quest struct {
 	GoalKey  string `protobuf:"bytes,13,opt,name=goal_key,json=goalKey,proto3" json:"goal_key,omitempty"`
 	StartKey string `protobuf:"bytes,14,opt,name=start_key,json=startKey,proto3" json:"start_key,omitempty"`
 	// Untyped passthrough; see Zone.extra.
-	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	CheckKey      string            `protobuf:"bytes,16,opt,name=check_key,json=checkKey,proto3" json:"check_key,omitempty"`
-	FinishKey     string            `protobuf:"bytes,17,opt,name=finish_key,json=finishKey,proto3" json:"finish_key,omitempty"`
+	Extra     map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	CheckKey  string            `protobuf:"bytes,16,opt,name=check_key,json=checkKey,proto3" json:"check_key,omitempty"`
+	FinishKey string            `protobuf:"bytes,17,opt,name=finish_key,json=finishKey,proto3" json:"finish_key,omitempty"`
+	// Raw authored QuestResource.cooldown units. The gameplay-data compiler
+	// supplies the source value without assigning a time unit.
+	RepeatPeriod  int32 `protobuf:"zigzag32,18,opt,name=repeat_period,json=repeatPeriod,proto3" json:"repeat_period,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3299,6 +3302,13 @@ func (x *Quest) GetFinishKey() string {
 		return x.FinishKey
 	}
 	return ""
+}
+
+func (x *Quest) GetRepeatPeriod() int32 {
+	if x != nil {
+		return x.RepeatPeriod
+	}
+	return 0
 }
 
 // Decimal is an exact signed mantissa plus a base-10 scale: the value is
@@ -4368,7 +4378,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x05money\x18\x02 \x01(\x03R\x05money\x12\x14\n" +
 	"\x05honor\x18\x03 \x01(\x03R\x05honor\x12L\n" +
 	"\x0fmandatory_items\x18\x04 \x03(\v2#.sarnaut.content.v1.QuestRewardItemR\x0emandatoryItems\x12P\n" +
-	"\x11alternative_items\x18\x05 \x03(\v2#.sarnaut.content.v1.QuestRewardItemR\x10alternativeItems\"\xbd\x05\n" +
+	"\x11alternative_items\x18\x05 \x03(\v2#.sarnaut.content.v1.QuestRewardItemR\x10alternativeItems\"\xe2\x05\n" +
 	"\x05Quest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\azone_id\x18\x02 \x01(\tR\x06zoneId\x12\x14\n" +
@@ -4394,7 +4404,8 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x05extra\x18\x0f \x03(\v2$.sarnaut.content.v1.Quest.ExtraEntryR\x05extra\x12\x1b\n" +
 	"\tcheck_key\x18\x10 \x01(\tR\bcheckKey\x12\x1d\n" +
 	"\n" +
-	"finish_key\x18\x11 \x01(\tR\tfinishKey\x1a8\n" +
+	"finish_key\x18\x11 \x01(\tR\tfinishKey\x12#\n" +
+	"\rrepeat_period\x18\x12 \x01(\x11R\frepeatPeriod\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +

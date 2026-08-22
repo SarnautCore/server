@@ -29,6 +29,11 @@ func TestPackReadsAndValidatesCompiledQuestScripts(t *testing.T) {
 	if err := content.ValidateQuestScriptCoverage(); err != nil {
 		t.Fatalf("ValidateQuestScriptCoverage() error = %v", err)
 	}
+	quest, ok := content.Quest(compiledQuestID)
+	if !ok || quest.RepeatPeriod != -17 {
+		t.Fatalf("Quest(%q) repeat period = %d, %v; want -17, true",
+			compiledQuestID, quest.RepeatPeriod, ok)
+	}
 	row, ok := content.QuestScript(compiledQuestID)
 	if !ok {
 		t.Fatalf("QuestScript(%q) = false", compiledQuestID)
@@ -89,6 +94,7 @@ func compiledScriptPack(t *testing.T, unspecified bool) string {
 	directory := copyFixture(t)
 	quest := &contentv1.Quest{
 		Id: compiledQuestID, ZoneId: "zone.inst-league1", Level: 1,
+		RepeatPeriod: -17,
 		Objectives: []*contentv1.QuestObjective{{
 			Kind:  contentv1.QuestObjectiveKind_QUEST_OBJECTIVE_KIND_COUNT_SPECIAL,
 			Limit: 3, ShowCount: true,
