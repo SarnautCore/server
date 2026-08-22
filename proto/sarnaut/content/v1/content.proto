@@ -33,6 +33,8 @@ enum RowType {
   ROW_TYPE_LOCALE = 12;
   ROW_TYPE_MOB_KIND = 13;
   ROW_TYPE_LEVEL_CURVE = 14;
+  ROW_TYPE_QUEST_SCRIPT = 15;
+  ROW_TYPE_SCRIPT_TRIGGER = 16;
 }
 
 // Vec3 is a world-space position. Z is the vertical axis.
@@ -589,4 +591,130 @@ message Quest {
   map<string, string> extra = 15;
   string check_key = 16;
   string finish_key = 17;
+}
+
+// --- Script rows (ADR 0036) --------------------------------------------------
+//
+// One recursive representation carries every impact, predicate, effect,
+// addressee-finder, scaler, calcer and basic-element tree from authored YAML
+// through these rows and into `internal/script`. `family` and `opcode` are
+// strings so an opcode this schema has never heard of still round-trips; the
+// `tier` field, not an allow-list, decides whether it executes (ADR 0036,
+// "Coverage has three tiers").
+
+// CoverageTier is ADR 0036's coverage policy. Every node carries exactly one.
+// An unspecified tier reads as refused: unknown coverage must fail loudly at
+// evaluation rather than silently doing nothing.
+enum CoverageTier {
+  COVERAGE_TIER_UNSPECIFIED = 0;
+  // Evaluation fails loudly, naming the row, node key and opcode, before any
+  // child runs.
+  COVERAGE_TIER_REFUSED = 1;
+  // Parses, stays in the pack, records a census hit, does nothing.
+  COVERAGE_TIER_INERT = 2;
+  // The evaluator validates the node's fields and executes it.
+  COVERAGE_TIER_IMPLEMENTED = 3;
+}
+
+// Decimal is an exact signed mantissa plus a base-10 scale: the value is
+// `mantissa * 10^-scale`. Probability thresholds and damage scalers are
+// compared with integer arithmetic so a restart makes the same choice; a
+// float never crosses this boundary.
+message Decimal {
+  sint64 mantissa = 1;
+  sint32 scale = 2;
+}
+
+// ContentRef is a resolved content reference: a canonical id and a row-type
+// slug, never a source href. The extractor resolves hrefs; nothing downstream
+// sees an xpointer (ADR 0036).
+message ContentRef {
+  // Canonical id, for example `trigger.inst-league1.il-quest-spells.rat-killer`.
+  string id = 1;
+  // Row-type slug the id is expected to resolve against, for example
+  // `trigger`, `spawn-table`, `mob`, `quest-count-id`. Empty when the target
+  // namespace is not modelled by any table yet.
+  string row_type = 2;
+}
+
+// ScriptNode is one node of a recursive script tree.
+message ScriptNode {
+  // The owning content-row id followed by the field names and list ordinals on
+  // the path to this node, for example
+  // `script.inst-league1.quest-1-30/startImpacts[4]/impacts[0]`. Stable across
+  // builds of the same content, which is what makes it usable as a probability
+  // input and as half of a deferred command's execution key.
+  string node_key = 1;
+  // Node family: `impact`, `predicate`, `effect`, `addresseeFinder`, `scaler`,
+  // `calcer`, `basic` or `trigger`.
+  string family = 2;
+  // Opcode with the source namespace stripped, for example `ImpactsDeferred`.
+  string opcode = 3;
+  CoverageTier tier = 4;
+  // Sorted bytewise by name; names are unique within a node.
+  repeated ScriptField fields = 5;
+}
+
+// ScriptField is one named value on a node.
+message ScriptField {
+  string name = 1;
+  ScriptValue value = 2;
+}
+
+// ScriptValue is one value of a field. Exactly one member is set.
+message ScriptValue {
+  oneof value {
+    sint64 integer = 1;
+    Decimal decimal = 2;
+    bool boolean = 3;
+    string text = 4;
+    ContentRef reference = 5;
+    uint64 duration_ms = 6;
+    ScriptNode node = 7;
+    ScriptValueList list = 8;
+  }
+}
+
+// ScriptValueList exists because protobuf forbids `repeated` inside a oneof.
+// Lists retain source order: ImpactsDeferred schedules its children in stored
+// order and the quest-2-20 reward cascade is visited in it.
+message ScriptValueList {
+  repeated ScriptValue values = 1;
+}
+
+// QuestCounterBinding maps one QuestCountId to the objective it advances.
+// The authored data binds them through the quest's `counters` list; the
+// extractor knows the pairing and the shard only needs the answer.
+message QuestCounterBinding {
+  // Canonical id, for example `questcount.inst-league1.quest-1-30.count-id-1`.
+  string count_id = 1;
+  // Position in the owning quest's `objectives` list. Retained as migration
+  // compatibility and a diagnostic; objective_id is durable authority.
+  uint32 objective_index = 2;
+  // Stable semantic identity emitted by the quest extractor, for example
+  // `quest.inst-league1.quest-1-30.objective.<64 lowercase hex digest>`.
+  string objective_id = 3;
+}
+
+// QuestScript is one quest's script surface: what accepting the quest
+// evaluates. One row per quest that carries any script data.
+message QuestScript {
+  // Canonical id, for example `script.inst-league1.quest-1-30`.
+  string id = 1;
+  // The quest this row belongs to, for example `quest.inst-league1.quest-1-30`.
+  string quest_id = 2;
+  repeated QuestCounterBinding counters = 3;
+  // Evaluated in authored order at quest activation, then the trigger agents.
+  repeated ScriptNode start_impacts = 4;
+  repeated ScriptNode trigger_agents = 5;
+}
+
+// ScriptTrigger is one TriggerResource document: a trigger tree shared by
+// reference from ImpactAttachTrigger and TriggerAgent* nodes.
+message ScriptTrigger {
+  // Canonical id, for example `trigger.inst-league1.quest-1-20.dress-trigger`.
+  string id = 1;
+  // The document root: family `trigger`, opcode `TriggerResource`, with the
+  // authored `effects` list as its children.
+  ScriptNode root = 2;
 }

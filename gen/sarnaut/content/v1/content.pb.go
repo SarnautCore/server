@@ -53,6 +53,8 @@ const (
 	RowType_ROW_TYPE_LOCALE         RowType = 12
 	RowType_ROW_TYPE_MOB_KIND       RowType = 13
 	RowType_ROW_TYPE_LEVEL_CURVE    RowType = 14
+	RowType_ROW_TYPE_QUEST_SCRIPT   RowType = 15
+	RowType_ROW_TYPE_SCRIPT_TRIGGER RowType = 16
 )
 
 // Enum value maps for RowType.
@@ -73,6 +75,8 @@ var (
 		12: "ROW_TYPE_LOCALE",
 		13: "ROW_TYPE_MOB_KIND",
 		14: "ROW_TYPE_LEVEL_CURVE",
+		15: "ROW_TYPE_QUEST_SCRIPT",
+		16: "ROW_TYPE_SCRIPT_TRIGGER",
 	}
 	RowType_value = map[string]int32{
 		"ROW_TYPE_UNSPECIFIED":    0,
@@ -90,6 +94,8 @@ var (
 		"ROW_TYPE_LOCALE":         12,
 		"ROW_TYPE_MOB_KIND":       13,
 		"ROW_TYPE_LEVEL_CURVE":    14,
+		"ROW_TYPE_QUEST_SCRIPT":   15,
+		"ROW_TYPE_SCRIPT_TRIGGER": 16,
 	}
 )
 
@@ -297,6 +303,65 @@ func (x QuestObjectiveKind) Number() protoreflect.EnumNumber {
 // Deprecated: Use QuestObjectiveKind.Descriptor instead.
 func (QuestObjectiveKind) EnumDescriptor() ([]byte, []int) {
 	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{3}
+}
+
+// CoverageTier is ADR 0036's coverage policy. Every node carries exactly one.
+// An unspecified tier reads as refused: unknown coverage must fail loudly at
+// evaluation rather than silently doing nothing.
+type CoverageTier int32
+
+const (
+	CoverageTier_COVERAGE_TIER_UNSPECIFIED CoverageTier = 0
+	// Evaluation fails loudly, naming the row, node key and opcode, before any
+	// child runs.
+	CoverageTier_COVERAGE_TIER_REFUSED CoverageTier = 1
+	// Parses, stays in the pack, records a census hit, does nothing.
+	CoverageTier_COVERAGE_TIER_INERT CoverageTier = 2
+	// The evaluator validates the node's fields and executes it.
+	CoverageTier_COVERAGE_TIER_IMPLEMENTED CoverageTier = 3
+)
+
+// Enum value maps for CoverageTier.
+var (
+	CoverageTier_name = map[int32]string{
+		0: "COVERAGE_TIER_UNSPECIFIED",
+		1: "COVERAGE_TIER_REFUSED",
+		2: "COVERAGE_TIER_INERT",
+		3: "COVERAGE_TIER_IMPLEMENTED",
+	}
+	CoverageTier_value = map[string]int32{
+		"COVERAGE_TIER_UNSPECIFIED": 0,
+		"COVERAGE_TIER_REFUSED":     1,
+		"COVERAGE_TIER_INERT":       2,
+		"COVERAGE_TIER_IMPLEMENTED": 3,
+	}
+)
+
+func (x CoverageTier) Enum() *CoverageTier {
+	p := new(CoverageTier)
+	*p = x
+	return p
+}
+
+func (x CoverageTier) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CoverageTier) Descriptor() protoreflect.EnumDescriptor {
+	return file_sarnaut_content_v1_content_proto_enumTypes[4].Descriptor()
+}
+
+func (CoverageTier) Type() protoreflect.EnumType {
+	return &file_sarnaut_content_v1_content_proto_enumTypes[4]
+}
+
+func (x CoverageTier) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CoverageTier.Descriptor instead.
+func (CoverageTier) EnumDescriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{4}
 }
 
 // Vec3 is a world-space position. Z is the vertical axis.
@@ -3177,6 +3242,692 @@ func (x *Quest) GetFinishKey() string {
 	return ""
 }
 
+// Decimal is an exact signed mantissa plus a base-10 scale: the value is
+// `mantissa * 10^-scale`. Probability thresholds and damage scalers are
+// compared with integer arithmetic so a restart makes the same choice; a
+// float never crosses this boundary.
+type Decimal struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mantissa      int64                  `protobuf:"zigzag64,1,opt,name=mantissa,proto3" json:"mantissa,omitempty"`
+	Scale         int32                  `protobuf:"zigzag32,2,opt,name=scale,proto3" json:"scale,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Decimal) Reset() {
+	*x = Decimal{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Decimal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Decimal) ProtoMessage() {}
+
+func (x *Decimal) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Decimal.ProtoReflect.Descriptor instead.
+func (*Decimal) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *Decimal) GetMantissa() int64 {
+	if x != nil {
+		return x.Mantissa
+	}
+	return 0
+}
+
+func (x *Decimal) GetScale() int32 {
+	if x != nil {
+		return x.Scale
+	}
+	return 0
+}
+
+// ContentRef is a resolved content reference: a canonical id and a row-type
+// slug, never a source href. The extractor resolves hrefs; nothing downstream
+// sees an xpointer (ADR 0036).
+type ContentRef struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `trigger.inst-league1.il-quest-spells.rat-killer`.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Row-type slug the id is expected to resolve against, for example
+	// `trigger`, `spawn-table`, `mob`, `quest-count-id`. Empty when the target
+	// namespace is not modelled by any table yet.
+	RowType       string `protobuf:"bytes,2,opt,name=row_type,json=rowType,proto3" json:"row_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContentRef) Reset() {
+	*x = ContentRef{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContentRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContentRef) ProtoMessage() {}
+
+func (x *ContentRef) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContentRef.ProtoReflect.Descriptor instead.
+func (*ContentRef) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ContentRef) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ContentRef) GetRowType() string {
+	if x != nil {
+		return x.RowType
+	}
+	return ""
+}
+
+// ScriptNode is one node of a recursive script tree.
+type ScriptNode struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The owning content-row id followed by the field names and list ordinals on
+	// the path to this node, for example
+	// `script.inst-league1.quest-1-30/startImpacts[4]/impacts[0]`. Stable across
+	// builds of the same content, which is what makes it usable as a probability
+	// input and as half of a deferred command's execution key.
+	NodeKey string `protobuf:"bytes,1,opt,name=node_key,json=nodeKey,proto3" json:"node_key,omitempty"`
+	// Node family: `impact`, `predicate`, `effect`, `addresseeFinder`, `scaler`,
+	// `calcer`, `basic` or `trigger`.
+	Family string `protobuf:"bytes,2,opt,name=family,proto3" json:"family,omitempty"`
+	// Opcode with the source namespace stripped, for example `ImpactsDeferred`.
+	Opcode string       `protobuf:"bytes,3,opt,name=opcode,proto3" json:"opcode,omitempty"`
+	Tier   CoverageTier `protobuf:"varint,4,opt,name=tier,proto3,enum=sarnaut.content.v1.CoverageTier" json:"tier,omitempty"`
+	// Sorted bytewise by name; names are unique within a node.
+	Fields        []*ScriptField `protobuf:"bytes,5,rep,name=fields,proto3" json:"fields,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptNode) Reset() {
+	*x = ScriptNode{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptNode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptNode) ProtoMessage() {}
+
+func (x *ScriptNode) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptNode.ProtoReflect.Descriptor instead.
+func (*ScriptNode) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ScriptNode) GetNodeKey() string {
+	if x != nil {
+		return x.NodeKey
+	}
+	return ""
+}
+
+func (x *ScriptNode) GetFamily() string {
+	if x != nil {
+		return x.Family
+	}
+	return ""
+}
+
+func (x *ScriptNode) GetOpcode() string {
+	if x != nil {
+		return x.Opcode
+	}
+	return ""
+}
+
+func (x *ScriptNode) GetTier() CoverageTier {
+	if x != nil {
+		return x.Tier
+	}
+	return CoverageTier_COVERAGE_TIER_UNSPECIFIED
+}
+
+func (x *ScriptNode) GetFields() []*ScriptField {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+// ScriptField is one named value on a node.
+type ScriptField struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         *ScriptValue           `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptField) Reset() {
+	*x = ScriptField{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptField) ProtoMessage() {}
+
+func (x *ScriptField) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptField.ProtoReflect.Descriptor instead.
+func (*ScriptField) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ScriptField) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ScriptField) GetValue() *ScriptValue {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+// ScriptValue is one value of a field. Exactly one member is set.
+type ScriptValue struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Value:
+	//
+	//	*ScriptValue_Integer
+	//	*ScriptValue_Decimal
+	//	*ScriptValue_Boolean
+	//	*ScriptValue_Text
+	//	*ScriptValue_Reference
+	//	*ScriptValue_DurationMs
+	//	*ScriptValue_Node
+	//	*ScriptValue_List
+	Value         isScriptValue_Value `protobuf_oneof:"value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptValue) Reset() {
+	*x = ScriptValue{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptValue) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptValue) ProtoMessage() {}
+
+func (x *ScriptValue) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptValue.ProtoReflect.Descriptor instead.
+func (*ScriptValue) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ScriptValue) GetValue() isScriptValue_Value {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *ScriptValue) GetInteger() int64 {
+	if x != nil {
+		if x, ok := x.Value.(*ScriptValue_Integer); ok {
+			return x.Integer
+		}
+	}
+	return 0
+}
+
+func (x *ScriptValue) GetDecimal() *Decimal {
+	if x != nil {
+		if x, ok := x.Value.(*ScriptValue_Decimal); ok {
+			return x.Decimal
+		}
+	}
+	return nil
+}
+
+func (x *ScriptValue) GetBoolean() bool {
+	if x != nil {
+		if x, ok := x.Value.(*ScriptValue_Boolean); ok {
+			return x.Boolean
+		}
+	}
+	return false
+}
+
+func (x *ScriptValue) GetText() string {
+	if x != nil {
+		if x, ok := x.Value.(*ScriptValue_Text); ok {
+			return x.Text
+		}
+	}
+	return ""
+}
+
+func (x *ScriptValue) GetReference() *ContentRef {
+	if x != nil {
+		if x, ok := x.Value.(*ScriptValue_Reference); ok {
+			return x.Reference
+		}
+	}
+	return nil
+}
+
+func (x *ScriptValue) GetDurationMs() uint64 {
+	if x != nil {
+		if x, ok := x.Value.(*ScriptValue_DurationMs); ok {
+			return x.DurationMs
+		}
+	}
+	return 0
+}
+
+func (x *ScriptValue) GetNode() *ScriptNode {
+	if x != nil {
+		if x, ok := x.Value.(*ScriptValue_Node); ok {
+			return x.Node
+		}
+	}
+	return nil
+}
+
+func (x *ScriptValue) GetList() *ScriptValueList {
+	if x != nil {
+		if x, ok := x.Value.(*ScriptValue_List); ok {
+			return x.List
+		}
+	}
+	return nil
+}
+
+type isScriptValue_Value interface {
+	isScriptValue_Value()
+}
+
+type ScriptValue_Integer struct {
+	Integer int64 `protobuf:"zigzag64,1,opt,name=integer,proto3,oneof"`
+}
+
+type ScriptValue_Decimal struct {
+	Decimal *Decimal `protobuf:"bytes,2,opt,name=decimal,proto3,oneof"`
+}
+
+type ScriptValue_Boolean struct {
+	Boolean bool `protobuf:"varint,3,opt,name=boolean,proto3,oneof"`
+}
+
+type ScriptValue_Text struct {
+	Text string `protobuf:"bytes,4,opt,name=text,proto3,oneof"`
+}
+
+type ScriptValue_Reference struct {
+	Reference *ContentRef `protobuf:"bytes,5,opt,name=reference,proto3,oneof"`
+}
+
+type ScriptValue_DurationMs struct {
+	DurationMs uint64 `protobuf:"varint,6,opt,name=duration_ms,json=durationMs,proto3,oneof"`
+}
+
+type ScriptValue_Node struct {
+	Node *ScriptNode `protobuf:"bytes,7,opt,name=node,proto3,oneof"`
+}
+
+type ScriptValue_List struct {
+	List *ScriptValueList `protobuf:"bytes,8,opt,name=list,proto3,oneof"`
+}
+
+func (*ScriptValue_Integer) isScriptValue_Value() {}
+
+func (*ScriptValue_Decimal) isScriptValue_Value() {}
+
+func (*ScriptValue_Boolean) isScriptValue_Value() {}
+
+func (*ScriptValue_Text) isScriptValue_Value() {}
+
+func (*ScriptValue_Reference) isScriptValue_Value() {}
+
+func (*ScriptValue_DurationMs) isScriptValue_Value() {}
+
+func (*ScriptValue_Node) isScriptValue_Value() {}
+
+func (*ScriptValue_List) isScriptValue_Value() {}
+
+// ScriptValueList exists because protobuf forbids `repeated` inside a oneof.
+// Lists retain source order: ImpactsDeferred schedules its children in stored
+// order and the quest-2-20 reward cascade is visited in it.
+type ScriptValueList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []*ScriptValue         `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptValueList) Reset() {
+	*x = ScriptValueList{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptValueList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptValueList) ProtoMessage() {}
+
+func (x *ScriptValueList) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptValueList.ProtoReflect.Descriptor instead.
+func (*ScriptValueList) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *ScriptValueList) GetValues() []*ScriptValue {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+// QuestCounterBinding maps one QuestCountId to the objective it advances.
+// The authored data binds them through the quest's `counters` list; the
+// extractor knows the pairing and the shard only needs the answer.
+type QuestCounterBinding struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `questcount.inst-league1.quest-1-30.count-id-1`.
+	CountId string `protobuf:"bytes,1,opt,name=count_id,json=countId,proto3" json:"count_id,omitempty"`
+	// Position in the owning quest's `objectives` list. Retained as migration
+	// compatibility and a diagnostic; objective_id is durable authority.
+	ObjectiveIndex uint32 `protobuf:"varint,2,opt,name=objective_index,json=objectiveIndex,proto3" json:"objective_index,omitempty"`
+	// Stable semantic identity emitted by the quest extractor, for example
+	// `quest.inst-league1.quest-1-30.objective.<64 lowercase hex digest>`.
+	ObjectiveId   string `protobuf:"bytes,3,opt,name=objective_id,json=objectiveId,proto3" json:"objective_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuestCounterBinding) Reset() {
+	*x = QuestCounterBinding{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuestCounterBinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuestCounterBinding) ProtoMessage() {}
+
+func (x *QuestCounterBinding) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuestCounterBinding.ProtoReflect.Descriptor instead.
+func (*QuestCounterBinding) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *QuestCounterBinding) GetCountId() string {
+	if x != nil {
+		return x.CountId
+	}
+	return ""
+}
+
+func (x *QuestCounterBinding) GetObjectiveIndex() uint32 {
+	if x != nil {
+		return x.ObjectiveIndex
+	}
+	return 0
+}
+
+func (x *QuestCounterBinding) GetObjectiveId() string {
+	if x != nil {
+		return x.ObjectiveId
+	}
+	return ""
+}
+
+// QuestScript is one quest's script surface: what accepting the quest
+// evaluates. One row per quest that carries any script data.
+type QuestScript struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `script.inst-league1.quest-1-30`.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The quest this row belongs to, for example `quest.inst-league1.quest-1-30`.
+	QuestId  string                 `protobuf:"bytes,2,opt,name=quest_id,json=questId,proto3" json:"quest_id,omitempty"`
+	Counters []*QuestCounterBinding `protobuf:"bytes,3,rep,name=counters,proto3" json:"counters,omitempty"`
+	// Evaluated in authored order at quest activation, then the trigger agents.
+	StartImpacts  []*ScriptNode `protobuf:"bytes,4,rep,name=start_impacts,json=startImpacts,proto3" json:"start_impacts,omitempty"`
+	TriggerAgents []*ScriptNode `protobuf:"bytes,5,rep,name=trigger_agents,json=triggerAgents,proto3" json:"trigger_agents,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuestScript) Reset() {
+	*x = QuestScript{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuestScript) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuestScript) ProtoMessage() {}
+
+func (x *QuestScript) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuestScript.ProtoReflect.Descriptor instead.
+func (*QuestScript) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *QuestScript) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *QuestScript) GetQuestId() string {
+	if x != nil {
+		return x.QuestId
+	}
+	return ""
+}
+
+func (x *QuestScript) GetCounters() []*QuestCounterBinding {
+	if x != nil {
+		return x.Counters
+	}
+	return nil
+}
+
+func (x *QuestScript) GetStartImpacts() []*ScriptNode {
+	if x != nil {
+		return x.StartImpacts
+	}
+	return nil
+}
+
+func (x *QuestScript) GetTriggerAgents() []*ScriptNode {
+	if x != nil {
+		return x.TriggerAgents
+	}
+	return nil
+}
+
+// ScriptTrigger is one TriggerResource document: a trigger tree shared by
+// reference from ImpactAttachTrigger and TriggerAgent* nodes.
+type ScriptTrigger struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical id, for example `trigger.inst-league1.quest-1-20.dress-trigger`.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The document root: family `trigger`, opcode `TriggerResource`, with the
+	// authored `effects` list as its children.
+	Root          *ScriptNode `protobuf:"bytes,2,opt,name=root,proto3" json:"root,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptTrigger) Reset() {
+	*x = ScriptTrigger{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptTrigger) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptTrigger) ProtoMessage() {}
+
+func (x *ScriptTrigger) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptTrigger.ProtoReflect.Descriptor instead.
+func (*ScriptTrigger) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *ScriptTrigger) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ScriptTrigger) GetRoot() *ScriptNode {
+	if x != nil {
+		return x.Root
+	}
+	return nil
+}
+
 var File_sarnaut_content_v1_content_proto protoreflect.FileDescriptor
 
 const file_sarnaut_content_v1_content_proto_rawDesc = "" +
@@ -3512,7 +4263,50 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xdd\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\";\n" +
+	"\aDecimal\x12\x1a\n" +
+	"\bmantissa\x18\x01 \x01(\x12R\bmantissa\x12\x14\n" +
+	"\x05scale\x18\x02 \x01(\x11R\x05scale\"7\n" +
+	"\n" +
+	"ContentRef\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
+	"\brow_type\x18\x02 \x01(\tR\arowType\"\xc6\x01\n" +
+	"\n" +
+	"ScriptNode\x12\x19\n" +
+	"\bnode_key\x18\x01 \x01(\tR\anodeKey\x12\x16\n" +
+	"\x06family\x18\x02 \x01(\tR\x06family\x12\x16\n" +
+	"\x06opcode\x18\x03 \x01(\tR\x06opcode\x124\n" +
+	"\x04tier\x18\x04 \x01(\x0e2 .sarnaut.content.v1.CoverageTierR\x04tier\x127\n" +
+	"\x06fields\x18\x05 \x03(\v2\x1f.sarnaut.content.v1.ScriptFieldR\x06fields\"X\n" +
+	"\vScriptField\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x125\n" +
+	"\x05value\x18\x02 \x01(\v2\x1f.sarnaut.content.v1.ScriptValueR\x05value\"\xf1\x02\n" +
+	"\vScriptValue\x12\x1a\n" +
+	"\ainteger\x18\x01 \x01(\x12H\x00R\ainteger\x127\n" +
+	"\adecimal\x18\x02 \x01(\v2\x1b.sarnaut.content.v1.DecimalH\x00R\adecimal\x12\x1a\n" +
+	"\aboolean\x18\x03 \x01(\bH\x00R\aboolean\x12\x14\n" +
+	"\x04text\x18\x04 \x01(\tH\x00R\x04text\x12>\n" +
+	"\treference\x18\x05 \x01(\v2\x1e.sarnaut.content.v1.ContentRefH\x00R\treference\x12!\n" +
+	"\vduration_ms\x18\x06 \x01(\x04H\x00R\n" +
+	"durationMs\x124\n" +
+	"\x04node\x18\a \x01(\v2\x1e.sarnaut.content.v1.ScriptNodeH\x00R\x04node\x129\n" +
+	"\x04list\x18\b \x01(\v2#.sarnaut.content.v1.ScriptValueListH\x00R\x04listB\a\n" +
+	"\x05value\"J\n" +
+	"\x0fScriptValueList\x127\n" +
+	"\x06values\x18\x01 \x03(\v2\x1f.sarnaut.content.v1.ScriptValueR\x06values\"|\n" +
+	"\x13QuestCounterBinding\x12\x19\n" +
+	"\bcount_id\x18\x01 \x01(\tR\acountId\x12'\n" +
+	"\x0fobjective_index\x18\x02 \x01(\rR\x0eobjectiveIndex\x12!\n" +
+	"\fobjective_id\x18\x03 \x01(\tR\vobjectiveId\"\x89\x02\n" +
+	"\vQuestScript\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
+	"\bquest_id\x18\x02 \x01(\tR\aquestId\x12C\n" +
+	"\bcounters\x18\x03 \x03(\v2'.sarnaut.content.v1.QuestCounterBindingR\bcounters\x12C\n" +
+	"\rstart_impacts\x18\x04 \x03(\v2\x1e.sarnaut.content.v1.ScriptNodeR\fstartImpacts\x12E\n" +
+	"\x0etrigger_agents\x18\x05 \x03(\v2\x1e.sarnaut.content.v1.ScriptNodeR\rtriggerAgents\"S\n" +
+	"\rScriptTrigger\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x122\n" +
+	"\x04root\x18\x02 \x01(\v2\x1e.sarnaut.content.v1.ScriptNodeR\x04root*\x95\x03\n" +
 	"\aRowType\x12\x18\n" +
 	"\x14ROW_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rROW_TYPE_ZONE\x10\x01\x12\x16\n" +
@@ -3529,7 +4323,9 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x0eROW_TYPE_ROUTE\x10\v\x12\x13\n" +
 	"\x0fROW_TYPE_LOCALE\x10\f\x12\x15\n" +
 	"\x11ROW_TYPE_MOB_KIND\x10\r\x12\x18\n" +
-	"\x14ROW_TYPE_LEVEL_CURVE\x10\x0e*\x97\x01\n" +
+	"\x14ROW_TYPE_LEVEL_CURVE\x10\x0e\x12\x19\n" +
+	"\x15ROW_TYPE_QUEST_SCRIPT\x10\x0f\x12\x1b\n" +
+	"\x17ROW_TYPE_SCRIPT_TRIGGER\x10\x10*\x97\x01\n" +
 	"\fLootNodeKind\x12\x1e\n" +
 	"\x1aLOOT_NODE_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12LOOT_NODE_KIND_AND\x10\x01\x12\x15\n" +
@@ -3545,7 +4341,12 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	" QUEST_OBJECTIVE_KIND_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fQUEST_OBJECTIVE_KIND_COUNT_KILL\x10\x01\x12#\n" +
 	"\x1fQUEST_OBJECTIVE_KIND_COUNT_ITEM\x10\x02\x12&\n" +
-	"\"QUEST_OBJECTIVE_KIND_COUNT_SPECIAL\x10\x03B@Z>github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1b\x06proto3"
+	"\"QUEST_OBJECTIVE_KIND_COUNT_SPECIAL\x10\x03*\x80\x01\n" +
+	"\fCoverageTier\x12\x1d\n" +
+	"\x19COVERAGE_TIER_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15COVERAGE_TIER_REFUSED\x10\x01\x12\x17\n" +
+	"\x13COVERAGE_TIER_INERT\x10\x02\x12\x1d\n" +
+	"\x19COVERAGE_TIER_IMPLEMENTED\x10\x03B@Z>github.com/SarnautCore/server/gen/sarnaut/content/v1;contentv1b\x06proto3"
 
 var (
 	file_sarnaut_content_v1_content_proto_rawDescOnce sync.Once
@@ -3559,102 +4360,124 @@ func file_sarnaut_content_v1_content_proto_rawDescGZIP() []byte {
 	return file_sarnaut_content_v1_content_proto_rawDescData
 }
 
-var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_sarnaut_content_v1_content_proto_goTypes = []any{
-	(RowType)(0),              // 0: sarnaut.content.v1.RowType
-	(LootNodeKind)(0),         // 1: sarnaut.content.v1.LootNodeKind
-	(MobTaxonomyKind)(0),      // 2: sarnaut.content.v1.MobTaxonomyKind
-	(QuestObjectiveKind)(0),   // 3: sarnaut.content.v1.QuestObjectiveKind
-	(*Vec3)(nil),              // 4: sarnaut.content.v1.Vec3
-	(*Zone)(nil),              // 5: sarnaut.content.v1.Zone
-	(*Placement)(nil),         // 6: sarnaut.content.v1.Placement
-	(*SpawnTableEntry)(nil),   // 7: sarnaut.content.v1.SpawnTableEntry
-	(*SpawnTable)(nil),        // 8: sarnaut.content.v1.SpawnTable
-	(*AbilityEffect)(nil),     // 9: sarnaut.content.v1.AbilityEffect
-	(*Ability)(nil),           // 10: sarnaut.content.v1.Ability
-	(*FactionRelation)(nil),   // 11: sarnaut.content.v1.FactionRelation
-	(*Faction)(nil),           // 12: sarnaut.content.v1.Faction
-	(*Mob)(nil),               // 13: sarnaut.content.v1.Mob
-	(*StatEntry)(nil),         // 14: sarnaut.content.v1.StatEntry
-	(*LoadoutEntry)(nil),      // 15: sarnaut.content.v1.LoadoutEntry
-	(*ChargenOption)(nil),     // 16: sarnaut.content.v1.ChargenOption
-	(*Item)(nil),              // 17: sarnaut.content.v1.Item
-	(*LootNode)(nil),          // 18: sarnaut.content.v1.LootNode
-	(*LootTable)(nil),         // 19: sarnaut.content.v1.LootTable
-	(*MobKind)(nil),           // 20: sarnaut.content.v1.MobKind
-	(*LevelCurvePoint)(nil),   // 21: sarnaut.content.v1.LevelCurvePoint
-	(*LevelCurve)(nil),        // 22: sarnaut.content.v1.LevelCurve
-	(*RoutePoint)(nil),        // 23: sarnaut.content.v1.RoutePoint
-	(*RouteLink)(nil),         // 24: sarnaut.content.v1.RouteLink
-	(*Route)(nil),             // 25: sarnaut.content.v1.Route
-	(*LocaleEntry)(nil),       // 26: sarnaut.content.v1.LocaleEntry
-	(*Locale)(nil),            // 27: sarnaut.content.v1.Locale
-	(*QuestObjective)(nil),    // 28: sarnaut.content.v1.QuestObjective
-	(*QuestPrerequisite)(nil), // 29: sarnaut.content.v1.QuestPrerequisite
-	(*QuestRewardItem)(nil),   // 30: sarnaut.content.v1.QuestRewardItem
-	(*QuestRewards)(nil),      // 31: sarnaut.content.v1.QuestRewards
-	(*Quest)(nil),             // 32: sarnaut.content.v1.Quest
-	nil,                       // 33: sarnaut.content.v1.Zone.ExtraEntry
-	nil,                       // 34: sarnaut.content.v1.Placement.ExtraEntry
-	nil,                       // 35: sarnaut.content.v1.SpawnTable.ExtraEntry
-	nil,                       // 36: sarnaut.content.v1.Ability.ExtraEntry
-	nil,                       // 37: sarnaut.content.v1.Faction.ExtraEntry
-	nil,                       // 38: sarnaut.content.v1.Mob.ExtraEntry
-	nil,                       // 39: sarnaut.content.v1.ChargenOption.ExtraEntry
-	nil,                       // 40: sarnaut.content.v1.Item.ExtraEntry
-	nil,                       // 41: sarnaut.content.v1.LootTable.ExtraEntry
-	nil,                       // 42: sarnaut.content.v1.MobKind.ExtraEntry
-	nil,                       // 43: sarnaut.content.v1.LevelCurve.ExtraEntry
-	nil,                       // 44: sarnaut.content.v1.Route.ExtraEntry
-	nil,                       // 45: sarnaut.content.v1.Locale.ExtraEntry
-	nil,                       // 46: sarnaut.content.v1.Quest.ExtraEntry
+	(RowType)(0),                // 0: sarnaut.content.v1.RowType
+	(LootNodeKind)(0),           // 1: sarnaut.content.v1.LootNodeKind
+	(MobTaxonomyKind)(0),        // 2: sarnaut.content.v1.MobTaxonomyKind
+	(QuestObjectiveKind)(0),     // 3: sarnaut.content.v1.QuestObjectiveKind
+	(CoverageTier)(0),           // 4: sarnaut.content.v1.CoverageTier
+	(*Vec3)(nil),                // 5: sarnaut.content.v1.Vec3
+	(*Zone)(nil),                // 6: sarnaut.content.v1.Zone
+	(*Placement)(nil),           // 7: sarnaut.content.v1.Placement
+	(*SpawnTableEntry)(nil),     // 8: sarnaut.content.v1.SpawnTableEntry
+	(*SpawnTable)(nil),          // 9: sarnaut.content.v1.SpawnTable
+	(*AbilityEffect)(nil),       // 10: sarnaut.content.v1.AbilityEffect
+	(*Ability)(nil),             // 11: sarnaut.content.v1.Ability
+	(*FactionRelation)(nil),     // 12: sarnaut.content.v1.FactionRelation
+	(*Faction)(nil),             // 13: sarnaut.content.v1.Faction
+	(*Mob)(nil),                 // 14: sarnaut.content.v1.Mob
+	(*StatEntry)(nil),           // 15: sarnaut.content.v1.StatEntry
+	(*LoadoutEntry)(nil),        // 16: sarnaut.content.v1.LoadoutEntry
+	(*ChargenOption)(nil),       // 17: sarnaut.content.v1.ChargenOption
+	(*Item)(nil),                // 18: sarnaut.content.v1.Item
+	(*LootNode)(nil),            // 19: sarnaut.content.v1.LootNode
+	(*LootTable)(nil),           // 20: sarnaut.content.v1.LootTable
+	(*MobKind)(nil),             // 21: sarnaut.content.v1.MobKind
+	(*LevelCurvePoint)(nil),     // 22: sarnaut.content.v1.LevelCurvePoint
+	(*LevelCurve)(nil),          // 23: sarnaut.content.v1.LevelCurve
+	(*RoutePoint)(nil),          // 24: sarnaut.content.v1.RoutePoint
+	(*RouteLink)(nil),           // 25: sarnaut.content.v1.RouteLink
+	(*Route)(nil),               // 26: sarnaut.content.v1.Route
+	(*LocaleEntry)(nil),         // 27: sarnaut.content.v1.LocaleEntry
+	(*Locale)(nil),              // 28: sarnaut.content.v1.Locale
+	(*QuestObjective)(nil),      // 29: sarnaut.content.v1.QuestObjective
+	(*QuestPrerequisite)(nil),   // 30: sarnaut.content.v1.QuestPrerequisite
+	(*QuestRewardItem)(nil),     // 31: sarnaut.content.v1.QuestRewardItem
+	(*QuestRewards)(nil),        // 32: sarnaut.content.v1.QuestRewards
+	(*Quest)(nil),               // 33: sarnaut.content.v1.Quest
+	(*Decimal)(nil),             // 34: sarnaut.content.v1.Decimal
+	(*ContentRef)(nil),          // 35: sarnaut.content.v1.ContentRef
+	(*ScriptNode)(nil),          // 36: sarnaut.content.v1.ScriptNode
+	(*ScriptField)(nil),         // 37: sarnaut.content.v1.ScriptField
+	(*ScriptValue)(nil),         // 38: sarnaut.content.v1.ScriptValue
+	(*ScriptValueList)(nil),     // 39: sarnaut.content.v1.ScriptValueList
+	(*QuestCounterBinding)(nil), // 40: sarnaut.content.v1.QuestCounterBinding
+	(*QuestScript)(nil),         // 41: sarnaut.content.v1.QuestScript
+	(*ScriptTrigger)(nil),       // 42: sarnaut.content.v1.ScriptTrigger
+	nil,                         // 43: sarnaut.content.v1.Zone.ExtraEntry
+	nil,                         // 44: sarnaut.content.v1.Placement.ExtraEntry
+	nil,                         // 45: sarnaut.content.v1.SpawnTable.ExtraEntry
+	nil,                         // 46: sarnaut.content.v1.Ability.ExtraEntry
+	nil,                         // 47: sarnaut.content.v1.Faction.ExtraEntry
+	nil,                         // 48: sarnaut.content.v1.Mob.ExtraEntry
+	nil,                         // 49: sarnaut.content.v1.ChargenOption.ExtraEntry
+	nil,                         // 50: sarnaut.content.v1.Item.ExtraEntry
+	nil,                         // 51: sarnaut.content.v1.LootTable.ExtraEntry
+	nil,                         // 52: sarnaut.content.v1.MobKind.ExtraEntry
+	nil,                         // 53: sarnaut.content.v1.LevelCurve.ExtraEntry
+	nil,                         // 54: sarnaut.content.v1.Route.ExtraEntry
+	nil,                         // 55: sarnaut.content.v1.Locale.ExtraEntry
+	nil,                         // 56: sarnaut.content.v1.Quest.ExtraEntry
 }
 var file_sarnaut_content_v1_content_proto_depIdxs = []int32{
-	4,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
-	4,  // 1: sarnaut.content.v1.Zone.bounds_min:type_name -> sarnaut.content.v1.Vec3
-	4,  // 2: sarnaut.content.v1.Zone.bounds_max:type_name -> sarnaut.content.v1.Vec3
-	33, // 3: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
-	4,  // 4: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
-	34, // 5: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
-	7,  // 6: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
-	35, // 7: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
-	9,  // 8: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
-	36, // 9: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
-	11, // 10: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
-	37, // 11: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
-	38, // 12: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
-	4,  // 13: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
-	14, // 14: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
-	39, // 15: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
-	15, // 16: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
-	40, // 17: sarnaut.content.v1.Item.extra:type_name -> sarnaut.content.v1.Item.ExtraEntry
+	5,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
+	5,  // 1: sarnaut.content.v1.Zone.bounds_min:type_name -> sarnaut.content.v1.Vec3
+	5,  // 2: sarnaut.content.v1.Zone.bounds_max:type_name -> sarnaut.content.v1.Vec3
+	43, // 3: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
+	5,  // 4: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
+	44, // 5: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
+	8,  // 6: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
+	45, // 7: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
+	10, // 8: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
+	46, // 9: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
+	12, // 10: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
+	47, // 11: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
+	48, // 12: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
+	5,  // 13: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
+	15, // 14: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
+	49, // 15: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
+	16, // 16: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
+	50, // 17: sarnaut.content.v1.Item.extra:type_name -> sarnaut.content.v1.Item.ExtraEntry
 	1,  // 18: sarnaut.content.v1.LootNode.kind:type_name -> sarnaut.content.v1.LootNodeKind
-	18, // 19: sarnaut.content.v1.LootNode.entries:type_name -> sarnaut.content.v1.LootNode
-	18, // 20: sarnaut.content.v1.LootTable.root:type_name -> sarnaut.content.v1.LootNode
-	41, // 21: sarnaut.content.v1.LootTable.extra:type_name -> sarnaut.content.v1.LootTable.ExtraEntry
+	19, // 19: sarnaut.content.v1.LootNode.entries:type_name -> sarnaut.content.v1.LootNode
+	19, // 20: sarnaut.content.v1.LootTable.root:type_name -> sarnaut.content.v1.LootNode
+	51, // 21: sarnaut.content.v1.LootTable.extra:type_name -> sarnaut.content.v1.LootTable.ExtraEntry
 	2,  // 22: sarnaut.content.v1.MobKind.taxonomy:type_name -> sarnaut.content.v1.MobTaxonomyKind
-	42, // 23: sarnaut.content.v1.MobKind.extra:type_name -> sarnaut.content.v1.MobKind.ExtraEntry
-	21, // 24: sarnaut.content.v1.LevelCurve.points:type_name -> sarnaut.content.v1.LevelCurvePoint
-	43, // 25: sarnaut.content.v1.LevelCurve.extra:type_name -> sarnaut.content.v1.LevelCurve.ExtraEntry
-	4,  // 26: sarnaut.content.v1.RoutePoint.position:type_name -> sarnaut.content.v1.Vec3
-	23, // 27: sarnaut.content.v1.Route.points:type_name -> sarnaut.content.v1.RoutePoint
-	24, // 28: sarnaut.content.v1.Route.links:type_name -> sarnaut.content.v1.RouteLink
-	44, // 29: sarnaut.content.v1.Route.extra:type_name -> sarnaut.content.v1.Route.ExtraEntry
-	26, // 30: sarnaut.content.v1.Locale.entries:type_name -> sarnaut.content.v1.LocaleEntry
-	45, // 31: sarnaut.content.v1.Locale.extra:type_name -> sarnaut.content.v1.Locale.ExtraEntry
+	52, // 23: sarnaut.content.v1.MobKind.extra:type_name -> sarnaut.content.v1.MobKind.ExtraEntry
+	22, // 24: sarnaut.content.v1.LevelCurve.points:type_name -> sarnaut.content.v1.LevelCurvePoint
+	53, // 25: sarnaut.content.v1.LevelCurve.extra:type_name -> sarnaut.content.v1.LevelCurve.ExtraEntry
+	5,  // 26: sarnaut.content.v1.RoutePoint.position:type_name -> sarnaut.content.v1.Vec3
+	24, // 27: sarnaut.content.v1.Route.points:type_name -> sarnaut.content.v1.RoutePoint
+	25, // 28: sarnaut.content.v1.Route.links:type_name -> sarnaut.content.v1.RouteLink
+	54, // 29: sarnaut.content.v1.Route.extra:type_name -> sarnaut.content.v1.Route.ExtraEntry
+	27, // 30: sarnaut.content.v1.Locale.entries:type_name -> sarnaut.content.v1.LocaleEntry
+	55, // 31: sarnaut.content.v1.Locale.extra:type_name -> sarnaut.content.v1.Locale.ExtraEntry
 	3,  // 32: sarnaut.content.v1.QuestObjective.kind:type_name -> sarnaut.content.v1.QuestObjectiveKind
-	30, // 33: sarnaut.content.v1.QuestRewards.mandatory_items:type_name -> sarnaut.content.v1.QuestRewardItem
-	30, // 34: sarnaut.content.v1.QuestRewards.alternative_items:type_name -> sarnaut.content.v1.QuestRewardItem
-	29, // 35: sarnaut.content.v1.Quest.prerequisites:type_name -> sarnaut.content.v1.QuestPrerequisite
-	28, // 36: sarnaut.content.v1.Quest.objectives:type_name -> sarnaut.content.v1.QuestObjective
-	31, // 37: sarnaut.content.v1.Quest.rewards:type_name -> sarnaut.content.v1.QuestRewards
-	46, // 38: sarnaut.content.v1.Quest.extra:type_name -> sarnaut.content.v1.Quest.ExtraEntry
-	39, // [39:39] is the sub-list for method output_type
-	39, // [39:39] is the sub-list for method input_type
-	39, // [39:39] is the sub-list for extension type_name
-	39, // [39:39] is the sub-list for extension extendee
-	0,  // [0:39] is the sub-list for field type_name
+	31, // 33: sarnaut.content.v1.QuestRewards.mandatory_items:type_name -> sarnaut.content.v1.QuestRewardItem
+	31, // 34: sarnaut.content.v1.QuestRewards.alternative_items:type_name -> sarnaut.content.v1.QuestRewardItem
+	30, // 35: sarnaut.content.v1.Quest.prerequisites:type_name -> sarnaut.content.v1.QuestPrerequisite
+	29, // 36: sarnaut.content.v1.Quest.objectives:type_name -> sarnaut.content.v1.QuestObjective
+	32, // 37: sarnaut.content.v1.Quest.rewards:type_name -> sarnaut.content.v1.QuestRewards
+	56, // 38: sarnaut.content.v1.Quest.extra:type_name -> sarnaut.content.v1.Quest.ExtraEntry
+	4,  // 39: sarnaut.content.v1.ScriptNode.tier:type_name -> sarnaut.content.v1.CoverageTier
+	37, // 40: sarnaut.content.v1.ScriptNode.fields:type_name -> sarnaut.content.v1.ScriptField
+	38, // 41: sarnaut.content.v1.ScriptField.value:type_name -> sarnaut.content.v1.ScriptValue
+	34, // 42: sarnaut.content.v1.ScriptValue.decimal:type_name -> sarnaut.content.v1.Decimal
+	35, // 43: sarnaut.content.v1.ScriptValue.reference:type_name -> sarnaut.content.v1.ContentRef
+	36, // 44: sarnaut.content.v1.ScriptValue.node:type_name -> sarnaut.content.v1.ScriptNode
+	39, // 45: sarnaut.content.v1.ScriptValue.list:type_name -> sarnaut.content.v1.ScriptValueList
+	38, // 46: sarnaut.content.v1.ScriptValueList.values:type_name -> sarnaut.content.v1.ScriptValue
+	40, // 47: sarnaut.content.v1.QuestScript.counters:type_name -> sarnaut.content.v1.QuestCounterBinding
+	36, // 48: sarnaut.content.v1.QuestScript.start_impacts:type_name -> sarnaut.content.v1.ScriptNode
+	36, // 49: sarnaut.content.v1.QuestScript.trigger_agents:type_name -> sarnaut.content.v1.ScriptNode
+	36, // 50: sarnaut.content.v1.ScriptTrigger.root:type_name -> sarnaut.content.v1.ScriptNode
+	51, // [51:51] is the sub-list for method output_type
+	51, // [51:51] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_content_v1_content_proto_init() }
@@ -3662,13 +4485,23 @@ func file_sarnaut_content_v1_content_proto_init() {
 	if File_sarnaut_content_v1_content_proto != nil {
 		return
 	}
+	file_sarnaut_content_v1_content_proto_msgTypes[33].OneofWrappers = []any{
+		(*ScriptValue_Integer)(nil),
+		(*ScriptValue_Decimal)(nil),
+		(*ScriptValue_Boolean)(nil),
+		(*ScriptValue_Text)(nil),
+		(*ScriptValue_Reference)(nil),
+		(*ScriptValue_DurationMs)(nil),
+		(*ScriptValue_Node)(nil),
+		(*ScriptValue_List)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_content_v1_content_proto_rawDesc), len(file_sarnaut_content_v1_content_proto_rawDesc)),
-			NumEnums:      4,
-			NumMessages:   43,
+			NumEnums:      5,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
