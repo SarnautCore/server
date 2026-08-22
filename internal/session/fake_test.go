@@ -2,12 +2,14 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/inventory"
 )
 
 // fakeAuthority stands in for the auth service. It is deliberately literal
@@ -164,6 +166,75 @@ func (characters *fakeCharacters) Checkpoint(snapshot charstore.Snapshot) bool {
 		characters.stored[snapshot.State.CharacterID] = snapshot
 	}
 	return true
+}
+
+// UpdateInventory gives session command tests the same atomic seam used by
+// charstore.InventoryService in the shard composition. Keeping it on the
+// character fake means zone admission and inventory moves observe one stored
+// snapshot instead of two unrelated in-memory repositories.
+func (characters *fakeCharacters) UpdateInventory(
+	ctx context.Context,
+	characterID uuid.UUID,
+	update func(inventory.MoveState) (inventory.MoveState, error),
+) (inventory.MoveState, error) {
+	characters.mu.Lock()
+	defer characters.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return inventory.MoveState{}, err
+	}
+	if update == nil {
+		return inventory.MoveState{}, fmt.Errorf("session fake: inventory update callback is required")
+	}
+	snapshot, ok := characters.stored[characterID]
+	if !ok {
+		return inventory.MoveState{}, charstore.ErrNotFound
+	}
+	if snapshot.HUD == nil {
+		return inventory.MoveState{}, fmt.Errorf("session fake: character has no HUD state")
+	}
+	partitions := make([]int32, len(snapshot.HUD.BagLayout.Partitions))
+	for index, partition := range snapshot.HUD.BagLayout.Partitions {
+		partitions[index] = partition.Capacity
+	}
+	layout := inventory.BagLayout{
+		ID:         inventory.BagLayoutID(snapshot.HUD.BagLayout.LayoutID),
+		Partitions: partitions,
+	}
+	current := inventory.MoveState{
+		Items:   append([]inventory.InventoryItem(nil), snapshot.Inventory...),
+		SaveSeq: snapshot.State.SaveSeq,
+		Layout:  layout,
+	}
+	replacement, err := update(current)
+	if err != nil {
+		return inventory.MoveState{}, err
+	}
+	if replacement.SaveSeq != current.SaveSeq+1 {
+		return inventory.MoveState{}, fmt.Errorf(
+			"session fake: inventory save sequence %d did not advance %d by one",
+			replacement.SaveSeq,
+			current.SaveSeq,
+		)
+	}
+	if replacement.Layout.ID != layout.ID || len(replacement.Layout.Partitions) != len(layout.Partitions) {
+		return inventory.MoveState{}, fmt.Errorf("session fake: inventory move changed bag layout")
+	}
+	for index := range layout.Partitions {
+		if replacement.Layout.Partitions[index] != layout.Partitions[index] {
+			return inventory.MoveState{}, fmt.Errorf("session fake: inventory move changed bag layout")
+		}
+	}
+	snapshot.Inventory = append([]charstore.InventoryItem(nil), replacement.Items...)
+	snapshot.State.SaveSeq = replacement.SaveSeq
+	characters.stored[characterID] = snapshot
+	return inventory.MoveState{
+		Items:   append([]inventory.InventoryItem(nil), replacement.Items...),
+		SaveSeq: replacement.SaveSeq,
+		Layout: inventory.BagLayout{
+			ID:         layout.ID,
+			Partitions: append([]int32(nil), layout.Partitions...),
+		},
+	}, nil
 }
 
 func (characters *fakeCharacters) saved(characterID uuid.UUID) (charstore.Snapshot, bool) {

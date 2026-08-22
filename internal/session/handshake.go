@@ -12,6 +12,7 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/transport"
@@ -311,6 +312,11 @@ type Server struct {
 	// protocol/session.md §5.7. Required for the same reason: a session with
 	// nowhere to save is a session that loses the player's progress silently.
 	Characters CharacterStore
+
+	// InventoryMoves commits flat-slot moves against the persisted bag layout
+	// and SaveSeq. It uses the same charstore inventory service as loot and
+	// quest rewards.
+	InventoryMoves *inventory.MoveService
 
 	// SaveInterval is checkpoint S2's cadence. Zero means
 	// [DefaultSaveInterval].
@@ -619,16 +625,18 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	}
 
 	reader := &commandReader{
-		connection:  connection,
-		writer:      writer,
-		zone:        zone,
-		combat:      binding.Combat,
-		loot:        binding.Loot,
-		quests:      binding.Quests,
-		scripts:     binding.Scripts,
-		character:   character,
-		entityID:    entityID,
-		characterID: admission.CharacterID,
+		connection:     connection,
+		writer:         writer,
+		zone:           zone,
+		combat:         binding.Combat,
+		loot:           binding.Loot,
+		quests:         binding.Quests,
+		scripts:        binding.Scripts,
+		character:      character,
+		entityID:       entityID,
+		characterID:    admission.CharacterID,
+		characterName:  admission.CharacterName,
+		inventoryMoves: server.InventoryMoves,
 		actionRevision: func() uint64 {
 			revision, _ := hudRevision(character.current().State.SaveSeq)
 			return revision

@@ -206,6 +206,10 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	if err != nil {
 		return err
 	}
+	moves, err := inventory.NewMoveService(bags, inventory.LimitsFromPack(content))
+	if err != nil {
+		return err
+	}
 	lootModule := loot.New(logger, zone, lootRules, bags, loot.Options{
 		WorldSeed: settings.World.WorldSeed,
 	})
@@ -275,6 +279,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		Zones:               map[string]session.ZoneBinding{zone.ID(): binding},
 		Authority:           session.NewNATSAuthority(clients.NATS, instanceID, settings.Auth.RequestTimeout),
 		Characters:          characters,
+		InventoryMoves:      moves,
 		SaveInterval:        settings.Persistence.SaveInterval,
 		Logger:              logger,
 	}

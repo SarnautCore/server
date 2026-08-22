@@ -156,6 +156,9 @@ func (character *characterSession) adopt(inventory []charstore.InventoryItem, cu
 	defer character.mu.Unlock()
 	character.loaded.Inventory = inventory
 	character.loaded.State.Currency = currency
+	if saveSeq > character.loaded.State.SaveSeq {
+		character.loaded.State.SaveSeq = saveSeq
+	}
 	if saveSeq > character.saveSeq {
 		character.saveSeq = saveSeq
 	}

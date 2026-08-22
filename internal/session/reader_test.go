@@ -185,6 +185,7 @@ type sessionHarness struct {
 	serverWrites <-chan struct{}
 	entityID     uint64
 	spawnX       float32
+	characters   *fakeCharacters
 	results      chan error
 }
 
@@ -226,6 +227,11 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
+	characters := newFakeCharacters(testTemplate(charstore.Vec3{}))
+	moves, err := inventory.NewMoveService(characters, inventory.LimitsFromPack(content))
+	if err != nil {
+		t.Fatalf("NewMoveService() error = %v", err)
+	}
 	questModule := quests.New(slog.New(slog.DiscardHandler), zone, catalog, bags)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -244,10 +250,11 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 		Zones: map[string]ZoneBinding{
 			zone.ID(): {World: zone, Combat: combatModule, Quests: questModule},
 		},
-		Authority:  authority,
-		Characters: newFakeCharacters(testTemplate(charstore.Vec3{})),
-		Logger:     slog.New(slog.DiscardHandler),
-		sessions:   newSessionRegistry(),
+		Authority:      authority,
+		Characters:     characters,
+		InventoryMoves: moves,
+		Logger:         slog.New(slog.DiscardHandler),
+		sessions:       newSessionRegistry(),
 	}
 	results := make(chan error, 1)
 	go func() { results <- server.handle(ctx, serverSide) }()
@@ -278,6 +285,7 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 		serverWrites: serverSide.writeStarted,
 		entityID:     entered.GetOwnEntityId(),
 		spawnX:       entered.GetSpawnPosition().GetX(),
+		characters:   characters,
 		results:      results,
 	}
 }

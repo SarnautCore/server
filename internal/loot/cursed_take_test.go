@@ -23,12 +23,21 @@ func TestCursedItemSurvivesOfferTakeAndPersistence(t *testing.T) {
 			Health:      120,
 			SaveSeq:     1,
 		},
+		HUD: &charstore.CharacterHUDState{
+			Bag: &charstore.ItemInstance{InstanceID: 100, ItemID: "item.bag.test-12", Quantity: 1},
+			BagLayout: charstore.ProductBagLayout{
+				LayoutID:   "bag.layout.12",
+				Partitions: []charstore.BagPartition{{Ordinal: 0, Capacity: 12}},
+			},
+			Stats:   charstore.EmptyOrderedStats(),
+			Actions: charstore.EmptyOrderedActionSlots(),
+		},
 	})
 	if err != nil {
 		t.Fatalf("seed character: %v", err)
 	}
 
-	awarder, err := charstore.NewInventoryService(repository, cursedItemLimits{}, 8)
+	awarder, err := charstore.NewInventoryService(repository, cursedItemLimits{})
 	if err != nil {
 		t.Fatalf("NewInventoryService() error = %v", err)
 	}

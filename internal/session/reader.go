@@ -10,6 +10,7 @@ import (
 
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
+	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/transport"
@@ -86,7 +87,9 @@ type commandReader struct {
 	entityID  uint64
 	// characterID is the identity the quest log is keyed on. Unlike entityID it
 	// survives a reconnect, which is why the quest module is addressed by it.
-	characterID uuid.UUID
+	characterID    uuid.UUID
+	characterName  string
+	inventoryMoves *inventory.MoveService
 	// scripts is the impact interpreter's adapter, nil on the default
 	// composition. Its methods are nil-receiver safe, so verbs call it
 	// without a branch.
@@ -192,6 +195,11 @@ func (reader *commandReader) dispatch(message *sarnautv1.ClientMessage, via carr
 			return reader.refuseCarrier("quest_abandon", via)
 		}
 		return reader.questAbandon(payload.QuestAbandon)
+	case *sarnautv1.ClientMessage_InventoryMove:
+		if via != carrierReliable {
+			return reader.refuseCarrier("inventory_move", via)
+		}
+		return reader.inventoryMove(payload.InventoryMove)
 	case *sarnautv1.ClientMessage_TargetSelect:
 		if via != carrierReliable {
 			return reader.refuseCarrier("target_select", via)
