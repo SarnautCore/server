@@ -361,6 +361,7 @@ func (granter *bagGranter) GrantQuestReward(
 		result = charstore.QuestGrantResult{
 			Inventory:  granter.pack(held),
 			Currency:   state.Currency,
+			Level:      state.Level,
 			Experience: state.Experience,
 			Honor:      state.Honor,
 			SaveSeq:    state.SaveSeq,

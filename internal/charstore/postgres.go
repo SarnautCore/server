@@ -337,8 +337,9 @@ func (store *postgresStore) SaveCharacterState(ctx context.Context, state Charac
 	const statement = `
 		INSERT INTO shard.character_state (
 			character_id, zone_id, position_x, position_y, position_z,
-			heading, level, experience, health, currency, honor, save_seq, saved_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+			heading, level, experience, health, currency, honor,
+			resurrection_sickness_ms, save_seq, saved_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
 		ON CONFLICT (character_id) DO UPDATE SET
 			zone_id    = EXCLUDED.zone_id,
 			position_x = EXCLUDED.position_x,
@@ -350,6 +351,7 @@ func (store *postgresStore) SaveCharacterState(ctx context.Context, state Charac
 			health     = EXCLUDED.health,
 			currency   = EXCLUDED.currency,
 			honor      = EXCLUDED.honor,
+			resurrection_sickness_ms = EXCLUDED.resurrection_sickness_ms,
 			save_seq   = EXCLUDED.save_seq,
 			saved_at   = now()
 		WHERE character_state.save_seq < EXCLUDED.save_seq`
@@ -368,6 +370,7 @@ func (store *postgresStore) SaveCharacterState(ctx context.Context, state Charac
 		state.Health,
 		state.Currency,
 		state.Honor,
+		state.ResurrectionSicknessMS,
 		state.SaveSeq,
 	)
 	if err != nil {
@@ -379,10 +382,51 @@ func (store *postgresStore) SaveCharacterState(ctx context.Context, state Charac
 	return nil
 }
 
+func (store *postgresStore) SaveCharacterCheckpoint(ctx context.Context, state CharacterState) error {
+	// Checkpoints are asynchronous and can overtake an irreversible transaction.
+	// They therefore update only fields owned by the live simulation. Progression,
+	// currency, honor, inventory and quests remain under their transactional
+	// writers even when this checkpoint carries the larger local sequence.
+	const statement = `
+		UPDATE shard.character_state SET
+			zone_id    = $2,
+			position_x = $3,
+			position_y = $4,
+			position_z = $5,
+			heading    = $6,
+			health     = $7,
+			resurrection_sickness_ms = $8,
+			save_seq   = $9,
+			saved_at   = now()
+		WHERE character_id = $1 AND save_seq < $9`
+
+	tag, err := store.db.Exec(
+		ctx,
+		statement,
+		state.CharacterID,
+		state.ZoneID,
+		state.Position.X,
+		state.Position.Y,
+		state.Position.Z,
+		state.Heading,
+		state.Health,
+		state.ResurrectionSicknessMS,
+		state.SaveSeq,
+	)
+	if err != nil {
+		return classifyConstraint(err, "save character checkpoint")
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrStaleSave
+	}
+	return nil
+}
+
 func (store *postgresStore) LoadCharacterState(ctx context.Context, characterID uuid.UUID) (CharacterState, error) {
 	const statement = `
 		SELECT character_id, zone_id, position_x, position_y, position_z,
-		       heading, level, experience, health, currency, honor, save_seq, saved_at
+		       heading, level, experience, health, currency, honor,
+		       resurrection_sickness_ms, save_seq, saved_at
 		FROM shard.character_state WHERE character_id = $1`
 
 	var state CharacterState
@@ -398,6 +442,7 @@ func (store *postgresStore) LoadCharacterState(ctx context.Context, characterID 
 		&state.Health,
 		&state.Currency,
 		&state.Honor,
+		&state.ResurrectionSicknessMS,
 		&state.SaveSeq,
 		&state.SavedAt,
 	)
@@ -408,6 +453,49 @@ func (store *postgresStore) LoadCharacterState(ctx context.Context, characterID 
 		return CharacterState{}, fmt.Errorf("scan character state: %w", err)
 	}
 	return state, nil
+}
+
+func (store *postgresStore) RecordProgressionGrant(
+	ctx context.Context,
+	grant ProgressionGrant,
+) (ProgressionGrant, bool, error) {
+	const insert = `
+		INSERT INTO shard.character_progression_grants (
+			character_id, execution_key, amount, created_at
+		) VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()))
+		ON CONFLICT (character_id, execution_key) DO NOTHING`
+
+	tag, err := store.db.Exec(
+		ctx, insert, grant.CharacterID, grant.ExecutionKey, grant.Amount, nullTime(grant.CreatedAt),
+	)
+	if err != nil {
+		return ProgressionGrant{}, false, classifyConstraint(err, "record progression grant")
+	}
+	if tag.RowsAffected() == 1 {
+		if grant.CreatedAt.IsZero() {
+			const timestamp = `
+				SELECT created_at FROM shard.character_progression_grants
+				WHERE character_id = $1 AND execution_key = $2`
+			if err := store.db.QueryRow(ctx, timestamp, grant.CharacterID, grant.ExecutionKey).
+				Scan(&grant.CreatedAt); err != nil {
+				return ProgressionGrant{}, false, fmt.Errorf("read progression grant timestamp: %w", err)
+			}
+		}
+		return grant, true, nil
+	}
+
+	const existing = `
+		SELECT character_id, execution_key, amount, created_at
+		FROM shard.character_progression_grants
+		WHERE character_id = $1 AND execution_key = $2`
+	var stored ProgressionGrant
+	err = store.db.QueryRow(ctx, existing, grant.CharacterID, grant.ExecutionKey).Scan(
+		&stored.CharacterID, &stored.ExecutionKey, &stored.Amount, &stored.CreatedAt,
+	)
+	if err != nil {
+		return ProgressionGrant{}, false, fmt.Errorf("read replayed progression grant: %w", err)
+	}
+	return stored, false, nil
 }
 
 func (store *postgresStore) PutItem(ctx context.Context, characterID uuid.UUID, item InventoryItem) error {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -297,7 +298,10 @@ func TestOwnershipSurvivesAReconnect(t *testing.T) {
 
 	// Reconnect: a new entity for the same character.
 	reconnected, _ := fixture.zone.Join()
-	if err := fixture.combat.Admit(reconnected); err != nil {
+	if err := fixture.combat.Admit(reconnected, combat.PlayerAdmission{
+		Level: 1, Health: combat.MaxHealth(1, 1), MaxHealth: combat.MaxHealth(1, 1),
+		AbilityIDs: fixture.combat.Rules().AbilityIDs(),
+	}); err != nil {
 		t.Fatalf("Admit() error = %v", err)
 	}
 	fixture.loot.Admit(reconnected, fixture.ownerID)

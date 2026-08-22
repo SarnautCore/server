@@ -36,6 +36,7 @@ type Grant struct {
 type GrantResult struct {
 	Inventory  []inventory.InventoryItem
 	Currency   int64
+	Level      int32
 	Experience int64
 	Honor      int64
 	SaveSeq    int64

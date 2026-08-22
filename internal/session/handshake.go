@@ -13,6 +13,7 @@ import (
 	sarnautv1 "github.com/SarnautCore/server/gen/sarnaut/v1"
 	"github.com/SarnautCore/server/internal/combat"
 	"github.com/SarnautCore/server/internal/loot"
+	"github.com/SarnautCore/server/internal/progression"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
@@ -338,6 +339,13 @@ type Server struct {
 type ZoneBinding struct {
 	World  *world.Zone
 	Combat *combat.Module
+	// CombatLoadouts resolves the chargen option's authored starting actions.
+	// A combat-enabled zone refuses admission when it is absent or incomplete.
+	CombatLoadouts CombatLoadoutSource
+	// Progression commits irreversible experience off the tick path and then
+	// projects the committed level into this zone. Nil makes
+	// ImpactAddExperience fail closed at its script host.
+	Progression *ProgressionWorker
 	// Loot may be nil, in which case a session in this zone refuses loot_take
 	// and ignores interact. A zone with combat but no loot is a legal, if
 	// unrewarding, composition; a zone with loot but no combat has nothing to
@@ -351,6 +359,31 @@ type ZoneBinding struct {
 	// catalog keeps skipping count-special definitions. Wiring it is the
 	// flag-on path that lets those quests progress.
 	Scripts *ScriptDriver
+}
+
+// CombatLoadoutSource is the pack-backed starting-action seam. Level,
+// experience, and health come from persisted state; only the action identities
+// come from the selected chargen row.
+type CombatLoadoutSource interface {
+	StartingCombat(chargenOptionID string) (CombatLoadout, bool)
+}
+
+// CombatLoadouts is a small immutable implementation suitable for a compiled
+// pack adapter and focused compositions.
+type CombatLoadouts map[string]CombatLoadout
+
+// CombatLoadout is the authored combat state that is not stored per character.
+// Current health is durable; maximum health and the initial action identities
+// come from the selected chargen product.
+type CombatLoadout struct {
+	AbilityIDs []string
+	MaxHealth  int32
+}
+
+func (loadouts CombatLoadouts) StartingCombat(chargenOptionID string) (CombatLoadout, bool) {
+	loadout, ok := loadouts[chargenOptionID]
+	loadout.AbilityIDs = append([]string(nil), loadout.AbilityIDs...)
+	return loadout, ok
 }
 
 // DefaultSaveInterval is protocol/session.md's PERIODIC_SAVE_INTERVAL_S: the
@@ -544,10 +577,45 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	// in place before any peer sees it — and before S0, which persists the
 	// level and health the combat module just gave it.
 	if binding.Combat != nil {
-		if err := binding.Combat.Admit(entityID); err != nil {
+		if binding.CombatLoadouts == nil {
+			return fmt.Errorf("session: combat zone %s has no authored chargen loadouts", zone.ID())
+		}
+		loadout, ok := binding.CombatLoadouts.StartingCombat(admission.ChargenOptionID)
+		if !ok || len(loadout.AbilityIDs) == 0 || loadout.MaxHealth <= 0 {
+			return fmt.Errorf("session: chargen option %q has no authored combat loadout",
+				admission.ChargenOptionID)
+		}
+		if err := binding.Combat.Admit(entityID, combat.PlayerAdmission{
+			Level:      characterLevel(loaded.State.Level),
+			Experience: loaded.State.Experience,
+			Health:     loaded.State.Health,
+			MaxHealth:  loadout.MaxHealth,
+			AbilityIDs: loadout.AbilityIDs,
+			ResurrectionSicknessRemaining: time.Duration(
+				loaded.State.ResurrectionSicknessMS,
+			) * time.Millisecond,
+		}); err != nil {
 			return err
 		}
 		defer binding.Combat.Release(entityID)
+	}
+	if binding.Progression != nil {
+		if err := binding.Progression.Admit(
+			entityID,
+			admission.CharacterID,
+			func(change progression.Change) error {
+				// Cache the durable state first. If the world projection fails, a
+				// later checkpoint must still never write the old XP over it.
+				character.adoptProgression(change)
+				if binding.Combat == nil {
+					return nil
+				}
+				return binding.Combat.ApplyPlayerProgression(entityID, change.Current.Level)
+			},
+		); err != nil {
+			return err
+		}
+		defer binding.Progression.Release(entityID)
 	}
 	// Loot ownership is keyed on the character, not on this entity or this
 	// session, because mechanics/loot.md rule 5.8.4 keeps a corpse yours across

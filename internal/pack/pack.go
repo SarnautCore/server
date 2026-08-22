@@ -8,6 +8,7 @@ package pack
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -41,10 +42,11 @@ var (
 
 // Table names this reader knows.
 const (
-	tableZone        = "zone"
-	tablePlacements  = "placements"
-	tableSpawnTables = "spawn-tables"
-	tableChargen     = "chargen"
+	tableZone              = "zone"
+	tablePlacements        = "placements"
+	tableSpawnTables       = "spawn-tables"
+	tableChargen           = "chargen"
+	tablePlayerProgression = "player-progression"
 )
 
 // spawnTimeNever marks an authored object as inert: it exists in the pack, and
@@ -76,6 +78,12 @@ type LoadoutItem struct {
 	Slot     string
 }
 
+// StartingAction is one authored action grant and its optional bar slot.
+type StartingAction struct {
+	ActionID  string
+	SlotIndex *uint32
+}
+
 // ChargenOption is one selectable character-creation option (ADR 0032).
 //
 // Every field here is a fact the auth service would otherwise have to hold as a
@@ -83,23 +91,27 @@ type LoadoutItem struct {
 // spawns, what it starts with. Adding the second playable option is a data
 // change.
 type ChargenOption struct {
-	ID              string
-	Race            string
-	Class           string
-	Sex             string
-	Faction         string
-	Enabled         bool
-	NameKey         string
-	DescriptionKey  string
-	VisualRef       string
-	SpawnZoneID     string
-	SpawnPosition   Vec3
-	SpawnHeading    float32
-	StartingLevel   uint32
-	StartingStats   []StatValue
-	StartingLoadout []LoadoutItem
-	StartingAbility []string
-	StartingQuests  []string
+	ID                string
+	Race              string
+	Class             string
+	Sex               string
+	Faction           string
+	Enabled           bool
+	NameKey           string
+	DescriptionKey    string
+	VisualRef         string
+	SpawnZoneID       string
+	SpawnPosition     Vec3
+	SpawnHeading      float32
+	StartingLevel     uint32
+	StartingHealth    uint32
+	StartingMaxHealth uint32
+	StartingStats     []StatValue
+	StartingLoadout   []LoadoutItem
+	StartingAbility   []string
+	StartingActions   []StartingAction
+	PassiveAbilityIDs []string
+	StartingQuests    []string
 }
 
 // Zone is what a pack says about the zone it describes.
@@ -120,22 +132,24 @@ type Options struct {
 
 // Pack is a loaded, fully validated content pack.
 type Pack struct {
-	id             string
-	directory      string
-	keepExtra      bool
-	zone           Zone
-	npcs           []NPCSpawn
-	abilities      map[string]Ability
-	abilityIDs     []string
-	factions       map[string]Faction
-	mobs           map[string]Mob
-	chargen        []ChargenOption
-	lootTables     map[string]LootTable
-	quests         map[string]Quest
-	questScripts   map[string]QuestScript
-	scriptTriggers map[string]ScriptTrigger
-	spawnTableMobs map[string][]string
-	mapLocators    map[mapLocatorKey]Vec3
+	id                   string
+	directory            string
+	keepExtra            bool
+	zone                 Zone
+	npcs                 []NPCSpawn
+	abilities            map[string]Ability
+	abilityIDs           []string
+	factions             map[string]Faction
+	mobs                 map[string]Mob
+	chargen              []ChargenOption
+	lootTables           map[string]LootTable
+	quests               map[string]Quest
+	questScripts         map[string]QuestScript
+	scriptTriggers       map[string]ScriptTrigger
+	spawnTableMobs       map[string][]string
+	mapLocators          map[mapLocatorKey]Vec3
+	playerProgression    PlayerProgression
+	hasPlayerProgression bool
 	// items is the table handle, not its contents. See Pack.Item: the item
 	// tree is the one table this reader never materializes.
 	items *table
@@ -266,28 +280,34 @@ func Load(directory string, options Options) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	playerProgression, hasPlayerProgression, err := readPlayerProgression(tables)
+	if err != nil {
+		return nil, err
+	}
 	items, err := readItems(tables)
 	if err != nil {
 		return nil, err
 	}
 	return &Pack{
-		id:             document.PackID,
-		directory:      directory,
-		keepExtra:      document.KeepExtra,
-		zone:           zone,
-		npcs:           npcs,
-		abilities:      abilities,
-		abilityIDs:     abilityIDs,
-		factions:       factions,
-		mobs:           mobs,
-		chargen:        chargen,
-		lootTables:     lootTables,
-		quests:         quests,
-		questScripts:   questScripts,
-		scriptTriggers: scriptTriggers,
-		spawnTableMobs: spawnTableMobs,
-		mapLocators:    mapLocators,
-		items:          items,
+		id:                   document.PackID,
+		directory:            directory,
+		keepExtra:            document.KeepExtra,
+		zone:                 zone,
+		npcs:                 npcs,
+		abilities:            abilities,
+		abilityIDs:           abilityIDs,
+		factions:             factions,
+		mobs:                 mobs,
+		chargen:              chargen,
+		lootTables:           lootTables,
+		quests:               quests,
+		questScripts:         questScripts,
+		scriptTriggers:       scriptTriggers,
+		spawnTableMobs:       spawnTableMobs,
+		mapLocators:          mapLocators,
+		playerProgression:    playerProgression,
+		hasPlayerProgression: hasPlayerProgression,
+		items:                items,
 	}, nil
 }
 
@@ -302,6 +322,12 @@ func (p *Pack) KeepExtra() bool { return p.keepExtra }
 
 // Zone describes the zone this pack covers.
 func (p *Pack) Zone() Zone { return p.zone }
+
+// PlayerProgression returns the pack's one complete authored player curve and
+// lifecycle row. Packs built before this runtime table return false.
+func (p *Pack) PlayerProgression() (PlayerProgression, bool) {
+	return p.playerProgression, p.hasPlayerProgression
+}
 
 // NPCSpawns lists every mob the shard should register, sorted by placement id
 // and then by mob id. Inert placements and inert spawn-table entries are
@@ -331,7 +357,22 @@ func (p *Pack) SpawnTableMobs(id string) []string {
 // that a shard-only pack still loads (ADR 0032).
 func (p *Pack) ChargenOptions() []ChargenOption {
 	result := make([]ChargenOption, len(p.chargen))
-	copy(result, p.chargen)
+	for index, option := range p.chargen {
+		result[index] = option
+		result[index].StartingStats = append([]StatValue(nil), option.StartingStats...)
+		result[index].StartingLoadout = append([]LoadoutItem(nil), option.StartingLoadout...)
+		result[index].StartingAbility = append([]string(nil), option.StartingAbility...)
+		result[index].StartingActions = make([]StartingAction, len(option.StartingActions))
+		for actionIndex, action := range option.StartingActions {
+			result[index].StartingActions[actionIndex] = action
+			if action.SlotIndex != nil {
+				slot := *action.SlotIndex
+				result[index].StartingActions[actionIndex].SlotIndex = &slot
+			}
+		}
+		result[index].PassiveAbilityIDs = append([]string(nil), option.PassiveAbilityIDs...)
+		result[index].StartingQuests = append([]string(nil), option.StartingQuests...)
+	}
 	return result
 }
 
@@ -347,21 +388,49 @@ func readChargen(tables map[string]*table) ([]ChargenOption, error) {
 			return nil, fmt.Errorf("%w: decode chargen row: %w", ErrMalformedTable, err)
 		}
 		option := ChargenOption{
-			ID:              row.GetId(),
-			Race:            row.GetRace(),
-			Class:           row.GetClass(),
-			Sex:             row.GetSex(),
-			Faction:         row.GetFaction(),
-			Enabled:         row.GetEnabled(),
-			NameKey:         row.GetNameKey(),
-			DescriptionKey:  row.GetDescriptionKey(),
-			VisualRef:       row.GetVisualRef(),
-			SpawnZoneID:     row.GetSpawnZoneId(),
-			SpawnPosition:   vec3(row.GetSpawnPosition()),
-			SpawnHeading:    row.GetSpawnHeading(),
-			StartingLevel:   row.GetStartingLevel(),
-			StartingAbility: row.GetStartingAbilities(),
-			StartingQuests:  row.GetStartingQuests(),
+			ID:                row.GetId(),
+			Race:              row.GetRace(),
+			Class:             row.GetClass(),
+			Sex:               row.GetSex(),
+			Faction:           row.GetFaction(),
+			Enabled:           row.GetEnabled(),
+			NameKey:           row.GetNameKey(),
+			DescriptionKey:    row.GetDescriptionKey(),
+			VisualRef:         row.GetVisualRef(),
+			SpawnZoneID:       row.GetSpawnZoneId(),
+			SpawnPosition:     vec3(row.GetSpawnPosition()),
+			SpawnHeading:      row.GetSpawnHeading(),
+			StartingLevel:     row.GetStartingLevel(),
+			StartingHealth:    row.GetStats().GetHealth(),
+			StartingMaxHealth: row.GetStats().GetMaxHealth(),
+			StartingAbility:   row.GetStartingAbilities(),
+			PassiveAbilityIDs: row.GetPassiveAbilityIds(),
+			StartingQuests:    row.GetStartingQuests(),
+		}
+		if stats := row.GetStats(); stats != nil {
+			if stats.GetHealth() == 0 || stats.GetMaxHealth() == 0 ||
+				stats.GetHealth() > stats.GetMaxHealth() || stats.GetMaxHealth() > math.MaxInt32 {
+				return nil, fmt.Errorf(
+					"%w: chargen option %q has invalid authored health %d/%d",
+					ErrMalformedTable, row.GetId(), stats.GetHealth(), stats.GetMaxHealth(),
+				)
+			}
+		}
+		for _, action := range row.GetStartingActions() {
+			if action.GetActionId() == "" {
+				return nil, fmt.Errorf(
+					"%w: chargen option %q has an empty starting action",
+					ErrMalformedTable, row.GetId(),
+				)
+			}
+			var slotIndex *uint32
+			if action.SlotIndex != nil {
+				value := action.GetSlotIndex()
+				slotIndex = &value
+			}
+			option.StartingActions = append(option.StartingActions, StartingAction{
+				ActionID: action.GetActionId(), SlotIndex: slotIndex,
+			})
 		}
 		for _, stat := range row.GetStartingStats() {
 			option.StartingStats = append(option.StartingStats, StatValue{

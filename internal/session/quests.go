@@ -167,22 +167,34 @@ func (reader *commandReader) runQuestVerb(verb func(context.Context) (quests.Res
 		// is recorded for an operator and not turned into a frame of its own.
 		reader.span.RecordError(err)
 	}
+	if result.Committed {
+		reader.lastQuestVerbCommitted = true
+
+		// Adopt the durable result before any network write can fail. Teardown
+		// checkpoints must never put the pre-reward snapshot back over a reward
+		// that already committed.
+		if reader.character != nil {
+			reader.character.adoptQuestReward(
+				result.Inventory, result.Currency, result.Level, result.Experience, result.SaveSeq,
+			)
+		}
+		if result.Level > 0 && reader.combat != nil {
+			if err := reader.combat.ApplyPlayerProgression(reader.entityID, uint32(result.Level)); err != nil {
+				// The database and session cache are already authoritative. Record a
+				// failed live projection, but keep the session alive and let the next
+				// admission reconcile combat from the stored level.
+				reader.span.RecordError(err)
+			}
+		}
+		if reader.quests != nil && reader.characterID != uuid.Nil {
+			reader.quests.InventoryChanged(reader.characterID, result.Inventory)
+		}
+	}
 	if err := reader.writeQuestUpdate(result.Update); err != nil {
 		return err
 	}
 	if !result.Committed {
 		return nil
-	}
-	reader.lastQuestVerbCommitted = true
-
-	// The session's own view of the bag is refreshed before the client is told
-	// anything else, so the next periodic checkpoint saves what the grant
-	// committed rather than what zone entry loaded.
-	if reader.character != nil {
-		reader.character.adopt(result.Inventory, result.Currency, result.SaveSeq)
-	}
-	if reader.quests != nil && reader.characterID != uuid.Nil {
-		reader.quests.InventoryChanged(reader.characterID, result.Inventory)
 	}
 	return reader.writer.write(&sarnautv1.ServerMessage{
 		Payload: &sarnautv1.ServerMessage_InventoryUpdate{

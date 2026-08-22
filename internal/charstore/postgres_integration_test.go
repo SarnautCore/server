@@ -308,8 +308,11 @@ func TestSaveWorkerPersistsAgainstPostgres(t *testing.T) {
 	worker := charstore.NewSaveWorker(repository, discardLogger(), 8, 5*time.Second)
 	characterID := uuid.New()
 
-	snapshot := snapshotFor(characterID, 1)
-	snapshot.Inventory = []charstore.InventoryItem{{Slot: 0, ItemID: "item.sword-rusty", Quantity: 1}}
+	if err := repository.SaveCharacterState(t.Context(), snapshotFor(characterID, 1).State); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+	snapshot := snapshotFor(characterID, 2)
+	snapshot.State.Position.X = 12
 	if !worker.Enqueue(snapshot) {
 		t.Fatal("Enqueue was refused with an empty queue")
 	}
@@ -322,8 +325,11 @@ func TestSaveWorkerPersistsAgainstPostgres(t *testing.T) {
 		t.Fatalf("worker counters: persisted %d failed %d dropped %d, want 1/0/0",
 			worker.Persisted(), worker.Failed(), worker.Dropped())
 	}
-	if _, err := repository.LoadCharacterState(t.Context(), characterID); err != nil {
+	state, err := repository.LoadCharacterState(t.Context(), characterID)
+	if err != nil {
 		t.Errorf("load state after the worker ran: %v", err)
+	} else if state.SaveSeq != 2 || state.Position.X != 12 {
+		t.Errorf("checkpoint state = %+v, want save_seq 2 at x=12", state)
 	}
 }
 

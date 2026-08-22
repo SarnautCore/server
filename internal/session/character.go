@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/SarnautCore/server/internal/charstore"
+	"github.com/SarnautCore/server/internal/progression"
 	"github.com/SarnautCore/server/internal/world"
 )
 
@@ -34,13 +35,14 @@ type CharacterStore interface {
 //
 // It exists so that "build a snapshot from what the zone has now" is written
 // once. Position, heading, level and health come from the zone under its own
-// mutex; inventory, purse and quests come from the load, and from whatever has
-// committed a change to them since.
+// mutex; inventory, purse, progression and quests come from the load and from
+// whatever has committed a change to them since.
 //
-// That last clause is why there is a mutex here. A loot take commits the bag
-// and the purse from the reliable reader's goroutine, and the periodic saver
-// builds a snapshot on its own; without the lock the saver would race the take
-// and could write the pre-loot bag back over it.
+// That last clause is why there is a mutex here. Reward transactions commit on
+// reliable-reader or worker goroutines while the periodic saver and response
+// projection read the same cache. The lock makes each view internally
+// consistent. The store separately prevents asynchronous checkpoints from
+// writing any irreversible field.
 type characterSession struct {
 	characterID uuid.UUID
 	zoneID      string
@@ -116,10 +118,11 @@ func (character *characterSession) snapshotFrom(view world.CharacterSnapshot) ch
 	state.ZoneID = character.zoneID
 	state.Position = charstore.Vec3{X: view.Position.X, Y: view.Position.Y, Z: view.Position.Z}
 	state.Heading = view.Heading
-	if view.Level > 0 {
+	if view.Level >= uint32(state.Level) {
 		state.Level = int32(view.Level)
 	}
 	state.Health = view.Health
+	state.ResurrectionSicknessMS = view.ResurrectionSicknessRemaining.Milliseconds()
 	state.SaveSeq = character.saveSeq
 	return charstore.Snapshot{
 		State:     state,
@@ -132,18 +135,62 @@ func (character *characterSession) snapshotFrom(view world.CharacterSnapshot) ch
 // committed: the bag and purse a loot take wrote, and the sequence it wrote
 // them at (mechanics/loot.md rule 5.6).
 //
-// Without it the session would keep checkpointing the inventory it loaded at
-// zone entry, and the first periodic save after a loot would either be rejected
-// as stale or, worse, overwrite the looted bag with the empty one. The sequence
-// only ever moves forward: two writers racing both try to advance to the same
-// number, and the anti-clobber rule of ADR 0031 §6 decides which one wins.
+// Without it later rewards and client projections would keep using the
+// inventory loaded at zone entry. The durable sequence is tracked separately
+// from locally issued checkpoint sequences because a transaction may commit
+// while higher-numbered checkpoints are still queued.
 func (character *characterSession) adopt(inventory []charstore.InventoryItem, currency, saveSeq int64) {
 	character.mu.Lock()
 	defer character.mu.Unlock()
+	if saveSeq < character.loaded.State.SaveSeq {
+		return
+	}
 	character.loaded.Inventory = inventory
 	character.loaded.State.Currency = currency
+	character.loaded.State.SaveSeq = saveSeq
 	if saveSeq > character.saveSeq {
 		character.saveSeq = saveSeq
+	}
+}
+
+func (character *characterSession) adoptQuestReward(
+	inventory []charstore.InventoryItem,
+	currency int64,
+	level int32,
+	experience, saveSeq int64,
+) {
+	character.mu.Lock()
+	defer character.mu.Unlock()
+	if saveSeq < character.loaded.State.SaveSeq {
+		return
+	}
+	character.loaded.Inventory = inventory
+	character.loaded.State.Currency = currency
+	if level > 0 {
+		character.loaded.State.Level = level
+		character.loaded.State.Experience = experience
+	}
+	character.loaded.State.SaveSeq = saveSeq
+	if saveSeq > character.saveSeq {
+		character.saveSeq = saveSeq
+	}
+}
+
+// adoptProgression folds a committed experience transaction into the session
+// cache. The service returns Change only after its transaction commits, so the
+// world and later reward projections can use the new level immediately.
+func (character *characterSession) adoptProgression(change progression.Change) {
+	character.mu.Lock()
+	defer character.mu.Unlock()
+	if change.CharacterID != character.characterID ||
+		change.SaveSeq < character.loaded.State.SaveSeq {
+		return
+	}
+	character.loaded.State.Level = int32(change.Current.Level)
+	character.loaded.State.Experience = change.Current.Experience
+	character.loaded.State.SaveSeq = change.SaveSeq
+	if change.SaveSeq > character.saveSeq {
+		character.saveSeq = change.SaveSeq
 	}
 }
 

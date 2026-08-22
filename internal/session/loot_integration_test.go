@@ -268,7 +268,14 @@ func newLootFixture(t *testing.T) *lootFixture {
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "loot-slice-test",
 		Zones: map[string]session.ZoneBinding{
-			zone.ID(): {World: zone, Combat: combatModule, Loot: lootModule},
+			zone.ID(): {
+				World: zone, Combat: combatModule, Loot: lootModule,
+				CombatLoadouts: session.CombatLoadouts{
+					"chargen.league.warrior": {
+						AbilityIDs: combatModule.Rules().AbilityIDs(), MaxHealth: combat.MaxHealth(1, 1),
+					},
+				},
+			},
 		},
 		Authority:  newLootAuthority(),
 		Characters: characters,

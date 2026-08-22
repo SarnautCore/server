@@ -83,9 +83,22 @@ func (repository *failingRepository) SaveCharacterState(context.Context, charsto
 	return nil
 }
 
+func (repository *failingRepository) SaveCharacterCheckpoint(context.Context, charstore.CharacterState) error {
+	repository.fail("SaveCharacterCheckpoint")
+	return nil
+}
+
 func (repository *failingRepository) LoadCharacterState(context.Context, uuid.UUID) (charstore.CharacterState, error) {
 	repository.fail("LoadCharacterState")
 	return charstore.CharacterState{}, nil
+}
+
+func (repository *failingRepository) RecordProgressionGrant(
+	context.Context,
+	charstore.ProgressionGrant,
+) (charstore.ProgressionGrant, bool, error) {
+	repository.fail("RecordProgressionGrant")
+	return charstore.ProgressionGrant{}, false, nil
 }
 
 func (repository *failingRepository) PutItem(context.Context, uuid.UUID, charstore.InventoryItem) error {

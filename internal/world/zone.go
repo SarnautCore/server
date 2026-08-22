@@ -183,13 +183,14 @@ func (zone *Zone) JoinAt(position Vec3, heading float32) (uint64, Vec3) {
 // save checkpoint writes about the simulation, and nothing more: inventory and
 // quests belong to their own modules.
 type CharacterSnapshot struct {
-	EntityID  uint64
-	Position  Vec3
-	Heading   float32
-	Level     uint32
-	Health    int32
-	MaxHealth int32
-	Alive     bool
+	EntityID                      uint64
+	Position                      Vec3
+	Heading                       float32
+	Level                         uint32
+	Health                        int32
+	MaxHealth                     int32
+	Alive                         bool
+	ResurrectionSicknessRemaining time.Duration
 }
 
 // SnapshotCharacter copies one player entity under a single acquisition of the
@@ -217,7 +218,21 @@ func (zone *Zone) SnapshotCharacter(entityID uint64) (CharacterSnapshot, bool) {
 		Health:    current.Health,
 		MaxHealth: current.MaxHealth,
 		Alive:     current.Alive,
+		ResurrectionSicknessRemaining: remainingDuration(
+			current.ResurrectionSicknessUntilTick, zone.serverTick, zone.config.TickInterval,
+		),
 	}, true
+}
+
+func remainingDuration(until, current uint64, interval time.Duration) time.Duration {
+	if until <= current {
+		return 0
+	}
+	remaining := until - current
+	if remaining > uint64((time.Duration(1<<63-1))/interval) {
+		return time.Duration(1<<63 - 1)
+	}
+	return time.Duration(remaining) * interval
 }
 
 // EntityCount reports how many entities the zone holds.

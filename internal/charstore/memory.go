@@ -21,8 +21,14 @@ type memoryState struct {
 	names        map[string]uuid.UUID
 	reservations map[string]NameReservation
 	states       map[uuid.UUID]CharacterState
+	progression  map[progressionGrantKey]ProgressionGrant
 	inventory    map[uuid.UUID]map[int32]InventoryItem
 	quests       map[uuid.UUID]map[string]QuestState
+}
+
+type progressionGrantKey struct {
+	characterID  uuid.UUID
+	executionKey string
 }
 
 func newMemoryState() *memoryState {
@@ -33,6 +39,7 @@ func newMemoryState() *memoryState {
 		names:        make(map[string]uuid.UUID),
 		reservations: make(map[string]NameReservation),
 		states:       make(map[uuid.UUID]CharacterState),
+		progression:  make(map[progressionGrantKey]ProgressionGrant),
 		inventory:    make(map[uuid.UUID]map[int32]InventoryItem),
 		quests:       make(map[uuid.UUID]map[string]QuestState),
 	}
@@ -46,6 +53,7 @@ func (state *memoryState) clone() *memoryState {
 		names:        copyMap(state.names),
 		reservations: copyMap(state.reservations),
 		states:       copyMap(state.states),
+		progression:  copyMap(state.progression),
 		inventory:    make(map[uuid.UUID]map[int32]InventoryItem, len(state.inventory)),
 		quests:       make(map[uuid.UUID]map[string]QuestState, len(state.quests)),
 	}
@@ -341,6 +349,31 @@ func (store *memoryStore) SaveCharacterState(ctx context.Context, incoming Chara
 	return nil
 }
 
+func (store *memoryStore) SaveCharacterCheckpoint(ctx context.Context, incoming CharacterState) error {
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	stored, ok := state.states[incoming.CharacterID]
+	if !ok || stored.SaveSeq >= incoming.SaveSeq {
+		return ErrStaleSave
+	}
+	if err := validateResurrectionSickness(incoming.ResurrectionSicknessMS); err != nil {
+		return err
+	}
+	stored.ZoneID = incoming.ZoneID
+	stored.Position = incoming.Position
+	stored.Heading = incoming.Heading
+	stored.Health = incoming.Health
+	stored.ResurrectionSicknessMS = incoming.ResurrectionSicknessMS
+	stored.SaveSeq = incoming.SaveSeq
+	stored.SavedAt = store.timestamp()
+	state.states[incoming.CharacterID] = stored
+	return nil
+}
+
 func (store *memoryStore) LoadCharacterState(ctx context.Context, characterID uuid.UUID) (CharacterState, error) {
 	state, done, err := store.begin(ctx)
 	if err != nil {
@@ -353,6 +386,40 @@ func (store *memoryStore) LoadCharacterState(ctx context.Context, characterID uu
 		return CharacterState{}, ErrNotFound
 	}
 	return stored, nil
+}
+
+func (store *memoryStore) RecordProgressionGrant(
+	ctx context.Context,
+	incoming ProgressionGrant,
+) (ProgressionGrant, bool, error) {
+	state, done, err := store.begin(ctx)
+	if err != nil {
+		return ProgressionGrant{}, false, err
+	}
+	defer done()
+
+	if incoming.CharacterID == uuid.Nil || incoming.ExecutionKey == "" || incoming.Amount <= 0 {
+		return ProgressionGrant{}, false, fmt.Errorf(
+			"%w: malformed progression grant", ErrConstraintViolated,
+		)
+	}
+	if _, exists := state.states[incoming.CharacterID]; !exists {
+		return ProgressionGrant{}, false, fmt.Errorf(
+			"%w: progression grant has no character state", ErrConstraintViolated,
+		)
+	}
+	key := progressionGrantKey{
+		characterID:  incoming.CharacterID,
+		executionKey: incoming.ExecutionKey,
+	}
+	if stored, exists := state.progression[key]; exists {
+		return stored, false, nil
+	}
+	if incoming.CreatedAt.IsZero() {
+		incoming.CreatedAt = store.timestamp()
+	}
+	state.progression[key] = incoming
+	return incoming, true, nil
 }
 
 func (store *memoryStore) PutItem(ctx context.Context, characterID uuid.UUID, item InventoryItem) error {

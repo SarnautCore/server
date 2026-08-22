@@ -38,24 +38,26 @@ const (
 type RowType int32
 
 const (
-	RowType_ROW_TYPE_UNSPECIFIED    RowType = 0
-	RowType_ROW_TYPE_ZONE           RowType = 1
-	RowType_ROW_TYPE_PLACEMENT      RowType = 2
-	RowType_ROW_TYPE_SPAWN_TABLE    RowType = 3
-	RowType_ROW_TYPE_CHARGEN_OPTION RowType = 4
-	RowType_ROW_TYPE_ABILITY        RowType = 5
-	RowType_ROW_TYPE_FACTION        RowType = 6
-	RowType_ROW_TYPE_MOB            RowType = 7
-	RowType_ROW_TYPE_ITEM           RowType = 8
-	RowType_ROW_TYPE_LOOT_TABLE     RowType = 9
-	RowType_ROW_TYPE_QUEST          RowType = 10
-	RowType_ROW_TYPE_ROUTE          RowType = 11
-	RowType_ROW_TYPE_LOCALE         RowType = 12
-	RowType_ROW_TYPE_MOB_KIND       RowType = 13
-	RowType_ROW_TYPE_LEVEL_CURVE    RowType = 14
-	RowType_ROW_TYPE_QUEST_SCRIPT   RowType = 15
-	RowType_ROW_TYPE_SCRIPT_TRIGGER RowType = 16
-	RowType_ROW_TYPE_MAP_LOCATOR    RowType = 17
+	RowType_ROW_TYPE_UNSPECIFIED        RowType = 0
+	RowType_ROW_TYPE_ZONE               RowType = 1
+	RowType_ROW_TYPE_PLACEMENT          RowType = 2
+	RowType_ROW_TYPE_SPAWN_TABLE        RowType = 3
+	RowType_ROW_TYPE_CHARGEN_OPTION     RowType = 4
+	RowType_ROW_TYPE_ABILITY            RowType = 5
+	RowType_ROW_TYPE_FACTION            RowType = 6
+	RowType_ROW_TYPE_MOB                RowType = 7
+	RowType_ROW_TYPE_ITEM               RowType = 8
+	RowType_ROW_TYPE_LOOT_TABLE         RowType = 9
+	RowType_ROW_TYPE_QUEST              RowType = 10
+	RowType_ROW_TYPE_ROUTE              RowType = 11
+	RowType_ROW_TYPE_LOCALE             RowType = 12
+	RowType_ROW_TYPE_MOB_KIND           RowType = 13
+	RowType_ROW_TYPE_LEVEL_CURVE        RowType = 14
+	RowType_ROW_TYPE_QUEST_SCRIPT       RowType = 15
+	RowType_ROW_TYPE_SCRIPT_TRIGGER     RowType = 16
+	RowType_ROW_TYPE_MAP_LOCATOR        RowType = 17
+	RowType_ROW_TYPE_NATIVE_ACTION      RowType = 18
+	RowType_ROW_TYPE_PLAYER_PROGRESSION RowType = 19
 )
 
 // Enum value maps for RowType.
@@ -79,26 +81,30 @@ var (
 		15: "ROW_TYPE_QUEST_SCRIPT",
 		16: "ROW_TYPE_SCRIPT_TRIGGER",
 		17: "ROW_TYPE_MAP_LOCATOR",
+		18: "ROW_TYPE_NATIVE_ACTION",
+		19: "ROW_TYPE_PLAYER_PROGRESSION",
 	}
 	RowType_value = map[string]int32{
-		"ROW_TYPE_UNSPECIFIED":    0,
-		"ROW_TYPE_ZONE":           1,
-		"ROW_TYPE_PLACEMENT":      2,
-		"ROW_TYPE_SPAWN_TABLE":    3,
-		"ROW_TYPE_CHARGEN_OPTION": 4,
-		"ROW_TYPE_ABILITY":        5,
-		"ROW_TYPE_FACTION":        6,
-		"ROW_TYPE_MOB":            7,
-		"ROW_TYPE_ITEM":           8,
-		"ROW_TYPE_LOOT_TABLE":     9,
-		"ROW_TYPE_QUEST":          10,
-		"ROW_TYPE_ROUTE":          11,
-		"ROW_TYPE_LOCALE":         12,
-		"ROW_TYPE_MOB_KIND":       13,
-		"ROW_TYPE_LEVEL_CURVE":    14,
-		"ROW_TYPE_QUEST_SCRIPT":   15,
-		"ROW_TYPE_SCRIPT_TRIGGER": 16,
-		"ROW_TYPE_MAP_LOCATOR":    17,
+		"ROW_TYPE_UNSPECIFIED":        0,
+		"ROW_TYPE_ZONE":               1,
+		"ROW_TYPE_PLACEMENT":          2,
+		"ROW_TYPE_SPAWN_TABLE":        3,
+		"ROW_TYPE_CHARGEN_OPTION":     4,
+		"ROW_TYPE_ABILITY":            5,
+		"ROW_TYPE_FACTION":            6,
+		"ROW_TYPE_MOB":                7,
+		"ROW_TYPE_ITEM":               8,
+		"ROW_TYPE_LOOT_TABLE":         9,
+		"ROW_TYPE_QUEST":              10,
+		"ROW_TYPE_ROUTE":              11,
+		"ROW_TYPE_LOCALE":             12,
+		"ROW_TYPE_MOB_KIND":           13,
+		"ROW_TYPE_LEVEL_CURVE":        14,
+		"ROW_TYPE_QUEST_SCRIPT":       15,
+		"ROW_TYPE_SCRIPT_TRIGGER":     16,
+		"ROW_TYPE_MAP_LOCATOR":        17,
+		"ROW_TYPE_NATIVE_ACTION":      18,
+		"ROW_TYPE_PLAYER_PROGRESSION": 19,
 	}
 )
 
@@ -1613,6 +1619,374 @@ func (x *LoadoutEntry) GetSlot() string {
 	return ""
 }
 
+type ExactStatEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Stat          string                 `protobuf:"bytes,1,opt,name=stat,proto3" json:"stat,omitempty"`
+	Value         *Decimal               `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExactStatEntry) Reset() {
+	*x = ExactStatEntry{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExactStatEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExactStatEntry) ProtoMessage() {}
+
+func (x *ExactStatEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExactStatEntry.ProtoReflect.Descriptor instead.
+func (*ExactStatEntry) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ExactStatEntry) GetStat() string {
+	if x != nil {
+		return x.Stat
+	}
+	return ""
+}
+
+func (x *ExactStatEntry) GetValue() *Decimal {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+type WeaponProfile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MinimumDamage *Decimal               `protobuf:"bytes,1,opt,name=minimum_damage,json=minimumDamage,proto3" json:"minimum_damage,omitempty"`
+	MaximumDamage *Decimal               `protobuf:"bytes,2,opt,name=maximum_damage,json=maximumDamage,proto3" json:"maximum_damage,omitempty"`
+	SpeedMs       *Decimal               `protobuf:"bytes,3,opt,name=speed_ms,json=speedMs,proto3" json:"speed_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WeaponProfile) Reset() {
+	*x = WeaponProfile{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WeaponProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WeaponProfile) ProtoMessage() {}
+
+func (x *WeaponProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WeaponProfile.ProtoReflect.Descriptor instead.
+func (*WeaponProfile) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *WeaponProfile) GetMinimumDamage() *Decimal {
+	if x != nil {
+		return x.MinimumDamage
+	}
+	return nil
+}
+
+func (x *WeaponProfile) GetMaximumDamage() *Decimal {
+	if x != nil {
+		return x.MaximumDamage
+	}
+	return nil
+}
+
+func (x *WeaponProfile) GetSpeedMs() *Decimal {
+	if x != nil {
+		return x.SpeedMs
+	}
+	return nil
+}
+
+type StartingResource struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Initial       *Decimal               `protobuf:"bytes,2,opt,name=initial,proto3" json:"initial,omitempty"`
+	Maximum       *Decimal               `protobuf:"bytes,3,opt,name=maximum,proto3" json:"maximum,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartingResource) Reset() {
+	*x = StartingResource{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartingResource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartingResource) ProtoMessage() {}
+
+func (x *StartingResource) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartingResource.ProtoReflect.Descriptor instead.
+func (*StartingResource) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *StartingResource) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *StartingResource) GetInitial() *Decimal {
+	if x != nil {
+		return x.Initial
+	}
+	return nil
+}
+
+func (x *StartingResource) GetMaximum() *Decimal {
+	if x != nil {
+		return x.Maximum
+	}
+	return nil
+}
+
+// StartingCharacterStats is the complete fail-closed first-spawn state plus
+// the exact inputs used by PhysicalScale, PhysicalRangedScale and
+// WeaponSpeedScale. It replaces server-side starting-stat constants.
+type StartingCharacterStats struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Health           uint32                 `protobuf:"varint,1,opt,name=health,proto3" json:"health,omitempty"`
+	MaxHealth        uint32                 `protobuf:"varint,2,opt,name=max_health,json=maxHealth,proto3" json:"max_health,omitempty"`
+	Resource         *StartingResource      `protobuf:"bytes,3,opt,name=resource,proto3" json:"resource,omitempty"`
+	Innate           []*ExactStatEntry      `protobuf:"bytes,4,rep,name=innate,proto3" json:"innate,omitempty"`
+	Armor            *Decimal               `protobuf:"bytes,5,opt,name=armor,proto3" json:"armor,omitempty"`
+	Resistances      []*ExactStatEntry      `protobuf:"bytes,6,rep,name=resistances,proto3" json:"resistances,omitempty"`
+	HitDice          *Decimal               `protobuf:"bytes,7,opt,name=hit_dice,json=hitDice,proto3" json:"hit_dice,omitempty"`
+	ManaDice         *Decimal               `protobuf:"bytes,8,opt,name=mana_dice,json=manaDice,proto3" json:"mana_dice,omitempty"`
+	BaseStatValue    *Decimal               `protobuf:"bytes,9,opt,name=base_stat_value,json=baseStatValue,proto3" json:"base_stat_value,omitempty"`
+	WeaponDpsDefault *Decimal               `protobuf:"bytes,10,opt,name=weapon_dps_default,json=weaponDpsDefault,proto3" json:"weapon_dps_default,omitempty"`
+	FairyScaler      *Decimal               `protobuf:"bytes,11,opt,name=fairy_scaler,json=fairyScaler,proto3" json:"fairy_scaler,omitempty"`
+	Mainhand         *WeaponProfile         `protobuf:"bytes,12,opt,name=mainhand,proto3" json:"mainhand,omitempty"`
+	Ranged           *WeaponProfile         `protobuf:"bytes,13,opt,name=ranged,proto3" json:"ranged,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *StartingCharacterStats) Reset() {
+	*x = StartingCharacterStats{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartingCharacterStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartingCharacterStats) ProtoMessage() {}
+
+func (x *StartingCharacterStats) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartingCharacterStats.ProtoReflect.Descriptor instead.
+func (*StartingCharacterStats) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *StartingCharacterStats) GetHealth() uint32 {
+	if x != nil {
+		return x.Health
+	}
+	return 0
+}
+
+func (x *StartingCharacterStats) GetMaxHealth() uint32 {
+	if x != nil {
+		return x.MaxHealth
+	}
+	return 0
+}
+
+func (x *StartingCharacterStats) GetResource() *StartingResource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetInnate() []*ExactStatEntry {
+	if x != nil {
+		return x.Innate
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetArmor() *Decimal {
+	if x != nil {
+		return x.Armor
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetResistances() []*ExactStatEntry {
+	if x != nil {
+		return x.Resistances
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetHitDice() *Decimal {
+	if x != nil {
+		return x.HitDice
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetManaDice() *Decimal {
+	if x != nil {
+		return x.ManaDice
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetBaseStatValue() *Decimal {
+	if x != nil {
+		return x.BaseStatValue
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetWeaponDpsDefault() *Decimal {
+	if x != nil {
+		return x.WeaponDpsDefault
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetFairyScaler() *Decimal {
+	if x != nil {
+		return x.FairyScaler
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetMainhand() *WeaponProfile {
+	if x != nil {
+		return x.Mainhand
+	}
+	return nil
+}
+
+func (x *StartingCharacterStats) GetRanged() *WeaponProfile {
+	if x != nil {
+		return x.Ranged
+	}
+	return nil
+}
+
+type StartingAction struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Absent when retail grants the action but does not assign an action-bar slot.
+	SlotIndex     *uint32 `protobuf:"varint,1,opt,name=slot_index,json=slotIndex,proto3,oneof" json:"slot_index,omitempty"`
+	ActionId      string  `protobuf:"bytes,2,opt,name=action_id,json=actionId,proto3" json:"action_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartingAction) Reset() {
+	*x = StartingAction{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartingAction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartingAction) ProtoMessage() {}
+
+func (x *StartingAction) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartingAction.ProtoReflect.Descriptor instead.
+func (*StartingAction) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *StartingAction) GetSlotIndex() uint32 {
+	if x != nil && x.SlotIndex != nil {
+		return *x.SlotIndex
+	}
+	return 0
+}
+
+func (x *StartingAction) GetActionId() string {
+	if x != nil {
+		return x.ActionId
+	}
+	return ""
+}
+
 // ChargenOption is one selectable character-creation option (ADR 0032).
 //
 // Every starting item, stat, ability and spawn coordinate is a field here
@@ -1652,14 +2026,17 @@ type ChargenOption struct {
 	// Canonical ability ids granted at creation.
 	StartingAbilities []string `protobuf:"bytes,17,rep,name=starting_abilities,json=startingAbilities,proto3" json:"starting_abilities,omitempty"`
 	// Canonical quest ids granted at first spawn.
-	StartingQuests []string `protobuf:"bytes,18,rep,name=starting_quests,json=startingQuests,proto3" json:"starting_quests,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	StartingQuests    []string                `protobuf:"bytes,18,rep,name=starting_quests,json=startingQuests,proto3" json:"starting_quests,omitempty"`
+	Stats             *StartingCharacterStats `protobuf:"bytes,19,opt,name=stats,proto3" json:"stats,omitempty"`
+	StartingActions   []*StartingAction       `protobuf:"bytes,20,rep,name=starting_actions,json=startingActions,proto3" json:"starting_actions,omitempty"`
+	PassiveAbilityIds []string                `protobuf:"bytes,21,rep,name=passive_ability_ids,json=passiveAbilityIds,proto3" json:"passive_ability_ids,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ChargenOption) Reset() {
 	*x = ChargenOption{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[12]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1671,7 +2048,7 @@ func (x *ChargenOption) String() string {
 func (*ChargenOption) ProtoMessage() {}
 
 func (x *ChargenOption) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[12]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1684,7 +2061,7 @@ func (x *ChargenOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChargenOption.ProtoReflect.Descriptor instead.
 func (*ChargenOption) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{12}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ChargenOption) GetId() string {
@@ -1813,6 +2190,530 @@ func (x *ChargenOption) GetStartingQuests() []string {
 	return nil
 }
 
+func (x *ChargenOption) GetStats() *StartingCharacterStats {
+	if x != nil {
+		return x.Stats
+	}
+	return nil
+}
+
+func (x *ChargenOption) GetStartingActions() []*StartingAction {
+	if x != nil {
+		return x.StartingActions
+	}
+	return nil
+}
+
+func (x *ChargenOption) GetPassiveAbilityIds() []string {
+	if x != nil {
+		return x.PassiveAbilityIds
+	}
+	return nil
+}
+
+// ActionCooldown is optional on NativeAction. A present message with a zero
+// duration is an authored zero cooldown; an absent message means no cooldown.
+type ActionCooldown struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	DurationMs uint32                 `protobuf:"varint,1,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	GroupId    string                 `protobuf:"bytes,2,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	Scaler     string                 `protobuf:"bytes,3,opt,name=scaler,proto3" json:"scaler,omitempty"`
+	// Source scaler input before any scaler is applied.
+	Base          *Decimal `protobuf:"bytes,4,opt,name=base,proto3" json:"base,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ActionCooldown) Reset() {
+	*x = ActionCooldown{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActionCooldown) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActionCooldown) ProtoMessage() {}
+
+func (x *ActionCooldown) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActionCooldown.ProtoReflect.Descriptor instead.
+func (*ActionCooldown) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ActionCooldown) GetDurationMs() uint32 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *ActionCooldown) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+func (x *ActionCooldown) GetScaler() string {
+	if x != nil {
+		return x.Scaler
+	}
+	return ""
+}
+
+func (x *ActionCooldown) GetBase() *Decimal {
+	if x != nil {
+		return x.Base
+	}
+	return nil
+}
+
+type ActionResource struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Kind               string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Cost               *Decimal               `protobuf:"bytes,2,opt,name=cost,proto3" json:"cost,omitempty"`
+	ScaleByWeaponSpeed bool                   `protobuf:"varint,3,opt,name=scale_by_weapon_speed,json=scaleByWeaponSpeed,proto3" json:"scale_by_weapon_speed,omitempty"`
+	Source             string                 `protobuf:"bytes,4,opt,name=source,proto3" json:"source,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ActionResource) Reset() {
+	*x = ActionResource{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActionResource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActionResource) ProtoMessage() {}
+
+func (x *ActionResource) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActionResource.ProtoReflect.Descriptor instead.
+func (*ActionResource) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ActionResource) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ActionResource) GetCost() *Decimal {
+	if x != nil {
+		return x.Cost
+	}
+	return nil
+}
+
+func (x *ActionResource) GetScaleByWeaponSpeed() bool {
+	if x != nil {
+		return x.ScaleByWeaponSpeed
+	}
+	return false
+}
+
+func (x *ActionResource) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+// NativeAction is the source-free mechanics contract shared by class spells,
+// auto-attacks and item actions. Ordered impact nodes preserve authored order.
+type NativeAction struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	TargetPolicy      string                 `protobuf:"bytes,2,opt,name=target_policy,json=targetPolicy,proto3" json:"target_policy,omitempty"`
+	RangeM            *Decimal               `protobuf:"bytes,3,opt,name=range_m,json=rangeM,proto3" json:"range_m,omitempty"`
+	CastDurationMs    uint32                 `protobuf:"varint,4,opt,name=cast_duration_ms,json=castDurationMs,proto3" json:"cast_duration_ms,omitempty"`
+	ChannelDurationMs uint32                 `protobuf:"varint,5,opt,name=channel_duration_ms,json=channelDurationMs,proto3" json:"channel_duration_ms,omitempty"`
+	RequiresLos       bool                   `protobuf:"varint,6,opt,name=requires_los,json=requiresLos,proto3" json:"requires_los,omitempty"`
+	IsAggro           bool                   `protobuf:"varint,7,opt,name=is_aggro,json=isAggro,proto3" json:"is_aggro,omitempty"`
+	TriggersGcd       bool                   `protobuf:"varint,8,opt,name=triggers_gcd,json=triggersGcd,proto3" json:"triggers_gcd,omitempty"`
+	IgnoresGcd        bool                   `protobuf:"varint,9,opt,name=ignores_gcd,json=ignoresGcd,proto3" json:"ignores_gcd,omitempty"`
+	ActionGroupId     string                 `protobuf:"bytes,10,opt,name=action_group_id,json=actionGroupId,proto3" json:"action_group_id,omitempty"`
+	Cooldown          *ActionCooldown        `protobuf:"bytes,11,opt,name=cooldown,proto3" json:"cooldown,omitempty"`
+	Resource          *ActionResource        `protobuf:"bytes,12,opt,name=resource,proto3" json:"resource,omitempty"`
+	TargetImpacts     []*ScriptNode          `protobuf:"bytes,13,rep,name=target_impacts,json=targetImpacts,proto3" json:"target_impacts,omitempty"`
+	PrepareDurationMs uint32                 `protobuf:"varint,14,opt,name=prepare_duration_ms,json=prepareDurationMs,proto3" json:"prepare_duration_ms,omitempty"`
+	CasterConditions  []*ScriptNode          `protobuf:"bytes,15,rep,name=caster_conditions,json=casterConditions,proto3" json:"caster_conditions,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *NativeAction) Reset() {
+	*x = NativeAction{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NativeAction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NativeAction) ProtoMessage() {}
+
+func (x *NativeAction) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NativeAction.ProtoReflect.Descriptor instead.
+func (*NativeAction) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *NativeAction) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *NativeAction) GetTargetPolicy() string {
+	if x != nil {
+		return x.TargetPolicy
+	}
+	return ""
+}
+
+func (x *NativeAction) GetRangeM() *Decimal {
+	if x != nil {
+		return x.RangeM
+	}
+	return nil
+}
+
+func (x *NativeAction) GetCastDurationMs() uint32 {
+	if x != nil {
+		return x.CastDurationMs
+	}
+	return 0
+}
+
+func (x *NativeAction) GetChannelDurationMs() uint32 {
+	if x != nil {
+		return x.ChannelDurationMs
+	}
+	return 0
+}
+
+func (x *NativeAction) GetRequiresLos() bool {
+	if x != nil {
+		return x.RequiresLos
+	}
+	return false
+}
+
+func (x *NativeAction) GetIsAggro() bool {
+	if x != nil {
+		return x.IsAggro
+	}
+	return false
+}
+
+func (x *NativeAction) GetTriggersGcd() bool {
+	if x != nil {
+		return x.TriggersGcd
+	}
+	return false
+}
+
+func (x *NativeAction) GetIgnoresGcd() bool {
+	if x != nil {
+		return x.IgnoresGcd
+	}
+	return false
+}
+
+func (x *NativeAction) GetActionGroupId() string {
+	if x != nil {
+		return x.ActionGroupId
+	}
+	return ""
+}
+
+func (x *NativeAction) GetCooldown() *ActionCooldown {
+	if x != nil {
+		return x.Cooldown
+	}
+	return nil
+}
+
+func (x *NativeAction) GetResource() *ActionResource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *NativeAction) GetTargetImpacts() []*ScriptNode {
+	if x != nil {
+		return x.TargetImpacts
+	}
+	return nil
+}
+
+func (x *NativeAction) GetPrepareDurationMs() uint32 {
+	if x != nil {
+		return x.PrepareDurationMs
+	}
+	return 0
+}
+
+func (x *NativeAction) GetCasterConditions() []*ScriptNode {
+	if x != nil {
+		return x.CasterConditions
+	}
+	return nil
+}
+
+type PlayerLevelThreshold struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Level                uint32                 `protobuf:"varint,1,opt,name=level,proto3" json:"level,omitempty"`
+	CumulativeExperience uint64                 `protobuf:"varint,2,opt,name=cumulative_experience,json=cumulativeExperience,proto3" json:"cumulative_experience,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *PlayerLevelThreshold) Reset() {
+	*x = PlayerLevelThreshold{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlayerLevelThreshold) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlayerLevelThreshold) ProtoMessage() {}
+
+func (x *PlayerLevelThreshold) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlayerLevelThreshold.ProtoReflect.Descriptor instead.
+func (*PlayerLevelThreshold) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *PlayerLevelThreshold) GetLevel() uint32 {
+	if x != nil {
+		return x.Level
+	}
+	return 0
+}
+
+func (x *PlayerLevelThreshold) GetCumulativeExperience() uint64 {
+	if x != nil {
+		return x.CumulativeExperience
+	}
+	return 0
+}
+
+type ExperienceImpact struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	MobCount           uint32                 `protobuf:"varint,2,opt,name=mob_count,json=mobCount,proto3" json:"mob_count,omitempty"`
+	MobLevel           uint32                 `protobuf:"varint,3,opt,name=mob_level,json=mobLevel,proto3" json:"mob_level,omitempty"`
+	ResolvedExperience uint64                 `protobuf:"varint,4,opt,name=resolved_experience,json=resolvedExperience,proto3" json:"resolved_experience,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ExperienceImpact) Reset() {
+	*x = ExperienceImpact{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExperienceImpact) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExperienceImpact) ProtoMessage() {}
+
+func (x *ExperienceImpact) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExperienceImpact.ProtoReflect.Descriptor instead.
+func (*ExperienceImpact) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ExperienceImpact) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ExperienceImpact) GetMobCount() uint32 {
+	if x != nil {
+		return x.MobCount
+	}
+	return 0
+}
+
+func (x *ExperienceImpact) GetMobLevel() uint32 {
+	if x != nil {
+		return x.MobLevel
+	}
+	return 0
+}
+
+func (x *ExperienceImpact) GetResolvedExperience() uint64 {
+	if x != nil {
+		return x.ResolvedExperience
+	}
+	return 0
+}
+
+// PlayerProgression is one complete avatar level curve and the authored
+// experience-impact inputs needed by the tutorial slice.
+type PlayerProgression struct {
+	state                          protoimpl.MessageState  `protogen:"open.v1"`
+	Id                             string                  `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	MaxLevel                       uint32                  `protobuf:"varint,2,opt,name=max_level,json=maxLevel,proto3" json:"max_level,omitempty"`
+	Thresholds                     []*PlayerLevelThreshold `protobuf:"bytes,3,rep,name=thresholds,proto3" json:"thresholds,omitempty"`
+	ExperienceImpacts              []*ExperienceImpact     `protobuf:"bytes,4,rep,name=experience_impacts,json=experienceImpacts,proto3" json:"experience_impacts,omitempty"`
+	RespawnDelayMs                 uint32                  `protobuf:"varint,5,opt,name=respawn_delay_ms,json=respawnDelayMs,proto3" json:"respawn_delay_ms,omitempty"`
+	ResurrectionSicknessDurationMs uint32                  `protobuf:"varint,6,opt,name=resurrection_sickness_duration_ms,json=resurrectionSicknessDurationMs,proto3" json:"resurrection_sickness_duration_ms,omitempty"`
+	unknownFields                  protoimpl.UnknownFields
+	sizeCache                      protoimpl.SizeCache
+}
+
+func (x *PlayerProgression) Reset() {
+	*x = PlayerProgression{}
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlayerProgression) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlayerProgression) ProtoMessage() {}
+
+func (x *PlayerProgression) ProtoReflect() protoreflect.Message {
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlayerProgression.ProtoReflect.Descriptor instead.
+func (*PlayerProgression) Descriptor() ([]byte, []int) {
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *PlayerProgression) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *PlayerProgression) GetMaxLevel() uint32 {
+	if x != nil {
+		return x.MaxLevel
+	}
+	return 0
+}
+
+func (x *PlayerProgression) GetThresholds() []*PlayerLevelThreshold {
+	if x != nil {
+		return x.Thresholds
+	}
+	return nil
+}
+
+func (x *PlayerProgression) GetExperienceImpacts() []*ExperienceImpact {
+	if x != nil {
+		return x.ExperienceImpacts
+	}
+	return nil
+}
+
+func (x *PlayerProgression) GetRespawnDelayMs() uint32 {
+	if x != nil {
+		return x.RespawnDelayMs
+	}
+	return 0
+}
+
+func (x *PlayerProgression) GetResurrectionSicknessDurationMs() uint32 {
+	if x != nil {
+		return x.ResurrectionSicknessDurationMs
+	}
+	return 0
+}
+
 // Item is one item definition: the fields the shard needs to hold an item
 // instance in a bag, and nothing else.
 //
@@ -1839,6 +2740,8 @@ type Item struct {
 	VendorBuy  int64 `protobuf:"varint,8,opt,name=vendor_buy,json=vendorBuy,proto3" json:"vendor_buy,omitempty"`
 	// Localization key for the tooltip description (ADR 0007).
 	DescriptionKey string `protobuf:"bytes,9,opt,name=description_key,json=descriptionKey,proto3" json:"description_key,omitempty"`
+	// Resolved offline from the ruleset's CursedItems.canBeCursed predicate.
+	CurseEligible bool `protobuf:"varint,10,opt,name=curse_eligible,json=curseEligible,proto3" json:"curse_eligible,omitempty"`
 	// Untyped passthrough; see Zone.extra.
 	Extra         map[string]string `protobuf:"bytes,15,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
@@ -1847,7 +2750,7 @@ type Item struct {
 
 func (x *Item) Reset() {
 	*x = Item{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[13]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1859,7 +2762,7 @@ func (x *Item) String() string {
 func (*Item) ProtoMessage() {}
 
 func (x *Item) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[13]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1872,7 +2775,7 @@ func (x *Item) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Item.ProtoReflect.Descriptor instead.
 func (*Item) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{13}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Item) GetId() string {
@@ -1938,6 +2841,13 @@ func (x *Item) GetDescriptionKey() string {
 	return ""
 }
 
+func (x *Item) GetCurseEligible() bool {
+	if x != nil {
+		return x.CurseEligible
+	}
+	return false
+}
+
 func (x *Item) GetExtra() map[string]string {
 	if x != nil {
 		return x.Extra
@@ -1973,7 +2883,7 @@ type LootNode struct {
 
 func (x *LootNode) Reset() {
 	*x = LootNode{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[14]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1985,7 +2895,7 @@ func (x *LootNode) String() string {
 func (*LootNode) ProtoMessage() {}
 
 func (x *LootNode) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[14]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1998,7 +2908,7 @@ func (x *LootNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LootNode.ProtoReflect.Descriptor instead.
 func (*LootNode) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{14}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *LootNode) GetKind() LootNodeKind {
@@ -2057,7 +2967,7 @@ type LootTable struct {
 
 func (x *LootTable) Reset() {
 	*x = LootTable{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[15]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2069,7 +2979,7 @@ func (x *LootTable) String() string {
 func (*LootTable) ProtoMessage() {}
 
 func (x *LootTable) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[15]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2082,7 +2992,7 @@ func (x *LootTable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LootTable.ProtoReflect.Descriptor instead.
 func (*LootTable) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{15}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *LootTable) GetId() string {
@@ -2143,7 +3053,7 @@ type MobKind struct {
 
 func (x *MobKind) Reset() {
 	*x = MobKind{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[16]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2155,7 +3065,7 @@ func (x *MobKind) String() string {
 func (*MobKind) ProtoMessage() {}
 
 func (x *MobKind) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[16]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2168,7 +3078,7 @@ func (x *MobKind) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MobKind.ProtoReflect.Descriptor instead.
 func (*MobKind) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{16}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *MobKind) GetId() string {
@@ -2283,7 +3193,7 @@ type LevelCurvePoint struct {
 
 func (x *LevelCurvePoint) Reset() {
 	*x = LevelCurvePoint{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[17]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2295,7 +3205,7 @@ func (x *LevelCurvePoint) String() string {
 func (*LevelCurvePoint) ProtoMessage() {}
 
 func (x *LevelCurvePoint) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[17]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2308,7 +3218,7 @@ func (x *LevelCurvePoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LevelCurvePoint.ProtoReflect.Descriptor instead.
 func (*LevelCurvePoint) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{17}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *LevelCurvePoint) GetLevel() uint32 {
@@ -2363,7 +3273,7 @@ type LevelCurve struct {
 
 func (x *LevelCurve) Reset() {
 	*x = LevelCurve{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[18]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2375,7 +3285,7 @@ func (x *LevelCurve) String() string {
 func (*LevelCurve) ProtoMessage() {}
 
 func (x *LevelCurve) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[18]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2388,7 +3298,7 @@ func (x *LevelCurve) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LevelCurve.ProtoReflect.Descriptor instead.
 func (*LevelCurve) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{18}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *LevelCurve) GetId() string {
@@ -2430,7 +3340,7 @@ type RoutePoint struct {
 
 func (x *RoutePoint) Reset() {
 	*x = RoutePoint{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[19]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2442,7 +3352,7 @@ func (x *RoutePoint) String() string {
 func (*RoutePoint) ProtoMessage() {}
 
 func (x *RoutePoint) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[19]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2455,7 +3365,7 @@ func (x *RoutePoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoutePoint.ProtoReflect.Descriptor instead.
 func (*RoutePoint) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{19}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RoutePoint) GetIndex() uint32 {
@@ -2487,7 +3397,7 @@ type RouteLink struct {
 
 func (x *RouteLink) Reset() {
 	*x = RouteLink{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[20]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2499,7 +3409,7 @@ func (x *RouteLink) String() string {
 func (*RouteLink) ProtoMessage() {}
 
 func (x *RouteLink) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[20]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2512,7 +3422,7 @@ func (x *RouteLink) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteLink.ProtoReflect.Descriptor instead.
 func (*RouteLink) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{20}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *RouteLink) GetFrom() uint32 {
@@ -2568,7 +3478,7 @@ type Route struct {
 
 func (x *Route) Reset() {
 	*x = Route{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[21]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2580,7 +3490,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[21]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2593,7 +3503,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{21}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *Route) GetId() string {
@@ -2649,7 +3559,7 @@ type LocaleEntry struct {
 
 func (x *LocaleEntry) Reset() {
 	*x = LocaleEntry{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[22]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2661,7 +3571,7 @@ func (x *LocaleEntry) String() string {
 func (*LocaleEntry) ProtoMessage() {}
 
 func (x *LocaleEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[22]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2674,7 +3584,7 @@ func (x *LocaleEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocaleEntry.ProtoReflect.Descriptor instead.
 func (*LocaleEntry) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{22}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *LocaleEntry) GetKey() string {
@@ -2713,7 +3623,7 @@ type Locale struct {
 
 func (x *Locale) Reset() {
 	*x = Locale{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[23]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2725,7 +3635,7 @@ func (x *Locale) String() string {
 func (*Locale) ProtoMessage() {}
 
 func (x *Locale) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[23]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2738,7 +3648,7 @@ func (x *Locale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Locale.ProtoReflect.Descriptor instead.
 func (*Locale) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{23}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *Locale) GetId() string {
@@ -2796,7 +3706,7 @@ type QuestObjective struct {
 
 func (x *QuestObjective) Reset() {
 	*x = QuestObjective{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[24]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2808,7 +3718,7 @@ func (x *QuestObjective) String() string {
 func (*QuestObjective) ProtoMessage() {}
 
 func (x *QuestObjective) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[24]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2821,7 +3731,7 @@ func (x *QuestObjective) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestObjective.ProtoReflect.Descriptor instead.
 func (*QuestObjective) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{24}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *QuestObjective) GetKind() QuestObjectiveKind {
@@ -2892,7 +3802,7 @@ type QuestPrerequisite struct {
 
 func (x *QuestPrerequisite) Reset() {
 	*x = QuestPrerequisite{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[25]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2904,7 +3814,7 @@ func (x *QuestPrerequisite) String() string {
 func (*QuestPrerequisite) ProtoMessage() {}
 
 func (x *QuestPrerequisite) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[25]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2917,7 +3827,7 @@ func (x *QuestPrerequisite) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestPrerequisite.ProtoReflect.Descriptor instead.
 func (*QuestPrerequisite) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{25}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *QuestPrerequisite) GetQuestId() string {
@@ -2947,7 +3857,7 @@ type QuestRewardItem struct {
 
 func (x *QuestRewardItem) Reset() {
 	*x = QuestRewardItem{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[26]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2959,7 +3869,7 @@ func (x *QuestRewardItem) String() string {
 func (*QuestRewardItem) ProtoMessage() {}
 
 func (x *QuestRewardItem) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[26]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2972,7 +3882,7 @@ func (x *QuestRewardItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestRewardItem.ProtoReflect.Descriptor instead.
 func (*QuestRewardItem) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{26}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *QuestRewardItem) GetItemId() string {
@@ -3014,7 +3924,7 @@ type QuestRewards struct {
 
 func (x *QuestRewards) Reset() {
 	*x = QuestRewards{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[27]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3026,7 +3936,7 @@ func (x *QuestRewards) String() string {
 func (*QuestRewards) ProtoMessage() {}
 
 func (x *QuestRewards) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[27]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3039,7 +3949,7 @@ func (x *QuestRewards) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestRewards.ProtoReflect.Descriptor instead.
 func (*QuestRewards) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{27}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *QuestRewards) GetExperience() int64 {
@@ -3111,7 +4021,7 @@ type Quest struct {
 
 func (x *Quest) Reset() {
 	*x = Quest{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[28]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3123,7 +4033,7 @@ func (x *Quest) String() string {
 func (*Quest) ProtoMessage() {}
 
 func (x *Quest) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[28]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3136,7 +4046,7 @@ func (x *Quest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Quest.ProtoReflect.Descriptor instead.
 func (*Quest) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{28}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *Quest) GetId() string {
@@ -3272,7 +4182,7 @@ type Decimal struct {
 
 func (x *Decimal) Reset() {
 	*x = Decimal{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[29]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3284,7 +4194,7 @@ func (x *Decimal) String() string {
 func (*Decimal) ProtoMessage() {}
 
 func (x *Decimal) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[29]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3297,7 +4207,7 @@ func (x *Decimal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Decimal.ProtoReflect.Descriptor instead.
 func (*Decimal) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{29}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *Decimal) GetMantissa() int64 {
@@ -3334,7 +4244,7 @@ type ContentRef struct {
 
 func (x *ContentRef) Reset() {
 	*x = ContentRef{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[30]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3346,7 +4256,7 @@ func (x *ContentRef) String() string {
 func (*ContentRef) ProtoMessage() {}
 
 func (x *ContentRef) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[30]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3359,7 +4269,7 @@ func (x *ContentRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContentRef.ProtoReflect.Descriptor instead.
 func (*ContentRef) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{30}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ContentRef) GetId() string {
@@ -3399,7 +4309,7 @@ type ScriptNode struct {
 
 func (x *ScriptNode) Reset() {
 	*x = ScriptNode{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[31]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3411,7 +4321,7 @@ func (x *ScriptNode) String() string {
 func (*ScriptNode) ProtoMessage() {}
 
 func (x *ScriptNode) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[31]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3424,7 +4334,7 @@ func (x *ScriptNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptNode.ProtoReflect.Descriptor instead.
 func (*ScriptNode) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{31}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ScriptNode) GetNodeKey() string {
@@ -3473,7 +4383,7 @@ type ScriptField struct {
 
 func (x *ScriptField) Reset() {
 	*x = ScriptField{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[32]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3485,7 +4395,7 @@ func (x *ScriptField) String() string {
 func (*ScriptField) ProtoMessage() {}
 
 func (x *ScriptField) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[32]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3498,7 +4408,7 @@ func (x *ScriptField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptField.ProtoReflect.Descriptor instead.
 func (*ScriptField) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{32}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ScriptField) GetName() string {
@@ -3535,7 +4445,7 @@ type ScriptValue struct {
 
 func (x *ScriptValue) Reset() {
 	*x = ScriptValue{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[33]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3547,7 +4457,7 @@ func (x *ScriptValue) String() string {
 func (*ScriptValue) ProtoMessage() {}
 
 func (x *ScriptValue) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[33]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3560,7 +4470,7 @@ func (x *ScriptValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptValue.ProtoReflect.Descriptor instead.
 func (*ScriptValue) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{33}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ScriptValue) GetValue() isScriptValue_Value {
@@ -3706,7 +4616,7 @@ type ScriptValueList struct {
 
 func (x *ScriptValueList) Reset() {
 	*x = ScriptValueList{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[34]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3718,7 +4628,7 @@ func (x *ScriptValueList) String() string {
 func (*ScriptValueList) ProtoMessage() {}
 
 func (x *ScriptValueList) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[34]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3731,7 +4641,7 @@ func (x *ScriptValueList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptValueList.ProtoReflect.Descriptor instead.
 func (*ScriptValueList) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{34}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ScriptValueList) GetValues() []*ScriptValue {
@@ -3760,7 +4670,7 @@ type QuestCounterBinding struct {
 
 func (x *QuestCounterBinding) Reset() {
 	*x = QuestCounterBinding{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[35]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3772,7 +4682,7 @@ func (x *QuestCounterBinding) String() string {
 func (*QuestCounterBinding) ProtoMessage() {}
 
 func (x *QuestCounterBinding) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[35]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3785,7 +4695,7 @@ func (x *QuestCounterBinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestCounterBinding.ProtoReflect.Descriptor instead.
 func (*QuestCounterBinding) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{35}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *QuestCounterBinding) GetCountId() string {
@@ -3827,7 +4737,7 @@ type QuestScript struct {
 
 func (x *QuestScript) Reset() {
 	*x = QuestScript{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[36]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3839,7 +4749,7 @@ func (x *QuestScript) String() string {
 func (*QuestScript) ProtoMessage() {}
 
 func (x *QuestScript) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[36]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3852,7 +4762,7 @@ func (x *QuestScript) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuestScript.ProtoReflect.Descriptor instead.
 func (*QuestScript) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{36}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *QuestScript) GetId() string {
@@ -3905,7 +4815,7 @@ type ScriptTrigger struct {
 
 func (x *ScriptTrigger) Reset() {
 	*x = ScriptTrigger{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[37]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3917,7 +4827,7 @@ func (x *ScriptTrigger) String() string {
 func (*ScriptTrigger) ProtoMessage() {}
 
 func (x *ScriptTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[37]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3930,7 +4840,7 @@ func (x *ScriptTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScriptTrigger.ProtoReflect.Descriptor instead.
 func (*ScriptTrigger) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{37}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ScriptTrigger) GetId() string {
@@ -3965,7 +4875,7 @@ type MapLocator struct {
 
 func (x *MapLocator) Reset() {
 	*x = MapLocator{}
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[38]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3977,7 +4887,7 @@ func (x *MapLocator) String() string {
 func (*MapLocator) ProtoMessage() {}
 
 func (x *MapLocator) ProtoReflect() protoreflect.Message {
-	mi := &file_sarnaut_content_v1_content_proto_msgTypes[38]
+	mi := &file_sarnaut_content_v1_content_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3990,7 +4900,7 @@ func (x *MapLocator) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MapLocator.ProtoReflect.Descriptor instead.
 func (*MapLocator) Descriptor() ([]byte, []int) {
-	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{38}
+	return file_sarnaut_content_v1_content_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *MapLocator) GetMapId() string {
@@ -4163,7 +5073,39 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\fLoadoutEntry\x12\x17\n" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\x1a\n" +
 	"\bquantity\x18\x02 \x01(\rR\bquantity\x12\x12\n" +
-	"\x04slot\x18\x03 \x01(\tR\x04slot\"\x8c\x06\n" +
+	"\x04slot\x18\x03 \x01(\tR\x04slot\"W\n" +
+	"\x0eExactStatEntry\x12\x12\n" +
+	"\x04stat\x18\x01 \x01(\tR\x04stat\x121\n" +
+	"\x05value\x18\x02 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\x05value\"\xcf\x01\n" +
+	"\rWeaponProfile\x12B\n" +
+	"\x0eminimum_damage\x18\x01 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\rminimumDamage\x12B\n" +
+	"\x0emaximum_damage\x18\x02 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\rmaximumDamage\x126\n" +
+	"\bspeed_ms\x18\x03 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\aspeedMs\"\x94\x01\n" +
+	"\x10StartingResource\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x125\n" +
+	"\ainitial\x18\x02 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\ainitial\x125\n" +
+	"\amaximum\x18\x03 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\amaximum\"\x82\x06\n" +
+	"\x16StartingCharacterStats\x12\x16\n" +
+	"\x06health\x18\x01 \x01(\rR\x06health\x12\x1d\n" +
+	"\n" +
+	"max_health\x18\x02 \x01(\rR\tmaxHealth\x12@\n" +
+	"\bresource\x18\x03 \x01(\v2$.sarnaut.content.v1.StartingResourceR\bresource\x12:\n" +
+	"\x06innate\x18\x04 \x03(\v2\".sarnaut.content.v1.ExactStatEntryR\x06innate\x121\n" +
+	"\x05armor\x18\x05 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\x05armor\x12D\n" +
+	"\vresistances\x18\x06 \x03(\v2\".sarnaut.content.v1.ExactStatEntryR\vresistances\x126\n" +
+	"\bhit_dice\x18\a \x01(\v2\x1b.sarnaut.content.v1.DecimalR\ahitDice\x128\n" +
+	"\tmana_dice\x18\b \x01(\v2\x1b.sarnaut.content.v1.DecimalR\bmanaDice\x12C\n" +
+	"\x0fbase_stat_value\x18\t \x01(\v2\x1b.sarnaut.content.v1.DecimalR\rbaseStatValue\x12I\n" +
+	"\x12weapon_dps_default\x18\n" +
+	" \x01(\v2\x1b.sarnaut.content.v1.DecimalR\x10weaponDpsDefault\x12>\n" +
+	"\ffairy_scaler\x18\v \x01(\v2\x1b.sarnaut.content.v1.DecimalR\vfairyScaler\x12=\n" +
+	"\bmainhand\x18\f \x01(\v2!.sarnaut.content.v1.WeaponProfileR\bmainhand\x129\n" +
+	"\x06ranged\x18\r \x01(\v2!.sarnaut.content.v1.WeaponProfileR\x06ranged\"`\n" +
+	"\x0eStartingAction\x12\"\n" +
+	"\n" +
+	"slot_index\x18\x01 \x01(\rH\x00R\tslotIndex\x88\x01\x01\x12\x1b\n" +
+	"\taction_id\x18\x02 \x01(\tR\bactionIdB\r\n" +
+	"\v_slot_index\"\xcd\a\n" +
 	"\rChargenOption\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04race\x18\x02 \x01(\tR\x04race\x12\x14\n" +
@@ -4184,11 +5126,60 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x05extra\x18\x0f \x03(\v2,.sarnaut.content.v1.ChargenOption.ExtraEntryR\x05extra\x12K\n" +
 	"\x10starting_loadout\x18\x10 \x03(\v2 .sarnaut.content.v1.LoadoutEntryR\x0fstartingLoadout\x12-\n" +
 	"\x12starting_abilities\x18\x11 \x03(\tR\x11startingAbilities\x12'\n" +
-	"\x0fstarting_quests\x18\x12 \x03(\tR\x0estartingQuests\x1a8\n" +
+	"\x0fstarting_quests\x18\x12 \x03(\tR\x0estartingQuests\x12@\n" +
+	"\x05stats\x18\x13 \x01(\v2*.sarnaut.content.v1.StartingCharacterStatsR\x05stats\x12M\n" +
+	"\x10starting_actions\x18\x14 \x03(\v2\".sarnaut.content.v1.StartingActionR\x0fstartingActions\x12.\n" +
+	"\x13passive_ability_ids\x18\x15 \x03(\tR\x11passiveAbilityIds\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x95\x01\n" +
+	"\x0eActionCooldown\x12\x1f\n" +
+	"\vduration_ms\x18\x01 \x01(\rR\n" +
+	"durationMs\x12\x19\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12\x16\n" +
+	"\x06scaler\x18\x03 \x01(\tR\x06scaler\x12/\n" +
+	"\x04base\x18\x04 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\x04base\"\xa0\x01\n" +
+	"\x0eActionResource\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12/\n" +
+	"\x04cost\x18\x02 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\x04cost\x121\n" +
+	"\x15scale_by_weapon_speed\x18\x03 \x01(\bR\x12scaleByWeaponSpeed\x12\x16\n" +
+	"\x06source\x18\x04 \x01(\tR\x06source\"\xc1\x05\n" +
+	"\fNativeAction\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
+	"\rtarget_policy\x18\x02 \x01(\tR\ftargetPolicy\x124\n" +
+	"\arange_m\x18\x03 \x01(\v2\x1b.sarnaut.content.v1.DecimalR\x06rangeM\x12(\n" +
+	"\x10cast_duration_ms\x18\x04 \x01(\rR\x0ecastDurationMs\x12.\n" +
+	"\x13channel_duration_ms\x18\x05 \x01(\rR\x11channelDurationMs\x12!\n" +
+	"\frequires_los\x18\x06 \x01(\bR\vrequiresLos\x12\x19\n" +
+	"\bis_aggro\x18\a \x01(\bR\aisAggro\x12!\n" +
+	"\ftriggers_gcd\x18\b \x01(\bR\vtriggersGcd\x12\x1f\n" +
+	"\vignores_gcd\x18\t \x01(\bR\n" +
+	"ignoresGcd\x12&\n" +
+	"\x0faction_group_id\x18\n" +
+	" \x01(\tR\ractionGroupId\x12>\n" +
+	"\bcooldown\x18\v \x01(\v2\".sarnaut.content.v1.ActionCooldownR\bcooldown\x12>\n" +
+	"\bresource\x18\f \x01(\v2\".sarnaut.content.v1.ActionResourceR\bresource\x12E\n" +
+	"\x0etarget_impacts\x18\r \x03(\v2\x1e.sarnaut.content.v1.ScriptNodeR\rtargetImpacts\x12.\n" +
+	"\x13prepare_duration_ms\x18\x0e \x01(\rR\x11prepareDurationMs\x12K\n" +
+	"\x11caster_conditions\x18\x0f \x03(\v2\x1e.sarnaut.content.v1.ScriptNodeR\x10casterConditions\"a\n" +
+	"\x14PlayerLevelThreshold\x12\x14\n" +
+	"\x05level\x18\x01 \x01(\rR\x05level\x123\n" +
+	"\x15cumulative_experience\x18\x02 \x01(\x04R\x14cumulativeExperience\"\x8d\x01\n" +
+	"\x10ExperienceImpact\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
+	"\tmob_count\x18\x02 \x01(\rR\bmobCount\x12\x1b\n" +
+	"\tmob_level\x18\x03 \x01(\rR\bmobLevel\x12/\n" +
+	"\x13resolved_experience\x18\x04 \x01(\x04R\x12resolvedExperience\"\xd4\x02\n" +
+	"\x11PlayerProgression\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
+	"\tmax_level\x18\x02 \x01(\rR\bmaxLevel\x12H\n" +
+	"\n" +
+	"thresholds\x18\x03 \x03(\v2(.sarnaut.content.v1.PlayerLevelThresholdR\n" +
+	"thresholds\x12S\n" +
+	"\x12experience_impacts\x18\x04 \x03(\v2$.sarnaut.content.v1.ExperienceImpactR\x11experienceImpacts\x12(\n" +
+	"\x10respawn_delay_ms\x18\x05 \x01(\rR\x0erespawnDelayMs\x12I\n" +
+	"!resurrection_sickness_duration_ms\x18\x06 \x01(\rR\x1eresurrectionSicknessDurationMs\"\xb0\x03\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bname_key\x18\x02 \x01(\tR\anameKey\x12\x1a\n" +
@@ -4201,7 +5192,9 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"vendorSell\x12\x1d\n" +
 	"\n" +
 	"vendor_buy\x18\b \x01(\x03R\tvendorBuy\x12'\n" +
-	"\x0fdescription_key\x18\t \x01(\tR\x0edescriptionKey\x129\n" +
+	"\x0fdescription_key\x18\t \x01(\tR\x0edescriptionKey\x12%\n" +
+	"\x0ecurse_eligible\x18\n" +
+	" \x01(\bR\rcurseEligible\x129\n" +
 	"\x05extra\x18\x0f \x03(\v2#.sarnaut.content.v1.Item.ExtraEntryR\x05extra\x1a8\n" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
@@ -4398,7 +5391,7 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"MapLocator\x12\x15\n" +
 	"\x06map_id\x18\x01 \x01(\tR\x05mapId\x12\x1b\n" +
 	"\tscript_id\x18\x02 \x01(\tR\bscriptId\x124\n" +
-	"\bposition\x18\x03 \x01(\v2\x18.sarnaut.content.v1.Vec3R\bposition*\xaf\x03\n" +
+	"\bposition\x18\x03 \x01(\v2\x18.sarnaut.content.v1.Vec3R\bposition*\xec\x03\n" +
 	"\aRowType\x12\x18\n" +
 	"\x14ROW_TYPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rROW_TYPE_ZONE\x10\x01\x12\x16\n" +
@@ -4418,7 +5411,9 @@ const file_sarnaut_content_v1_content_proto_rawDesc = "" +
 	"\x14ROW_TYPE_LEVEL_CURVE\x10\x0e\x12\x19\n" +
 	"\x15ROW_TYPE_QUEST_SCRIPT\x10\x0f\x12\x1b\n" +
 	"\x17ROW_TYPE_SCRIPT_TRIGGER\x10\x10\x12\x18\n" +
-	"\x14ROW_TYPE_MAP_LOCATOR\x10\x11*\x97\x01\n" +
+	"\x14ROW_TYPE_MAP_LOCATOR\x10\x11\x12\x1a\n" +
+	"\x16ROW_TYPE_NATIVE_ACTION\x10\x12\x12\x1f\n" +
+	"\x1bROW_TYPE_PLAYER_PROGRESSION\x10\x13*\x97\x01\n" +
 	"\fLootNodeKind\x12\x1e\n" +
 	"\x1aLOOT_NODE_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12LOOT_NODE_KIND_AND\x10\x01\x12\x15\n" +
@@ -4454,125 +5449,164 @@ func file_sarnaut_content_v1_content_proto_rawDescGZIP() []byte {
 }
 
 var file_sarnaut_content_v1_content_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
+var file_sarnaut_content_v1_content_proto_msgTypes = make([]protoimpl.MessageInfo, 64)
 var file_sarnaut_content_v1_content_proto_goTypes = []any{
-	(RowType)(0),                // 0: sarnaut.content.v1.RowType
-	(LootNodeKind)(0),           // 1: sarnaut.content.v1.LootNodeKind
-	(MobTaxonomyKind)(0),        // 2: sarnaut.content.v1.MobTaxonomyKind
-	(QuestObjectiveKind)(0),     // 3: sarnaut.content.v1.QuestObjectiveKind
-	(CoverageTier)(0),           // 4: sarnaut.content.v1.CoverageTier
-	(*Vec3)(nil),                // 5: sarnaut.content.v1.Vec3
-	(*Zone)(nil),                // 6: sarnaut.content.v1.Zone
-	(*Placement)(nil),           // 7: sarnaut.content.v1.Placement
-	(*SpawnTableEntry)(nil),     // 8: sarnaut.content.v1.SpawnTableEntry
-	(*SpawnTable)(nil),          // 9: sarnaut.content.v1.SpawnTable
-	(*AbilityEffect)(nil),       // 10: sarnaut.content.v1.AbilityEffect
-	(*Ability)(nil),             // 11: sarnaut.content.v1.Ability
-	(*FactionRelation)(nil),     // 12: sarnaut.content.v1.FactionRelation
-	(*Faction)(nil),             // 13: sarnaut.content.v1.Faction
-	(*Mob)(nil),                 // 14: sarnaut.content.v1.Mob
-	(*StatEntry)(nil),           // 15: sarnaut.content.v1.StatEntry
-	(*LoadoutEntry)(nil),        // 16: sarnaut.content.v1.LoadoutEntry
-	(*ChargenOption)(nil),       // 17: sarnaut.content.v1.ChargenOption
-	(*Item)(nil),                // 18: sarnaut.content.v1.Item
-	(*LootNode)(nil),            // 19: sarnaut.content.v1.LootNode
-	(*LootTable)(nil),           // 20: sarnaut.content.v1.LootTable
-	(*MobKind)(nil),             // 21: sarnaut.content.v1.MobKind
-	(*LevelCurvePoint)(nil),     // 22: sarnaut.content.v1.LevelCurvePoint
-	(*LevelCurve)(nil),          // 23: sarnaut.content.v1.LevelCurve
-	(*RoutePoint)(nil),          // 24: sarnaut.content.v1.RoutePoint
-	(*RouteLink)(nil),           // 25: sarnaut.content.v1.RouteLink
-	(*Route)(nil),               // 26: sarnaut.content.v1.Route
-	(*LocaleEntry)(nil),         // 27: sarnaut.content.v1.LocaleEntry
-	(*Locale)(nil),              // 28: sarnaut.content.v1.Locale
-	(*QuestObjective)(nil),      // 29: sarnaut.content.v1.QuestObjective
-	(*QuestPrerequisite)(nil),   // 30: sarnaut.content.v1.QuestPrerequisite
-	(*QuestRewardItem)(nil),     // 31: sarnaut.content.v1.QuestRewardItem
-	(*QuestRewards)(nil),        // 32: sarnaut.content.v1.QuestRewards
-	(*Quest)(nil),               // 33: sarnaut.content.v1.Quest
-	(*Decimal)(nil),             // 34: sarnaut.content.v1.Decimal
-	(*ContentRef)(nil),          // 35: sarnaut.content.v1.ContentRef
-	(*ScriptNode)(nil),          // 36: sarnaut.content.v1.ScriptNode
-	(*ScriptField)(nil),         // 37: sarnaut.content.v1.ScriptField
-	(*ScriptValue)(nil),         // 38: sarnaut.content.v1.ScriptValue
-	(*ScriptValueList)(nil),     // 39: sarnaut.content.v1.ScriptValueList
-	(*QuestCounterBinding)(nil), // 40: sarnaut.content.v1.QuestCounterBinding
-	(*QuestScript)(nil),         // 41: sarnaut.content.v1.QuestScript
-	(*ScriptTrigger)(nil),       // 42: sarnaut.content.v1.ScriptTrigger
-	(*MapLocator)(nil),          // 43: sarnaut.content.v1.MapLocator
-	nil,                         // 44: sarnaut.content.v1.Zone.ExtraEntry
-	nil,                         // 45: sarnaut.content.v1.Placement.ExtraEntry
-	nil,                         // 46: sarnaut.content.v1.SpawnTable.ExtraEntry
-	nil,                         // 47: sarnaut.content.v1.Ability.ExtraEntry
-	nil,                         // 48: sarnaut.content.v1.Faction.ExtraEntry
-	nil,                         // 49: sarnaut.content.v1.Mob.ExtraEntry
-	nil,                         // 50: sarnaut.content.v1.ChargenOption.ExtraEntry
-	nil,                         // 51: sarnaut.content.v1.Item.ExtraEntry
-	nil,                         // 52: sarnaut.content.v1.LootTable.ExtraEntry
-	nil,                         // 53: sarnaut.content.v1.MobKind.ExtraEntry
-	nil,                         // 54: sarnaut.content.v1.LevelCurve.ExtraEntry
-	nil,                         // 55: sarnaut.content.v1.Route.ExtraEntry
-	nil,                         // 56: sarnaut.content.v1.Locale.ExtraEntry
-	nil,                         // 57: sarnaut.content.v1.Quest.ExtraEntry
+	(RowType)(0),                   // 0: sarnaut.content.v1.RowType
+	(LootNodeKind)(0),              // 1: sarnaut.content.v1.LootNodeKind
+	(MobTaxonomyKind)(0),           // 2: sarnaut.content.v1.MobTaxonomyKind
+	(QuestObjectiveKind)(0),        // 3: sarnaut.content.v1.QuestObjectiveKind
+	(CoverageTier)(0),              // 4: sarnaut.content.v1.CoverageTier
+	(*Vec3)(nil),                   // 5: sarnaut.content.v1.Vec3
+	(*Zone)(nil),                   // 6: sarnaut.content.v1.Zone
+	(*Placement)(nil),              // 7: sarnaut.content.v1.Placement
+	(*SpawnTableEntry)(nil),        // 8: sarnaut.content.v1.SpawnTableEntry
+	(*SpawnTable)(nil),             // 9: sarnaut.content.v1.SpawnTable
+	(*AbilityEffect)(nil),          // 10: sarnaut.content.v1.AbilityEffect
+	(*Ability)(nil),                // 11: sarnaut.content.v1.Ability
+	(*FactionRelation)(nil),        // 12: sarnaut.content.v1.FactionRelation
+	(*Faction)(nil),                // 13: sarnaut.content.v1.Faction
+	(*Mob)(nil),                    // 14: sarnaut.content.v1.Mob
+	(*StatEntry)(nil),              // 15: sarnaut.content.v1.StatEntry
+	(*LoadoutEntry)(nil),           // 16: sarnaut.content.v1.LoadoutEntry
+	(*ExactStatEntry)(nil),         // 17: sarnaut.content.v1.ExactStatEntry
+	(*WeaponProfile)(nil),          // 18: sarnaut.content.v1.WeaponProfile
+	(*StartingResource)(nil),       // 19: sarnaut.content.v1.StartingResource
+	(*StartingCharacterStats)(nil), // 20: sarnaut.content.v1.StartingCharacterStats
+	(*StartingAction)(nil),         // 21: sarnaut.content.v1.StartingAction
+	(*ChargenOption)(nil),          // 22: sarnaut.content.v1.ChargenOption
+	(*ActionCooldown)(nil),         // 23: sarnaut.content.v1.ActionCooldown
+	(*ActionResource)(nil),         // 24: sarnaut.content.v1.ActionResource
+	(*NativeAction)(nil),           // 25: sarnaut.content.v1.NativeAction
+	(*PlayerLevelThreshold)(nil),   // 26: sarnaut.content.v1.PlayerLevelThreshold
+	(*ExperienceImpact)(nil),       // 27: sarnaut.content.v1.ExperienceImpact
+	(*PlayerProgression)(nil),      // 28: sarnaut.content.v1.PlayerProgression
+	(*Item)(nil),                   // 29: sarnaut.content.v1.Item
+	(*LootNode)(nil),               // 30: sarnaut.content.v1.LootNode
+	(*LootTable)(nil),              // 31: sarnaut.content.v1.LootTable
+	(*MobKind)(nil),                // 32: sarnaut.content.v1.MobKind
+	(*LevelCurvePoint)(nil),        // 33: sarnaut.content.v1.LevelCurvePoint
+	(*LevelCurve)(nil),             // 34: sarnaut.content.v1.LevelCurve
+	(*RoutePoint)(nil),             // 35: sarnaut.content.v1.RoutePoint
+	(*RouteLink)(nil),              // 36: sarnaut.content.v1.RouteLink
+	(*Route)(nil),                  // 37: sarnaut.content.v1.Route
+	(*LocaleEntry)(nil),            // 38: sarnaut.content.v1.LocaleEntry
+	(*Locale)(nil),                 // 39: sarnaut.content.v1.Locale
+	(*QuestObjective)(nil),         // 40: sarnaut.content.v1.QuestObjective
+	(*QuestPrerequisite)(nil),      // 41: sarnaut.content.v1.QuestPrerequisite
+	(*QuestRewardItem)(nil),        // 42: sarnaut.content.v1.QuestRewardItem
+	(*QuestRewards)(nil),           // 43: sarnaut.content.v1.QuestRewards
+	(*Quest)(nil),                  // 44: sarnaut.content.v1.Quest
+	(*Decimal)(nil),                // 45: sarnaut.content.v1.Decimal
+	(*ContentRef)(nil),             // 46: sarnaut.content.v1.ContentRef
+	(*ScriptNode)(nil),             // 47: sarnaut.content.v1.ScriptNode
+	(*ScriptField)(nil),            // 48: sarnaut.content.v1.ScriptField
+	(*ScriptValue)(nil),            // 49: sarnaut.content.v1.ScriptValue
+	(*ScriptValueList)(nil),        // 50: sarnaut.content.v1.ScriptValueList
+	(*QuestCounterBinding)(nil),    // 51: sarnaut.content.v1.QuestCounterBinding
+	(*QuestScript)(nil),            // 52: sarnaut.content.v1.QuestScript
+	(*ScriptTrigger)(nil),          // 53: sarnaut.content.v1.ScriptTrigger
+	(*MapLocator)(nil),             // 54: sarnaut.content.v1.MapLocator
+	nil,                            // 55: sarnaut.content.v1.Zone.ExtraEntry
+	nil,                            // 56: sarnaut.content.v1.Placement.ExtraEntry
+	nil,                            // 57: sarnaut.content.v1.SpawnTable.ExtraEntry
+	nil,                            // 58: sarnaut.content.v1.Ability.ExtraEntry
+	nil,                            // 59: sarnaut.content.v1.Faction.ExtraEntry
+	nil,                            // 60: sarnaut.content.v1.Mob.ExtraEntry
+	nil,                            // 61: sarnaut.content.v1.ChargenOption.ExtraEntry
+	nil,                            // 62: sarnaut.content.v1.Item.ExtraEntry
+	nil,                            // 63: sarnaut.content.v1.LootTable.ExtraEntry
+	nil,                            // 64: sarnaut.content.v1.MobKind.ExtraEntry
+	nil,                            // 65: sarnaut.content.v1.LevelCurve.ExtraEntry
+	nil,                            // 66: sarnaut.content.v1.Route.ExtraEntry
+	nil,                            // 67: sarnaut.content.v1.Locale.ExtraEntry
+	nil,                            // 68: sarnaut.content.v1.Quest.ExtraEntry
 }
 var file_sarnaut_content_v1_content_proto_depIdxs = []int32{
 	5,  // 0: sarnaut.content.v1.Zone.player_spawn:type_name -> sarnaut.content.v1.Vec3
 	5,  // 1: sarnaut.content.v1.Zone.bounds_min:type_name -> sarnaut.content.v1.Vec3
 	5,  // 2: sarnaut.content.v1.Zone.bounds_max:type_name -> sarnaut.content.v1.Vec3
-	44, // 3: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
+	55, // 3: sarnaut.content.v1.Zone.extra:type_name -> sarnaut.content.v1.Zone.ExtraEntry
 	5,  // 4: sarnaut.content.v1.Placement.position:type_name -> sarnaut.content.v1.Vec3
-	45, // 5: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
+	56, // 5: sarnaut.content.v1.Placement.extra:type_name -> sarnaut.content.v1.Placement.ExtraEntry
 	8,  // 6: sarnaut.content.v1.SpawnTable.entries:type_name -> sarnaut.content.v1.SpawnTableEntry
-	46, // 7: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
+	57, // 7: sarnaut.content.v1.SpawnTable.extra:type_name -> sarnaut.content.v1.SpawnTable.ExtraEntry
 	10, // 8: sarnaut.content.v1.Ability.effects:type_name -> sarnaut.content.v1.AbilityEffect
-	47, // 9: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
+	58, // 9: sarnaut.content.v1.Ability.extra:type_name -> sarnaut.content.v1.Ability.ExtraEntry
 	12, // 10: sarnaut.content.v1.Faction.relations:type_name -> sarnaut.content.v1.FactionRelation
-	48, // 11: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
-	49, // 12: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
-	5,  // 13: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
-	15, // 14: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
-	50, // 15: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
-	16, // 16: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
-	51, // 17: sarnaut.content.v1.Item.extra:type_name -> sarnaut.content.v1.Item.ExtraEntry
-	1,  // 18: sarnaut.content.v1.LootNode.kind:type_name -> sarnaut.content.v1.LootNodeKind
-	19, // 19: sarnaut.content.v1.LootNode.entries:type_name -> sarnaut.content.v1.LootNode
-	19, // 20: sarnaut.content.v1.LootTable.root:type_name -> sarnaut.content.v1.LootNode
-	52, // 21: sarnaut.content.v1.LootTable.extra:type_name -> sarnaut.content.v1.LootTable.ExtraEntry
-	2,  // 22: sarnaut.content.v1.MobKind.taxonomy:type_name -> sarnaut.content.v1.MobTaxonomyKind
-	53, // 23: sarnaut.content.v1.MobKind.extra:type_name -> sarnaut.content.v1.MobKind.ExtraEntry
-	22, // 24: sarnaut.content.v1.LevelCurve.points:type_name -> sarnaut.content.v1.LevelCurvePoint
-	54, // 25: sarnaut.content.v1.LevelCurve.extra:type_name -> sarnaut.content.v1.LevelCurve.ExtraEntry
-	5,  // 26: sarnaut.content.v1.RoutePoint.position:type_name -> sarnaut.content.v1.Vec3
-	24, // 27: sarnaut.content.v1.Route.points:type_name -> sarnaut.content.v1.RoutePoint
-	25, // 28: sarnaut.content.v1.Route.links:type_name -> sarnaut.content.v1.RouteLink
-	55, // 29: sarnaut.content.v1.Route.extra:type_name -> sarnaut.content.v1.Route.ExtraEntry
-	27, // 30: sarnaut.content.v1.Locale.entries:type_name -> sarnaut.content.v1.LocaleEntry
-	56, // 31: sarnaut.content.v1.Locale.extra:type_name -> sarnaut.content.v1.Locale.ExtraEntry
-	3,  // 32: sarnaut.content.v1.QuestObjective.kind:type_name -> sarnaut.content.v1.QuestObjectiveKind
-	31, // 33: sarnaut.content.v1.QuestRewards.mandatory_items:type_name -> sarnaut.content.v1.QuestRewardItem
-	31, // 34: sarnaut.content.v1.QuestRewards.alternative_items:type_name -> sarnaut.content.v1.QuestRewardItem
-	30, // 35: sarnaut.content.v1.Quest.prerequisites:type_name -> sarnaut.content.v1.QuestPrerequisite
-	29, // 36: sarnaut.content.v1.Quest.objectives:type_name -> sarnaut.content.v1.QuestObjective
-	32, // 37: sarnaut.content.v1.Quest.rewards:type_name -> sarnaut.content.v1.QuestRewards
-	57, // 38: sarnaut.content.v1.Quest.extra:type_name -> sarnaut.content.v1.Quest.ExtraEntry
-	4,  // 39: sarnaut.content.v1.ScriptNode.tier:type_name -> sarnaut.content.v1.CoverageTier
-	37, // 40: sarnaut.content.v1.ScriptNode.fields:type_name -> sarnaut.content.v1.ScriptField
-	38, // 41: sarnaut.content.v1.ScriptField.value:type_name -> sarnaut.content.v1.ScriptValue
-	34, // 42: sarnaut.content.v1.ScriptValue.decimal:type_name -> sarnaut.content.v1.Decimal
-	35, // 43: sarnaut.content.v1.ScriptValue.reference:type_name -> sarnaut.content.v1.ContentRef
-	36, // 44: sarnaut.content.v1.ScriptValue.node:type_name -> sarnaut.content.v1.ScriptNode
-	39, // 45: sarnaut.content.v1.ScriptValue.list:type_name -> sarnaut.content.v1.ScriptValueList
-	38, // 46: sarnaut.content.v1.ScriptValueList.values:type_name -> sarnaut.content.v1.ScriptValue
-	40, // 47: sarnaut.content.v1.QuestScript.counters:type_name -> sarnaut.content.v1.QuestCounterBinding
-	36, // 48: sarnaut.content.v1.QuestScript.start_impacts:type_name -> sarnaut.content.v1.ScriptNode
-	36, // 49: sarnaut.content.v1.QuestScript.trigger_agents:type_name -> sarnaut.content.v1.ScriptNode
-	36, // 50: sarnaut.content.v1.ScriptTrigger.root:type_name -> sarnaut.content.v1.ScriptNode
-	5,  // 51: sarnaut.content.v1.MapLocator.position:type_name -> sarnaut.content.v1.Vec3
-	52, // [52:52] is the sub-list for method output_type
-	52, // [52:52] is the sub-list for method input_type
-	52, // [52:52] is the sub-list for extension type_name
-	52, // [52:52] is the sub-list for extension extendee
-	0,  // [0:52] is the sub-list for field type_name
+	59, // 11: sarnaut.content.v1.Faction.extra:type_name -> sarnaut.content.v1.Faction.ExtraEntry
+	60, // 12: sarnaut.content.v1.Mob.extra:type_name -> sarnaut.content.v1.Mob.ExtraEntry
+	45, // 13: sarnaut.content.v1.ExactStatEntry.value:type_name -> sarnaut.content.v1.Decimal
+	45, // 14: sarnaut.content.v1.WeaponProfile.minimum_damage:type_name -> sarnaut.content.v1.Decimal
+	45, // 15: sarnaut.content.v1.WeaponProfile.maximum_damage:type_name -> sarnaut.content.v1.Decimal
+	45, // 16: sarnaut.content.v1.WeaponProfile.speed_ms:type_name -> sarnaut.content.v1.Decimal
+	45, // 17: sarnaut.content.v1.StartingResource.initial:type_name -> sarnaut.content.v1.Decimal
+	45, // 18: sarnaut.content.v1.StartingResource.maximum:type_name -> sarnaut.content.v1.Decimal
+	19, // 19: sarnaut.content.v1.StartingCharacterStats.resource:type_name -> sarnaut.content.v1.StartingResource
+	17, // 20: sarnaut.content.v1.StartingCharacterStats.innate:type_name -> sarnaut.content.v1.ExactStatEntry
+	45, // 21: sarnaut.content.v1.StartingCharacterStats.armor:type_name -> sarnaut.content.v1.Decimal
+	17, // 22: sarnaut.content.v1.StartingCharacterStats.resistances:type_name -> sarnaut.content.v1.ExactStatEntry
+	45, // 23: sarnaut.content.v1.StartingCharacterStats.hit_dice:type_name -> sarnaut.content.v1.Decimal
+	45, // 24: sarnaut.content.v1.StartingCharacterStats.mana_dice:type_name -> sarnaut.content.v1.Decimal
+	45, // 25: sarnaut.content.v1.StartingCharacterStats.base_stat_value:type_name -> sarnaut.content.v1.Decimal
+	45, // 26: sarnaut.content.v1.StartingCharacterStats.weapon_dps_default:type_name -> sarnaut.content.v1.Decimal
+	45, // 27: sarnaut.content.v1.StartingCharacterStats.fairy_scaler:type_name -> sarnaut.content.v1.Decimal
+	18, // 28: sarnaut.content.v1.StartingCharacterStats.mainhand:type_name -> sarnaut.content.v1.WeaponProfile
+	18, // 29: sarnaut.content.v1.StartingCharacterStats.ranged:type_name -> sarnaut.content.v1.WeaponProfile
+	5,  // 30: sarnaut.content.v1.ChargenOption.spawn_position:type_name -> sarnaut.content.v1.Vec3
+	15, // 31: sarnaut.content.v1.ChargenOption.starting_stats:type_name -> sarnaut.content.v1.StatEntry
+	61, // 32: sarnaut.content.v1.ChargenOption.extra:type_name -> sarnaut.content.v1.ChargenOption.ExtraEntry
+	16, // 33: sarnaut.content.v1.ChargenOption.starting_loadout:type_name -> sarnaut.content.v1.LoadoutEntry
+	20, // 34: sarnaut.content.v1.ChargenOption.stats:type_name -> sarnaut.content.v1.StartingCharacterStats
+	21, // 35: sarnaut.content.v1.ChargenOption.starting_actions:type_name -> sarnaut.content.v1.StartingAction
+	45, // 36: sarnaut.content.v1.ActionCooldown.base:type_name -> sarnaut.content.v1.Decimal
+	45, // 37: sarnaut.content.v1.ActionResource.cost:type_name -> sarnaut.content.v1.Decimal
+	45, // 38: sarnaut.content.v1.NativeAction.range_m:type_name -> sarnaut.content.v1.Decimal
+	23, // 39: sarnaut.content.v1.NativeAction.cooldown:type_name -> sarnaut.content.v1.ActionCooldown
+	24, // 40: sarnaut.content.v1.NativeAction.resource:type_name -> sarnaut.content.v1.ActionResource
+	47, // 41: sarnaut.content.v1.NativeAction.target_impacts:type_name -> sarnaut.content.v1.ScriptNode
+	47, // 42: sarnaut.content.v1.NativeAction.caster_conditions:type_name -> sarnaut.content.v1.ScriptNode
+	26, // 43: sarnaut.content.v1.PlayerProgression.thresholds:type_name -> sarnaut.content.v1.PlayerLevelThreshold
+	27, // 44: sarnaut.content.v1.PlayerProgression.experience_impacts:type_name -> sarnaut.content.v1.ExperienceImpact
+	62, // 45: sarnaut.content.v1.Item.extra:type_name -> sarnaut.content.v1.Item.ExtraEntry
+	1,  // 46: sarnaut.content.v1.LootNode.kind:type_name -> sarnaut.content.v1.LootNodeKind
+	30, // 47: sarnaut.content.v1.LootNode.entries:type_name -> sarnaut.content.v1.LootNode
+	30, // 48: sarnaut.content.v1.LootTable.root:type_name -> sarnaut.content.v1.LootNode
+	63, // 49: sarnaut.content.v1.LootTable.extra:type_name -> sarnaut.content.v1.LootTable.ExtraEntry
+	2,  // 50: sarnaut.content.v1.MobKind.taxonomy:type_name -> sarnaut.content.v1.MobTaxonomyKind
+	64, // 51: sarnaut.content.v1.MobKind.extra:type_name -> sarnaut.content.v1.MobKind.ExtraEntry
+	33, // 52: sarnaut.content.v1.LevelCurve.points:type_name -> sarnaut.content.v1.LevelCurvePoint
+	65, // 53: sarnaut.content.v1.LevelCurve.extra:type_name -> sarnaut.content.v1.LevelCurve.ExtraEntry
+	5,  // 54: sarnaut.content.v1.RoutePoint.position:type_name -> sarnaut.content.v1.Vec3
+	35, // 55: sarnaut.content.v1.Route.points:type_name -> sarnaut.content.v1.RoutePoint
+	36, // 56: sarnaut.content.v1.Route.links:type_name -> sarnaut.content.v1.RouteLink
+	66, // 57: sarnaut.content.v1.Route.extra:type_name -> sarnaut.content.v1.Route.ExtraEntry
+	38, // 58: sarnaut.content.v1.Locale.entries:type_name -> sarnaut.content.v1.LocaleEntry
+	67, // 59: sarnaut.content.v1.Locale.extra:type_name -> sarnaut.content.v1.Locale.ExtraEntry
+	3,  // 60: sarnaut.content.v1.QuestObjective.kind:type_name -> sarnaut.content.v1.QuestObjectiveKind
+	42, // 61: sarnaut.content.v1.QuestRewards.mandatory_items:type_name -> sarnaut.content.v1.QuestRewardItem
+	42, // 62: sarnaut.content.v1.QuestRewards.alternative_items:type_name -> sarnaut.content.v1.QuestRewardItem
+	41, // 63: sarnaut.content.v1.Quest.prerequisites:type_name -> sarnaut.content.v1.QuestPrerequisite
+	40, // 64: sarnaut.content.v1.Quest.objectives:type_name -> sarnaut.content.v1.QuestObjective
+	43, // 65: sarnaut.content.v1.Quest.rewards:type_name -> sarnaut.content.v1.QuestRewards
+	68, // 66: sarnaut.content.v1.Quest.extra:type_name -> sarnaut.content.v1.Quest.ExtraEntry
+	4,  // 67: sarnaut.content.v1.ScriptNode.tier:type_name -> sarnaut.content.v1.CoverageTier
+	48, // 68: sarnaut.content.v1.ScriptNode.fields:type_name -> sarnaut.content.v1.ScriptField
+	49, // 69: sarnaut.content.v1.ScriptField.value:type_name -> sarnaut.content.v1.ScriptValue
+	45, // 70: sarnaut.content.v1.ScriptValue.decimal:type_name -> sarnaut.content.v1.Decimal
+	46, // 71: sarnaut.content.v1.ScriptValue.reference:type_name -> sarnaut.content.v1.ContentRef
+	47, // 72: sarnaut.content.v1.ScriptValue.node:type_name -> sarnaut.content.v1.ScriptNode
+	50, // 73: sarnaut.content.v1.ScriptValue.list:type_name -> sarnaut.content.v1.ScriptValueList
+	49, // 74: sarnaut.content.v1.ScriptValueList.values:type_name -> sarnaut.content.v1.ScriptValue
+	51, // 75: sarnaut.content.v1.QuestScript.counters:type_name -> sarnaut.content.v1.QuestCounterBinding
+	47, // 76: sarnaut.content.v1.QuestScript.start_impacts:type_name -> sarnaut.content.v1.ScriptNode
+	47, // 77: sarnaut.content.v1.QuestScript.trigger_agents:type_name -> sarnaut.content.v1.ScriptNode
+	47, // 78: sarnaut.content.v1.ScriptTrigger.root:type_name -> sarnaut.content.v1.ScriptNode
+	5,  // 79: sarnaut.content.v1.MapLocator.position:type_name -> sarnaut.content.v1.Vec3
+	80, // [80:80] is the sub-list for method output_type
+	80, // [80:80] is the sub-list for method input_type
+	80, // [80:80] is the sub-list for extension type_name
+	80, // [80:80] is the sub-list for extension extendee
+	0,  // [0:80] is the sub-list for field type_name
 }
 
 func init() { file_sarnaut_content_v1_content_proto_init() }
@@ -4580,7 +5614,8 @@ func file_sarnaut_content_v1_content_proto_init() {
 	if File_sarnaut_content_v1_content_proto != nil {
 		return
 	}
-	file_sarnaut_content_v1_content_proto_msgTypes[33].OneofWrappers = []any{
+	file_sarnaut_content_v1_content_proto_msgTypes[16].OneofWrappers = []any{}
+	file_sarnaut_content_v1_content_proto_msgTypes[44].OneofWrappers = []any{
 		(*ScriptValue_Integer)(nil),
 		(*ScriptValue_Decimal)(nil),
 		(*ScriptValue_Boolean)(nil),
@@ -4596,7 +5631,7 @@ func file_sarnaut_content_v1_content_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sarnaut_content_v1_content_proto_rawDesc), len(file_sarnaut_content_v1_content_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   53,
+			NumMessages:   64,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

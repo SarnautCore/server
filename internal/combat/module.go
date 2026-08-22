@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/SarnautCore/server/internal/gametypes"
 )
@@ -34,30 +35,52 @@ type Options struct {
 	// Seed pins the zone spawn stream. Two runs with the same seed over the
 	// same pack draw the same mob levels and the same respawn delays.
 	Seed uint64
-	// PlayerLevel is the level an entering character is admitted at.
-	//
-	// It is a seam, not a rule: a character's level is persisted state, and it
-	// arrives from ADR 0031's shard.character_state once the auth handshake
-	// carries a character id. Zero means level one.
-	PlayerLevel uint32
 	// PlayerFaction is the faction an entering character belongs to. It is the
 	// same seam as PlayerLevel: chargen decides it (ADR 0032). Empty, or a
 	// faction the pack does not describe, means the pack's first playable
 	// faction in canonical-id order.
 	PlayerFaction string
+	// PlayerLifecycle is authored native content. Nil is allowed while a zone
+	// has no players, but admitting a persisted dead player or resolving a
+	// player death fails closed without it.
+	PlayerLifecycle *PlayerLifecycleRules
+}
+
+// PlayerLifecycleRules are the private native values used after a player
+// death. They are injected by composition; combat carries no fallback timing.
+type PlayerLifecycleRules struct {
+	RespawnDelay         time.Duration
+	ResurrectionSickness time.Duration
+}
+
+func (rules PlayerLifecycleRules) valid() bool {
+	return rules.RespawnDelay > 0 && rules.ResurrectionSickness > 0
+}
+
+// PlayerAdmission is the persisted and content-authored combat identity of one
+// character. A caller must provide every field; admission does not synthesize
+// level, health, or a loadout.
+type PlayerAdmission struct {
+	Level                         uint32
+	Experience                    int64
+	Health                        int32
+	MaxHealth                     int32
+	AbilityIDs                    []string
+	ResurrectionSicknessRemaining time.Duration
 }
 
 // Module is the combat system for one zone.
 type Module struct {
-	logger  *slog.Logger
-	zone    gametypes.Zone
-	rules   Rules
-	level   uint32
-	faction string
+	logger    *slog.Logger
+	zone      gametypes.Zone
+	rules     Rules
+	faction   string
+	lifecycle *PlayerLifecycleRules
 
 	// mobs, casters, stream and killSink are read and written only under the
 	// zone lock.
 	mobs     map[uint64]*mobState
+	players  map[uint64]*playerState
 	casters  map[uint64]*casterState
 	stream   *spawnStream
 	killSink KillSink
@@ -75,25 +98,22 @@ type Module struct {
 // New builds the combat module for one zone and registers it as a per-tick
 // system.
 func New(logger *slog.Logger, zone gametypes.Zone, rules Rules, options Options) *Module {
-	level := options.PlayerLevel
-	if level == 0 {
-		level = 1
-	}
 	faction := options.PlayerFaction
 	if faction == "" || !rules.HasFaction(faction) {
 		faction = rules.PlayerFaction()
 	}
 	module := &Module{
-		logger:  logger,
-		zone:    zone,
-		rules:   rules,
-		level:   level,
-		faction: faction,
-		mobs:    make(map[uint64]*mobState),
-		casters: make(map[uint64]*casterState),
-		stream:  newSpawnStream(options.Seed),
-		events:  make(chan Event, eventQueueSize),
-		sinks:   make(map[uint64]EventSink),
+		logger:    logger,
+		zone:      zone,
+		rules:     rules,
+		faction:   faction,
+		lifecycle: options.PlayerLifecycle,
+		mobs:      make(map[uint64]*mobState),
+		players:   make(map[uint64]*playerState),
+		casters:   make(map[uint64]*casterState),
+		stream:    newSpawnStream(options.Seed),
+		events:    make(chan Event, eventQueueSize),
+		sinks:     make(map[uint64]EventSink),
 	}
 	zone.GameAddSystem(module)
 	return module
@@ -150,21 +170,51 @@ func (module *Module) Populate(spawns []gametypes.NPCSpawn) error {
 }
 
 // Admit gives a joined player its combat identity, from the pack.
-func (module *Module) Admit(entityID uint64) error {
+func (module *Module) Admit(entityID uint64, admission PlayerAdmission) error {
 	return module.zone.GameCommand(func(tick gametypes.Tick) error {
 		entity := tick.Entity(entityID)
 		if entity == nil || entity.Kind != gametypes.EntityKindPlayer {
 			return fmt.Errorf("admit entity %d: %w", entityID, gametypes.ErrUnknownEntity)
 		}
+		if admission.Level == 0 || admission.Experience < 0 {
+			return fmt.Errorf("admit entity %d: invalid loaded progression", entityID)
+		}
+		if admission.MaxHealth <= 0 || admission.Health < 0 || admission.Health > admission.MaxHealth {
+			return fmt.Errorf("admit entity %d: loaded health %d is outside 0..%d",
+				entityID, admission.Health, admission.MaxHealth)
+		}
+		if admission.ResurrectionSicknessRemaining < 0 {
+			return fmt.Errorf("admit entity %d: loaded resurrection sickness is negative", entityID)
+		}
+		if len(admission.AbilityIDs) == 0 {
+			return fmt.Errorf("admit entity %d: authored ability loadout is empty", entityID)
+		}
+		abilities := append([]string(nil), admission.AbilityIDs...)
+		for _, abilityID := range abilities {
+			if _, ok := module.rules.Ability(abilityID); !ok {
+				return fmt.Errorf("admit entity %d: authored ability %q is absent", entityID, abilityID)
+			}
+		}
+		if admission.Health == 0 && (module.lifecycle == nil || !module.lifecycle.valid()) {
+			return fmt.Errorf("admit entity %d: dead load has no authored player lifecycle", entityID)
+		}
+
 		entity.Faction = module.faction
-		entity.Level = module.level
-		entity.MaxHealth = MaxHealth(module.level, defaultHPMod)
-		entity.Health = entity.MaxHealth
-		entity.Alive = true
-		// Until ADR 0032's chargen row reaches the pack, a character knows
-		// every ability the pack carries. The seam is here, not in the rules:
-		// narrowing it later is a change to this one line.
-		module.casters[entityID] = &casterState{abilities: module.rules.AbilityIDs()}
+		entity.Level = admission.Level
+		entity.MaxHealth = admission.MaxHealth
+		entity.Health = admission.Health
+		entity.Alive = admission.Health > 0
+		module.casters[entityID] = &casterState{abilities: abilities}
+		module.players[entityID] = &playerState{
+			anchor: tick.Position(entity), anchorYaw: entity.Heading,
+			phase: playerAlive,
+		}
+		if !entity.Alive {
+			module.players[entityID].phase = playerDead
+			module.schedulePlayerRespawn(tick, entity)
+		} else if admission.ResurrectionSicknessRemaining > 0 {
+			module.resumePlayerSickness(tick, entity, admission.ResurrectionSicknessRemaining)
+		}
 		return nil
 	})
 }
@@ -173,9 +223,31 @@ func (module *Module) Admit(entityID uint64) error {
 func (module *Module) Release(entityID uint64) {
 	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		delete(module.casters, entityID)
+		delete(module.players, entityID)
 		return nil
 	})
 	module.Unsubscribe(entityID)
+}
+
+// ApplyPlayerProgression projects a level that has already committed off the
+// tick path. It changes simulation state only; persistence and event ordering
+// belong to the progression service and session adapter.
+func (module *Module) ApplyPlayerProgression(entityID uint64, level uint32) error {
+	return module.zone.GameCommand(func(tick gametypes.Tick) error {
+		entity := tick.Entity(entityID)
+		if entity == nil || entity.Kind != gametypes.EntityKindPlayer {
+			return fmt.Errorf("project progression entity %d: %w", entityID, gametypes.ErrUnknownEntity)
+		}
+		if _, ok := module.players[entityID]; !ok {
+			return fmt.Errorf("project progression entity %d: no player combat state", entityID)
+		}
+		if level == 0 || level < entity.Level {
+			return fmt.Errorf("project progression entity %d: level %d cannot replace %d",
+				entityID, level, entity.Level)
+		}
+		entity.Level = level
+		return nil
+	})
 }
 
 // Subscribe starts combat-event delivery for one session.
@@ -245,7 +317,8 @@ func (module *Module) publish(event Event) {
 		return
 	default:
 	}
-	if event.Kind != EventKindDeath {
+	if event.Kind != EventKindDeath && event.Kind != EventKindPlayerDeath &&
+		event.Kind != EventKindPlayerRespawn && event.Kind != EventKindResurrectionSicknessExpired {
 		module.dropped.Add(1)
 		return
 	}

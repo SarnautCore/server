@@ -56,7 +56,10 @@ func BenchmarkCombatStep(b *testing.B) {
 		b.Fatalf("Populate() error = %v", err)
 	}
 	playerID, _ := zone.Join()
-	if err := module.Admit(playerID); err != nil {
+	if err := module.Admit(playerID, combat.PlayerAdmission{
+		Level: 1, Health: combat.MaxHealth(1, 1), MaxHealth: combat.MaxHealth(1, 1),
+		AbilityIDs: rules.AbilityIDs(),
+	}); err != nil {
 		b.Fatalf("Admit() error = %v", err)
 	}
 	if err := zone.Subscribe(playerID, discardSnapshots{}); err != nil {

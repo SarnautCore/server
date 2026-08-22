@@ -88,6 +88,9 @@ const (
 	// ExecutionKey, because Quest_1_20/CountId_1 has two independent
 	// increment paths and a limit of 1.
 	CommandIncreaseQuestCount
+	// CommandAddExperience is ImpactAddExperience's authored mob-equivalent
+	// award. The host carries it to an off-tick durable progression service.
+	CommandAddExperience
 	// CommandGiveItem answers ImpactGiveItem (54 uses).
 	CommandGiveItem
 	// CommandClientData answers ImpactClientData (83 uses) — presentation only.
@@ -135,6 +138,9 @@ type Command struct {
 	EntityID string
 	Ref      Ref
 	Count    int64
+	// MobLevel accompanies Count for CommandAddExperience. Count is the
+	// authored mobCount, not a resolved experience amount.
+	MobLevel int64
 	// Magnitude is the scaler-computed amount for CommandDamage. It stays an
 	// exact decimal rather than a rounded integer because rounding is a combat
 	// decision and the combat hook is where ADR 0036 puts combat decisions —

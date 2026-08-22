@@ -111,6 +111,9 @@ func (module *Module) validate(
 	ability gametypes.Ability,
 	targetID uint64,
 ) Rejection {
+	if !caster.Alive {
+		return RejectionInvalidTarget
+	}
 	// Rule 5.2.2.
 	if targetID == 0 {
 		return RejectionNoTarget

@@ -243,7 +243,14 @@ func startSession(t *testing.T, unreliable bool) *sessionHarness {
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "harness",
 		Zones: map[string]ZoneBinding{
-			zone.ID(): {World: zone, Combat: combatModule, Quests: questModule},
+			zone.ID(): {
+				World: zone, Combat: combatModule, Quests: questModule,
+				CombatLoadouts: CombatLoadouts{
+					"chargen.league.warrior": {
+						AbilityIDs: rules.AbilityIDs(), MaxHealth: combat.MaxHealth(1, 1),
+					},
+				},
+			},
 		},
 		Authority:  authority,
 		Characters: newFakeCharacters(testTemplate(charstore.Vec3{})),

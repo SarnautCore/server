@@ -76,16 +76,28 @@ func TestSaveWorkerDropsWhenTheQueueIsFullInsteadOfBlocking(t *testing.T) {
 	}
 }
 
-func TestSaveWorkerPersistsQueuedSnapshots(t *testing.T) {
+func TestSaveWorkerPersistsOnlySimulationOwnedCheckpointFields(t *testing.T) {
 	t.Parallel()
 
 	repository := charstore.NewMemory()
 	worker := charstore.NewSaveWorker(repository, discardLogger(), 8, time.Second)
 	characterID := uuid.New()
 
-	snapshot := snapshotFor(characterID, 1)
-	snapshot.Inventory = []charstore.InventoryItem{{Slot: 0, ItemID: "item.sword-rusty", Quantity: 1}}
-	snapshot.Quests = []charstore.QuestState{{QuestID: "quest.league.first-blood", State: "accepted"}}
+	durable := snapshotFor(characterID, 1)
+	durable.State.Level = 2
+	durable.State.Experience = 125
+	durable.State.Currency = 7
+	durable.State.Honor = 3
+	durable.Inventory = []charstore.InventoryItem{{Slot: 0, ItemID: "item.reward", Quantity: 1}}
+	durable.Quests = []charstore.QuestState{{QuestID: "quest.rewarded", State: "completed"}}
+	if err := charstore.SaveNow(t.Context(), repository, durable, time.Second); err != nil {
+		t.Fatalf("seed durable state: %v", err)
+	}
+
+	snapshot := snapshotFor(characterID, 2)
+	snapshot.State.Position.X = 12
+	snapshot.Inventory = []charstore.InventoryItem{{Slot: 0, ItemID: "item.stale", Quantity: 1}}
+	snapshot.Quests = []charstore.QuestState{{QuestID: "quest.stale", State: "accepted"}}
 	if !worker.Enqueue(snapshot) {
 		t.Fatal("Enqueue was refused with an empty queue")
 	}
@@ -112,12 +124,19 @@ func TestSaveWorkerPersistsQueuedSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
-	if state.SaveSeq != 1 {
-		t.Errorf("save_seq = %d, want 1", state.SaveSeq)
+	if state.SaveSeq != 2 || state.Position.X != 12 {
+		t.Errorf("checkpoint state = %+v, want save_seq 2 at x=12", state)
+	}
+	if state.Level != 2 || state.Experience != 125 || state.Currency != 7 || state.Honor != 3 {
+		t.Errorf("checkpoint overwrote irreversible state: %+v", state)
 	}
 	items, err := repository.LoadInventory(t.Context(), characterID)
-	if err != nil || len(items) != 1 {
-		t.Errorf("inventory = %+v (err %v), want one item", items, err)
+	if err != nil || len(items) != 1 || items[0].ItemID != "item.reward" {
+		t.Errorf("inventory = %+v (err %v), want durable reward", items, err)
+	}
+	quests, err := repository.LoadQuestStates(t.Context(), characterID)
+	if err != nil || len(quests) != 1 || quests[0].QuestID != "quest.rewarded" {
+		t.Errorf("quests = %+v (err %v), want durable reward state", quests, err)
 	}
 }
 
@@ -132,7 +151,10 @@ func TestSaveWorkerDrainsOnShutdown(t *testing.T) {
 	characters := make([]uuid.UUID, 3)
 	for index := range characters {
 		characters[index] = uuid.New()
-		if !worker.Enqueue(snapshotFor(characters[index], 1)) {
+		if err := repository.SaveCharacterState(t.Context(), snapshotFor(characters[index], 1).State); err != nil {
+			t.Fatalf("seed character %d: %v", index, err)
+		}
+		if !worker.Enqueue(snapshotFor(characters[index], 2)) {
 			t.Fatalf("Enqueue %d was refused", index)
 		}
 	}

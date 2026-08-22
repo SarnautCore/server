@@ -246,6 +246,110 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) cha
 		}
 	})
 
+	t.Run("checkpoint preserves irreversible state while advancing simulation state", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		state := charstore.CharacterState{
+			CharacterID: characterID,
+			ZoneID:      "InstLeague1",
+			Position:    charstore.Vec3{X: 1, Y: 2, Z: 3},
+			Heading:     0.5,
+			Level:       2,
+			Experience:  125,
+			Health:      90,
+			Currency:    17,
+			Honor:       4,
+			SaveSeq:     8,
+		}
+		if err := repository.SaveCharacterState(ctx, state); err != nil {
+			t.Fatalf("seed durable state: %v", err)
+		}
+
+		checkpoint := state
+		checkpoint.ZoneID = "InstLeague2"
+		checkpoint.Position = charstore.Vec3{X: 9, Y: 8, Z: 7}
+		checkpoint.Heading = 1.25
+		checkpoint.Health = 23
+		checkpoint.ResurrectionSicknessMS = 20_000
+		checkpoint.SaveSeq = 9
+		// These values represent stale session projections and must be ignored.
+		checkpoint.Level = 1
+		checkpoint.Experience = 0
+		checkpoint.Currency = 0
+		checkpoint.Honor = 0
+		if err := repository.SaveCharacterCheckpoint(ctx, checkpoint); err != nil {
+			t.Fatalf("save checkpoint: %v", err)
+		}
+
+		loaded, err := repository.LoadCharacterState(ctx, characterID)
+		if err != nil {
+			t.Fatalf("load checkpointed state: %v", err)
+		}
+		if loaded.ZoneID != checkpoint.ZoneID || loaded.Position != checkpoint.Position ||
+			loaded.Heading != checkpoint.Heading || loaded.Health != checkpoint.Health ||
+			loaded.ResurrectionSicknessMS != checkpoint.ResurrectionSicknessMS || loaded.SaveSeq != 9 {
+			t.Errorf("simulation state = %+v, want checkpoint fields", loaded)
+		}
+		if loaded.Level != 2 || loaded.Experience != 125 || loaded.Currency != 17 || loaded.Honor != 4 {
+			t.Errorf("checkpoint overwrote irreversible state: %+v", loaded)
+		}
+
+		if err := repository.SaveCharacterCheckpoint(ctx, checkpoint); !errors.Is(err, charstore.ErrStaleSave) {
+			t.Fatalf("replayed checkpoint error = %v, want ErrStaleSave", err)
+		}
+		missing := checkpoint
+		missing.CharacterID = uuid.New()
+		missing.SaveSeq = 1
+		if err := repository.SaveCharacterCheckpoint(ctx, missing); !errors.Is(err, charstore.ErrStaleSave) {
+			t.Fatalf("missing checkpoint error = %v, want ErrStaleSave", err)
+		}
+	})
+
+	t.Run("progression execution keys are durable and payload-stable", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		if err := repository.SaveCharacterState(ctx, charstore.CharacterState{
+			CharacterID: characterID,
+			ZoneID:      "InstLeague1",
+			Level:       1,
+			Health:      100,
+			SaveSeq:     1,
+		}); err != nil {
+			t.Fatalf("save state: %v", err)
+		}
+
+		grant := charstore.ProgressionGrant{
+			CharacterID:  characterID,
+			ExecutionKey: "eval-1|impact-add-experience",
+			Amount:       75,
+		}
+		stored, inserted, err := repository.RecordProgressionGrant(ctx, grant)
+		if err != nil {
+			t.Fatalf("record grant: %v", err)
+		}
+		if !inserted || stored.Amount != 75 || stored.CreatedAt.IsZero() {
+			t.Fatalf("recorded grant = %#v, inserted %v", stored, inserted)
+		}
+
+		grant.Amount = 99
+		replayed, inserted, err := repository.RecordProgressionGrant(ctx, grant)
+		if err != nil {
+			t.Fatalf("replay grant: %v", err)
+		}
+		if inserted || replayed.Amount != 75 || replayed.CreatedAt != stored.CreatedAt {
+			t.Fatalf("replayed grant = %#v, inserted %v, want original row", replayed, inserted)
+		}
+
+		_, _, err = repository.RecordProgressionGrant(ctx, charstore.ProgressionGrant{
+			CharacterID: uuid.New(), ExecutionKey: "orphan", Amount: 1,
+		})
+		if !errors.Is(err, charstore.ErrConstraintViolated) {
+			t.Fatalf("orphan grant error = %v, want ErrConstraintViolated", err)
+		}
+	})
+
 	t.Run("character currency round-trips", func(t *testing.T) {
 		repository := newRepository(t)
 		ctx := t.Context()
@@ -283,6 +387,33 @@ func runRepositoryConformance(t *testing.T, newRepository func(t *testing.T) cha
 		}
 		if credited.Currency != state.Currency {
 			t.Errorf("purse = %d, want %d", credited.Currency, state.Currency)
+		}
+	})
+
+	t.Run("resurrection sickness remainder round-trips", func(t *testing.T) {
+		repository := newRepository(t)
+		ctx := t.Context()
+		characterID := uuid.New()
+		state := charstore.CharacterState{
+			CharacterID: characterID, ZoneID: "InstLeague1",
+			Level: 1, Health: 100, SaveSeq: 1,
+			ResurrectionSicknessMS: 20_000,
+		}
+		if err := repository.SaveCharacterState(ctx, state); err != nil {
+			t.Fatalf("save sickness: %v", err)
+		}
+		loaded, err := repository.LoadCharacterState(ctx, characterID)
+		if err != nil {
+			t.Fatalf("load sickness: %v", err)
+		}
+		if loaded.ResurrectionSicknessMS != 20_000 {
+			t.Fatalf("sickness remainder = %d, want 20000", loaded.ResurrectionSicknessMS)
+		}
+
+		state.SaveSeq = 2
+		state.ResurrectionSicknessMS = charstore.MaxResurrectionSicknessMS + 1
+		if err := repository.SaveCharacterState(ctx, state); !errors.Is(err, charstore.ErrConstraintViolated) {
+			t.Fatalf("oversized sickness error = %v, want ErrConstraintViolated", err)
 		}
 	})
 

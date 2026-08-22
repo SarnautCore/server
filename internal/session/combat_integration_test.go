@@ -76,7 +76,12 @@ func TestKillLoopOverQUIC(t *testing.T) {
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "kill-loop-test",
-		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
+		Zones: map[string]session.ZoneBinding{zone.ID(): {
+			World: zone, Combat: combatModule,
+			CombatLoadouts: session.CombatLoadouts{"chargen.league.warrior": {
+				AbilityIDs: rules.AbilityIDs(), MaxHealth: combat.MaxHealth(1, 1),
+			}},
+		}},
 		// The shard admits nobody without a ticket, so even a combat test has to
 		// come through admission (ADR 0030). The character materializes six
 		// metres from the mob because that is the worked example's scenario

@@ -37,7 +37,17 @@ func newService(t *testing.T, repository charstore.Repository, slots int32) *cha
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
+	service.BindExperienceResolver(testExperienceResolver{})
 	return service
+}
+
+type testExperienceResolver struct{}
+
+func (testExperienceResolver) ResolveExperience(
+	level int32,
+	cumulative, gain int64,
+) (int32, int64, error) {
+	return level, cumulative + gain, nil
 }
 
 // TestAwardCommitsSlotsAndPurseTogether is rule 5.6: one transaction writes the
@@ -118,6 +128,33 @@ type abortingRepository struct {
 	failStateSave bool
 }
 
+type staleSaveInjection struct{ remaining int }
+
+type staleOnceRepository struct {
+	charstore.Repository
+	injection *staleSaveInjection
+}
+
+func (repository *staleOnceRepository) SaveCharacterState(
+	ctx context.Context,
+	state charstore.CharacterState,
+) error {
+	if repository.injection.remaining > 0 {
+		repository.injection.remaining--
+		return charstore.ErrStaleSave
+	}
+	return repository.Repository.SaveCharacterState(ctx, state)
+}
+
+func (repository *staleOnceRepository) RunInTx(
+	ctx context.Context,
+	fn func(ctx context.Context, tx charstore.Repository) error,
+) error {
+	return repository.Repository.RunInTx(ctx, func(ctx context.Context, tx charstore.Repository) error {
+		return fn(ctx, &staleOnceRepository{Repository: tx, injection: repository.injection})
+	})
+}
+
 var errInjected = errors.New("injected mid-transaction failure")
 
 func (repository *abortingRepository) SaveCharacterState(ctx context.Context, state charstore.CharacterState) error {
@@ -169,6 +206,30 @@ func TestAnAbortedAwardRollsTheInventoryBack(t *testing.T) {
 	}
 	if state.Currency != 0 {
 		t.Errorf("stored currency = %d after an aborted award, want 0", state.Currency)
+	}
+}
+
+func TestAwardRetriesACheckpointSaveSequenceRace(t *testing.T) {
+	base := charstore.NewMemory()
+	characterID := newCharacter(t, base)
+	repository := &staleOnceRepository{
+		Repository: base,
+		injection:  &staleSaveInjection{remaining: 1},
+	}
+	service := newService(t, repository, 8)
+
+	result, err := service.Award(t.Context(), characterID, inventory.Award{
+		Money: 5, Grants: []inventory.Grant{{ItemID: feather, Count: 3}},
+	})
+	if err != nil {
+		t.Fatalf("Award() after stale save error = %v", err)
+	}
+	if repository.injection.remaining != 0 || result.Currency != 5 || len(result.Slots) != 1 {
+		t.Fatalf("retried award = %+v, remaining injections %d", result, repository.injection.remaining)
+	}
+	state, err := base.LoadCharacterState(t.Context(), characterID)
+	if err != nil || state.Currency != 5 || state.SaveSeq != 2 {
+		t.Fatalf("stored state = %+v, error %v; want one committed award", state, err)
 	}
 }
 

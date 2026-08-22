@@ -114,7 +114,9 @@ func (worker *SaveWorker) drain(ctx context.Context) {
 	}
 }
 
-// persist writes one snapshot as a single transaction. The context is derived
+// persist writes the simulation-owned portion of one snapshot. Inventory,
+// quests and irreversible state are excluded because this asynchronous write
+// can arrive after a newer reward transaction. The context is derived
 // with [context.WithoutCancel] on purpose: the shard shutting down, or a
 // connection dying, must not cancel the save of the state it was holding
 // (ADR 0031 §8). The timeout is what bounds it instead.
@@ -122,7 +124,7 @@ func (worker *SaveWorker) persist(ctx context.Context, snapshot Snapshot) {
 	saveContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), worker.timeout)
 	defer cancel()
 
-	err := SaveCharacter(saveContext, worker.repository, snapshot)
+	err := worker.repository.SaveCharacterCheckpoint(saveContext, snapshot.State)
 	switch {
 	case err == nil:
 		worker.persisted.Add(1)

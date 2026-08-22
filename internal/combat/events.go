@@ -14,6 +14,12 @@ const (
 	// client projection drops VictimContentID; see the mapping in
 	// `internal/session`.
 	EventKindDeath
+	// EventKindPlayerDeath is a player entering the authored respawn window.
+	EventKindPlayerDeath
+	// EventKindPlayerRespawn is a player returning at the admission anchor.
+	EventKindPlayerRespawn
+	// EventKindResurrectionSicknessExpired ends the authored revive buff.
+	EventKindResurrectionSicknessExpired
 )
 
 // Event is one thing that happened in combat.
@@ -39,9 +45,11 @@ type Event struct {
 
 	// VictimContentID is content identity, and rule 5.9.3 keeps it off the
 	// wire: the client has no business inferring kill credit from it.
-	VictimContentID   string
-	VictimLevel       uint32
-	CorpseDespawnTick uint64
+	VictimContentID               string
+	VictimLevel                   uint32
+	CorpseDespawnTick             uint64
+	RespawnTick                   uint64
+	ResurrectionSicknessUntilTick uint64
 
 	// PrivateTo is the entity the event is for, or zero to broadcast. A
 	// refusal is nobody's business but the caster's.

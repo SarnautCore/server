@@ -319,6 +319,7 @@ func m3Handlers() map[string]handler {
 
 		// Quest counting, both shapes.
 		"ImpactIncreaseQuestCount": evalImpactIncreaseQuestCount,
+		"ImpactAddExperience":      evalImpactAddExperience,
 		"TagMobForKill":            evalTagMobForKill,
 
 		// Trigger binding: shape B finds the mobs, shape A binds to the player,
@@ -442,6 +443,32 @@ func evalImpactIncreaseQuestCount(ctx context.Context, evaluator *Evaluator, nod
 		EntityID:     frame.Addressee,
 		Ref:          id.Ref,
 		Count:        count,
+		ExecutionKey: frame.EvaluationID + "|" + node.Key,
+	})
+}
+
+func evalImpactAddExperience(ctx context.Context, evaluator *Evaluator, node *Node, frame Frame) error {
+	mobCount, countOK := node.Field("mobCount")
+	mobLevel, levelOK := node.Field("mobLevel")
+	if !countOK || mobCount.Kind != ValueInteger || mobCount.Integer <= 0 {
+		return &RefusedError{
+			SourceID: frame.SourceID, NodeKey: node.Key,
+			Family: node.Family, Opcode: node.Opcode,
+			Reason: "field \"mobCount\" is missing or is not a positive integer",
+		}
+	}
+	if !levelOK || mobLevel.Kind != ValueInteger || mobLevel.Integer <= 0 {
+		return &RefusedError{
+			SourceID: frame.SourceID, NodeKey: node.Key,
+			Family: node.Family, Opcode: node.Opcode,
+			Reason: "field \"mobLevel\" is missing or is not a positive integer",
+		}
+	}
+	return evaluator.host.Apply(ctx, Command{
+		Kind:         CommandAddExperience,
+		EntityID:     frame.Addressee,
+		Count:        mobCount.Integer,
+		MobLevel:     mobLevel.Integer,
 		ExecutionKey: frame.EvaluationID + "|" + node.Key,
 	})
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/observability"
 	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/progression"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/script"
 	"github.com/SarnautCore/server/internal/session"
@@ -126,6 +127,13 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	if err != nil {
 		return fmt.Errorf("create zone: %w", err)
 	}
+	progressionRules, ok := content.PlayerProgression()
+	if !ok {
+		return fmt.Errorf(
+			"content pack %q carries no authored player-progression table",
+			content.Directory(),
+		)
+	}
 	// Combat resolves every gameplay rule against the pack, so it is built
 	// from the pack before anything is spawned, and it is what spawns: a mob's
 	// level is a draw from the zone spawn stream, which combat owns.
@@ -133,7 +141,13 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	if err != nil {
 		return fmt.Errorf("read combat rules from content pack: %w", err)
 	}
-	combatModule := combat.New(logger, zone, rules, combat.Options{Seed: settings.World.SpawnSeed})
+	combatModule := combat.New(logger, zone, rules, combat.Options{
+		Seed: settings.World.SpawnSeed,
+		PlayerLifecycle: &combat.PlayerLifecycleRules{
+			RespawnDelay:         progressionRules.RespawnDelay(),
+			ResurrectionSickness: progressionRules.ResurrectionSicknessDuration(),
+		},
+	})
 	spawns := content.NPCSpawns()
 	if err := combatModule.Populate(spawns); err != nil {
 		return fmt.Errorf("populate zone: %w", err)
@@ -173,12 +187,22 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	if err != nil {
 		return err
 	}
+	progressionService, err := progression.NewService(repository, progressionRules)
+	if err != nil {
+		return fmt.Errorf("configure authored player progression: %w", err)
+	}
 	if clients.NATS == nil {
 		return errors.New(
 			"no NATS configured: the shard redeems ADR 0030 tickets over NATS request/reply. " +
 				"Set SARNAUT_NATS_URL",
 		)
 	}
+	progressionWorker := session.NewProgressionWorker(progressionService, logger, 0)
+	go func() {
+		if err := progressionWorker.Run(ctx); err != nil {
+			logger.ErrorContext(ctx, "player progression worker stopped", "error", err)
+		}
+	}()
 
 	worker := charstore.NewSaveWorker(
 		repository,
@@ -189,6 +213,10 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	go worker.Run(ctx)
 
 	templates, err := chargenTemplates(content, zoneContent.PlayerSpawn)
+	if err != nil {
+		return err
+	}
+	combatLoadoutRows, err := combatLoadouts(content)
 	if err != nil {
 		return err
 	}
@@ -206,6 +234,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	if err != nil {
 		return err
 	}
+	bags.BindExperienceResolver(progressionService)
 	lootModule := loot.New(logger, zone, lootRules, bags, loot.Options{
 		WorldSeed: settings.World.WorldSeed,
 	})
@@ -238,10 +267,12 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	logger.Info("zone quests wired", "quests", catalog.Count())
 
 	binding := session.ZoneBinding{
-		World:  zone,
-		Combat: combatModule,
-		Loot:   lootModule,
-		Quests: questModule,
+		World:          zone,
+		Combat:         combatModule,
+		CombatLoadouts: combatLoadoutRows,
+		Progression:    progressionWorker,
+		Loot:           lootModule,
+		Quests:         questModule,
 	}
 	if settings.Content.EnableImpactInterpreter {
 		binding.Scripts = session.NewScriptDriver(
@@ -252,6 +283,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 			script.Options{Enabled: true},
 		)
 		binding.Scripts.BindCombat(combatModule)
+		binding.Scripts.BindProgression(progressionWorker)
 		logger.Info("zone quest scripts wired", "quest_scripts", len(content.QuestScriptIDs()))
 	}
 	// One death, two consumers, and neither of them knows the other exists

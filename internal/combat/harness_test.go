@@ -98,9 +98,18 @@ func newHarness(t *testing.T, packName, mobID string, offset world.Vec3, options
 }
 
 func (fixture *harness) join() uint64 {
+	return fixture.joinWith(combat.PlayerAdmission{
+		Level:      1,
+		Health:     combat.MaxHealth(1, 1),
+		MaxHealth:  combat.MaxHealth(1, 1),
+		AbilityIDs: fixture.module.Rules().AbilityIDs(),
+	})
+}
+
+func (fixture *harness) joinWith(admission combat.PlayerAdmission) uint64 {
 	fixture.t.Helper()
 	entityID, _ := fixture.zone.Join()
-	if err := fixture.module.Admit(entityID); err != nil {
+	if err := fixture.module.Admit(entityID, admission); err != nil {
 		fixture.t.Fatalf("Admit() error = %v", err)
 	}
 	fixture.module.Subscribe(entityID, fixture.events)

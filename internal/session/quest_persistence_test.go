@@ -97,7 +97,14 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 		t.Fatalf("quests.CatalogFromPack() error = %v", err)
 	}
 	questModule := quests.New(slog.New(slog.DiscardHandler), zone, catalog, bags)
-	binding := session.ZoneBinding{World: zone, Combat: combatModule, Quests: questModule}
+	binding := session.ZoneBinding{
+		World: zone, Combat: combatModule, Quests: questModule,
+		CombatLoadouts: session.CombatLoadouts{
+			"chargen.league.warrior": {
+				AbilityIDs: combatModule.Rules().AbilityIDs(), MaxHealth: combat.MaxHealth(1, 1),
+			},
+		},
+	}
 	combatModule.SetKillSink(binding.KillSink())
 
 	runCtx, cancel := context.WithCancel(ctx)
@@ -121,7 +128,10 @@ func TestQuestProgressSurvivesADisconnectAndReconnect(t *testing.T) {
 	}
 
 	playerID, _ := zone.Join()
-	if err := combatModule.Admit(playerID); err != nil {
+	if err := combatModule.Admit(playerID, combat.PlayerAdmission{
+		Level: 1, Health: combat.MaxHealth(1, 1), MaxHealth: combat.MaxHealth(1, 1),
+		AbilityIDs: combatRules.AbilityIDs(),
+	}); err != nil {
 		t.Fatalf("combat.Admit() error = %v", err)
 	}
 	// Replication is what tells the simulation this entity is really here: a

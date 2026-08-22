@@ -161,7 +161,10 @@ func (sink lootSink) MobKilled(tick gametypes.Tick, kill combat.Kill) {
 func (fixture *harness) join(repository charstore.Repository) (uint64, uuid.UUID) {
 	fixture.t.Helper()
 	entityID, _ := fixture.zone.Join()
-	if err := fixture.combat.Admit(entityID); err != nil {
+	if err := fixture.combat.Admit(entityID, combat.PlayerAdmission{
+		Level: 1, Health: combat.MaxHealth(1, 1), MaxHealth: combat.MaxHealth(1, 1),
+		AbilityIDs: fixture.combat.Rules().AbilityIDs(),
+	}); err != nil {
 		fixture.t.Fatalf("combat.Admit() error = %v", err)
 	}
 	if err := fixture.zone.Subscribe(entityID, discardSnapshots{}); err != nil {

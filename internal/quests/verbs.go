@@ -28,9 +28,11 @@ type Result struct {
 	// committed them. They are empty on a refusal, and the session adopts them
 	// so its next checkpoint does not write the pre-grant bag back over this
 	// one.
-	Inventory []inventory.InventoryItem
-	Currency  int64
-	SaveSeq   int64
+	Inventory  []inventory.InventoryItem
+	Currency   int64
+	Level      int32
+	Experience int64
+	SaveSeq    int64
 	// Committed is true when a transaction ran. An accept and an abandon commit
 	// too: the quest row is the thing that makes them survive a crash.
 	Committed bool
@@ -198,11 +200,13 @@ func (module *Module) Accept(
 		return nil
 	})
 	return Result{
-		Update:    update,
-		Inventory: granted.Inventory,
-		Currency:  granted.Currency,
-		SaveSeq:   granted.SaveSeq,
-		Committed: true,
+		Update:     update,
+		Inventory:  granted.Inventory,
+		Currency:   granted.Currency,
+		Level:      granted.Level,
+		Experience: granted.Experience,
+		SaveSeq:    granted.SaveSeq,
+		Committed:  true,
 	}, nil
 }
 

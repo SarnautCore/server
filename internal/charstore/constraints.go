@@ -28,6 +28,9 @@ import (
 const (
 	MinCharacterNameLength = 3
 	MaxCharacterNameLength = 16
+	// MaxResurrectionSicknessMS is the largest millisecond count that can be
+	// converted to time.Duration without wrapping.
+	MaxResurrectionSicknessMS int64 = 9_223_372_036_854
 )
 
 // validateCharacter applies auth.characters' own constraints.
@@ -47,6 +50,9 @@ func validateCharacter(character Character) error {
 
 // validateCharacterState applies shard.character_state's own constraints.
 func validateCharacterState(state CharacterState) error {
+	if err := validateResurrectionSickness(state.ResurrectionSicknessMS); err != nil {
+		return err
+	}
 	switch {
 	case state.Level < 1:
 		return fmt.Errorf("%w: level is %d, must be at least 1", ErrConstraintViolated, state.Level)
@@ -64,6 +70,21 @@ func validateCharacterState(state CharacterState) error {
 			"%w: save_seq is %d, must not be negative", ErrConstraintViolated, state.SaveSeq)
 	}
 	return nil
+}
+
+func validateResurrectionSickness(milliseconds int64) error {
+	switch {
+	case milliseconds < 0:
+		return fmt.Errorf(
+			"%w: resurrection sickness is %dms, must not be negative",
+			ErrConstraintViolated, milliseconds)
+	case milliseconds > MaxResurrectionSicknessMS:
+		return fmt.Errorf(
+			"%w: resurrection sickness is %dms, exceeds duration capacity",
+			ErrConstraintViolated, milliseconds)
+	default:
+		return nil
+	}
 }
 
 // validateInventoryItem applies shard.character_inventory's own constraints.

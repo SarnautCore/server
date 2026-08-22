@@ -59,6 +59,23 @@ type CounterBinding struct {
 	ObjectiveIndex int
 }
 
+// ExperienceCommand is the tick-safe hand-off for ImpactAddExperience. The
+// receiver must only enqueue and return; calculation, persistence, and world
+// projection happen off the zone lock.
+type ExperienceCommand struct {
+	EntityID     uint64
+	ExecutionKey string
+	MobCount     int64
+	MobLevel     int64
+}
+
+// ExperienceCommandSink is a non-blocking ingress to the durable progression
+// worker. false means the command was not accepted, so script evaluation fails
+// instead of silently dropping an irreversible gain.
+type ExperienceCommandSink interface {
+	OfferExperience(ExperienceCommand) bool
+}
+
 // Census returns the per-opcode counts reached by this zone's evaluator.
 func (driver *ScriptDriver) Census() *script.Census {
 	if driver == nil {
@@ -76,13 +93,14 @@ func (driver *ScriptDriver) Census() *script.Census {
 // quest module's logs live under, and it is what lets the driver hold no
 // mutex of its own.
 type ScriptDriver struct {
-	logger    *slog.Logger
-	zone      gametypes.Zone
-	quests    *quests.Module
-	source    QuestScriptSource
-	evaluator *script.Evaluator
-	effects   *script.EffectRegistry
-	combat    *combat.Module
+	logger      *slog.Logger
+	zone        gametypes.Zone
+	quests      *quests.Module
+	source      QuestScriptSource
+	evaluator   *script.Evaluator
+	effects     *script.EffectRegistry
+	combat      *combat.Module
+	progression ExperienceCommandSink
 	// applyGuardUpdate is installed with combat. Keeping the host call as a
 	// function makes rejection behavior testable without weakening combat's
 	// public API.
@@ -159,6 +177,15 @@ func (driver *ScriptDriver) BindCombat(module *combat.Module) {
 	} else {
 		driver.applyGuardUpdate = nil
 	}
+}
+
+// BindProgression installs the off-tick experience ingress. It is composed
+// before sessions can evaluate scripts.
+func (driver *ScriptDriver) BindProgression(sink ExperienceCommandSink) {
+	if driver == nil {
+		return
+	}
+	driver.progression = sink
 }
 
 // ScaleDamage implements combat.DamageEffectHost. Outgoing effects fold
@@ -685,6 +712,26 @@ func (host scriptHost) Apply(ctx context.Context, command script.Command) error 
 			Y: command.Destination.Position.Y,
 			Z: command.Destination.Position.Z,
 		})
+
+	case script.CommandAddExperience:
+		if driver.progression == nil {
+			return fmt.Errorf("session: add experience for %s has no off-tick progression sink",
+				command.EntityID)
+		}
+		entityID, err := parseEntityID(command.EntityID)
+		if err != nil {
+			return err
+		}
+		if command.Count <= 0 || command.MobLevel <= 0 || command.ExecutionKey == "" {
+			return fmt.Errorf("session: add experience for %d carries malformed authored inputs", entityID)
+		}
+		if !driver.progression.OfferExperience(ExperienceCommand{
+			EntityID: entityID, ExecutionKey: command.ExecutionKey,
+			MobCount: command.Count, MobLevel: command.MobLevel,
+		}) {
+			return fmt.Errorf("session: add experience for %d was not accepted", entityID)
+		}
+		return nil
 
 	case script.CommandDamage, script.CommandSetTarget:
 		// Neither is reached by the quest trees this adapter serves; both

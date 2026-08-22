@@ -72,10 +72,15 @@ func TestShardReplicatesFixtureNPCAndAuthoritativeMovementOverQUIC(t *testing.T)
 	server := session.Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "shard-test",
-		Zones:           map[string]session.ZoneBinding{zone.ID(): {World: zone, Combat: combatModule}},
-		Authority:       new(stubAuthority),
-		Characters:      newStubCharacters(integrationTemplate(spawn)),
-		Logger:          slog.New(slog.DiscardHandler),
+		Zones: map[string]session.ZoneBinding{zone.ID(): {
+			World: zone, Combat: combatModule,
+			CombatLoadouts: session.CombatLoadouts{"chargen.league.warrior": {
+				AbilityIDs: rules.AbilityIDs(), MaxHealth: combat.MaxHealth(1, 1),
+			}},
+		}},
+		Authority:  new(stubAuthority),
+		Characters: newStubCharacters(integrationTemplate(spawn)),
+		Logger:     slog.New(slog.DiscardHandler),
 	}
 	serveErrors := make(chan error, 1)
 	go func() { serveErrors <- server.Serve(ctx, listener) }()

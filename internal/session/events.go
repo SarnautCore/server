@@ -43,6 +43,13 @@ func newEventSender(writer *reliableWriter, span trace.Span) *eventSender {
 // a death. A death displaces the oldest queued event instead, because there is
 // no later frame that carries it again.
 func (sender *eventSender) OfferCombatEvent(event combat.Event) {
+	// Player lifecycle changes are projected by authoritative snapshots. The
+	// current wire contract has no standalone player respawn or sickness event,
+	// so do not spend reliable-queue capacity on a message mapping cannot send.
+	if event.Kind == combat.EventKindPlayerDeath || event.Kind == combat.EventKindPlayerRespawn ||
+		event.Kind == combat.EventKindResurrectionSicknessExpired {
+		return
+	}
 	select {
 	case sender.queue <- event:
 		return

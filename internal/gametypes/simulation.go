@@ -26,6 +26,9 @@ type EntityData struct {
 	Heading     float32
 	Velocity    Vec3
 	Animation   AnimationState
+	// ResurrectionSicknessUntilTick is zero when the authored revive buff is
+	// inactive. It is simulation state only and is not a wire field.
+	ResurrectionSicknessUntilTick uint64
 
 	Origin        Vec3
 	OriginHeading float32

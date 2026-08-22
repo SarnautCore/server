@@ -8,17 +8,13 @@ import (
 
 	"github.com/SarnautCore/server/internal/charstore"
 	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/session"
 )
 
-// startingHealth is the health a fresh character materializes with when the
-// chargen option's starting stats do not name one.
-//
-// It is the one number here that is not in the pack, and it is here rather than
-// in `internal/charstore` so that the seam that owns character state stays free of
-// gameplay defaults.
-// TODO(m2-combat): derive health from the option's stats and the level curve,
-// and delete this.
-const startingHealth = 100
+// legacyFixtureStartingHealth keeps the pre-native public demo pack readable
+// in unit tests. The shard requires player-progression at startup, which puts
+// production on the strict path and makes this value unreachable there.
+const legacyFixtureStartingHealth = 100
 
 // healthStat is the starting-stat name that overrides [startingHealth].
 const healthStat = "health"
@@ -31,6 +27,49 @@ const healthStat = "health"
 // rule true in both directions — the persistence package holds no content
 // types, and the pack reader holds no database types.
 type chargenTemplateSet map[string]charstore.Snapshot
+
+type chargenCombatLoadout struct {
+	abilityIDs []string
+	maxHealth  int32
+}
+
+type chargenCombatLoadouts map[string]chargenCombatLoadout
+
+func (loadouts chargenCombatLoadouts) StartingCombat(
+	chargenOptionID string,
+) (session.CombatLoadout, bool) {
+	loadout, ok := loadouts[chargenOptionID]
+	return session.CombatLoadout{
+		AbilityIDs: append([]string(nil), loadout.abilityIDs...),
+		MaxHealth:  loadout.maxHealth,
+	}, ok
+}
+
+func combatLoadouts(content *pack.Pack) (chargenCombatLoadouts, error) {
+	loadouts := make(chargenCombatLoadouts)
+	for _, option := range content.ChargenOptions() {
+		abilityIDs := append([]string(nil), option.StartingAbility...)
+		if len(abilityIDs) == 0 {
+			for _, action := range option.StartingActions {
+				abilityIDs = append(abilityIDs, action.ActionID)
+			}
+		}
+		if len(abilityIDs) == 0 {
+			return nil, fmt.Errorf("chargen option %q carries no starting abilities", option.ID)
+		}
+		if option.StartingMaxHealth == 0 {
+			return nil, fmt.Errorf("chargen option %q carries no authored maximum health", option.ID)
+		}
+		loadouts[option.ID] = chargenCombatLoadout{
+			abilityIDs: abilityIDs,
+			maxHealth:  int32(option.StartingMaxHealth),
+		}
+	}
+	if len(loadouts) == 0 {
+		return nil, fmt.Errorf("content pack carries no authored combat loadouts")
+	}
+	return loadouts, nil
+}
 
 func (templates chargenTemplateSet) Template(chargenOptionID string) (charstore.Snapshot, bool) {
 	snapshot, ok := templates[chargenOptionID]
@@ -64,26 +103,40 @@ func chargenTemplates(content *pack.Pack, fallbackSpawn pack.Vec3) (chargenTempl
 		)
 	}
 
+	_, strictNative := content.PlayerProgression()
 	templates := make(chargenTemplateSet, len(options))
 	for _, option := range options {
 		spawn := option.SpawnPosition
 		if spawn == (pack.Vec3{}) {
+			if strictNative {
+				return nil, fmt.Errorf("chargen option %q carries no authored spawn", option.ID)
+			}
 			spawn = fallbackSpawn
 		}
 		level := int32(option.StartingLevel)
 		if level < 1 {
+			if strictNative {
+				return nil, fmt.Errorf("chargen option %q carries no authored starting level", option.ID)
+			}
 			level = 1
+		}
+		health := int32(option.StartingHealth)
+		if health <= 0 {
+			if strictNative {
+				return nil, fmt.Errorf("chargen option %q carries no authored starting health", option.ID)
+			}
+			health = legacyFixtureStartingHealth
 		}
 		snapshot := charstore.Snapshot{
 			State: charstore.CharacterState{
 				Position: charstore.Vec3{X: spawn.X, Y: spawn.Y, Z: spawn.Z},
 				Heading:  option.SpawnHeading,
 				Level:    level,
-				Health:   startingHealth,
+				Health:   health,
 			},
 		}
 		for _, stat := range option.StartingStats {
-			if strings.EqualFold(stat.Stat, healthStat) && stat.Value > 0 {
+			if !strictNative && strings.EqualFold(stat.Stat, healthStat) && stat.Value > 0 {
 				snapshot.State.Health = int32(stat.Value)
 			}
 		}

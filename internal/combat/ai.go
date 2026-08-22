@@ -1,6 +1,7 @@
 package combat
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -51,6 +52,20 @@ type mobState struct {
 	respawnMin   time.Duration
 	respawnMax   time.Duration
 	summoned     bool
+}
+
+type playerPhase uint8
+
+const (
+	playerAlive playerPhase = iota
+	playerDead
+)
+
+type playerState struct {
+	anchor                    gametypes.Vec3
+	anchorYaw                 float32
+	phase                     playerPhase
+	resurrectionSicknessUntil uint64
 }
 
 func (module *Module) newMobState(mob gametypes.Mob, spawn gametypes.NPCSpawn) *mobState {
@@ -228,8 +243,9 @@ func (module *Module) kill(tick gametypes.Tick, victim *gametypes.EntityData, ki
 
 	state, ok := module.mobs[victim.ID]
 	if !ok {
-		// A player, once players can die. Nothing schedules a respawn for one
-		// yet, and mechanics/combat.md section 1 puts player death out of M2.
+		if player, playerOK := module.players[victim.ID]; playerOK {
+			module.killPlayer(tick, victim, player, killerID)
+		}
 		return
 	}
 	state.phase = phaseDead
@@ -272,6 +288,119 @@ func (module *Module) kill(tick gametypes.Tick, victim *gametypes.EntityData, ki
 	tick.After(despawnAt-tick.Number(), func(later gametypes.Tick) {
 		module.despawnCorpse(later, victimID)
 	})
+}
+
+func (module *Module) killPlayer(
+	tick gametypes.Tick,
+	victim *gametypes.EntityData,
+	state *playerState,
+	killerID uint64,
+) {
+	if state.phase == playerDead {
+		return
+	}
+	state.phase = playerDead
+	state.resurrectionSicknessUntil = 0
+	victim.ResurrectionSicknessUntilTick = 0
+	if module.lifecycle == nil || !module.lifecycle.valid() {
+		module.logger.Error("player death has no authored lifecycle",
+			"zone_id", tick.ZoneID(), "entity_id", victim.ID)
+		return
+	}
+	module.schedulePlayerRespawn(tick, victim)
+	respawnTick := tick.Number() + ticksIn(module.lifecycle.RespawnDelay, tick.Interval())
+	module.publish(Event{
+		Kind:        EventKindPlayerDeath,
+		ServerTick:  tick.Number(),
+		ZoneID:      tick.ZoneID(),
+		CasterID:    killerID,
+		TargetID:    victim.ID,
+		RespawnTick: respawnTick,
+	})
+}
+
+func (module *Module) schedulePlayerRespawn(tick gametypes.Tick, victim *gametypes.EntityData) {
+	delay := ticksIn(module.lifecycle.RespawnDelay, tick.Interval())
+	victimID := victim.ID
+	tick.After(delay, func(later gametypes.Tick) {
+		module.respawnPlayer(later, victimID)
+	})
+}
+
+func (module *Module) respawnPlayer(tick gametypes.Tick, victimID uint64) {
+	entity := tick.Entity(victimID)
+	state, ok := module.players[victimID]
+	if entity == nil || !ok || state.phase != playerDead {
+		return
+	}
+	entity.Health = entity.MaxHealth
+	entity.Alive = true
+	entity.Heading = state.anchorYaw
+	entity.Velocity = gametypes.Vec3{}
+	entity.Animation = gametypes.AnimationStateIdle
+	tick.MoveTo(entity, state.anchor)
+	state.phase = playerAlive
+	state.resurrectionSicknessUntil = tick.Number() +
+		ticksIn(module.lifecycle.ResurrectionSickness, tick.Interval())
+	entity.ResurrectionSicknessUntilTick = state.resurrectionSicknessUntil
+	module.publish(Event{
+		Kind:                          EventKindPlayerRespawn,
+		ServerTick:                    tick.Number(),
+		ZoneID:                        tick.ZoneID(),
+		TargetID:                      victimID,
+		ResurrectionSicknessUntilTick: state.resurrectionSicknessUntil,
+	})
+	until := state.resurrectionSicknessUntil
+	tick.After(until-tick.Number(), func(later gametypes.Tick) {
+		module.expirePlayerSickness(later, victimID, until)
+	})
+}
+
+func (module *Module) resumePlayerSickness(
+	tick gametypes.Tick,
+	entity *gametypes.EntityData,
+	remaining time.Duration,
+) {
+	state := module.players[entity.ID]
+	state.resurrectionSicknessUntil = tick.Number() + ticksIn(remaining, tick.Interval())
+	entity.ResurrectionSicknessUntilTick = state.resurrectionSicknessUntil
+	until := state.resurrectionSicknessUntil
+	tick.After(until-tick.Number(), func(later gametypes.Tick) {
+		module.expirePlayerSickness(later, entity.ID, until)
+	})
+}
+
+func (module *Module) expirePlayerSickness(tick gametypes.Tick, entityID, until uint64) {
+	state, ok := module.players[entityID]
+	if !ok || state.resurrectionSicknessUntil != until || tick.Number() < until {
+		return
+	}
+	state.resurrectionSicknessUntil = 0
+	if entity := tick.Entity(entityID); entity != nil {
+		entity.ResurrectionSicknessUntilTick = 0
+	}
+	module.publish(Event{
+		Kind:       EventKindResurrectionSicknessExpired,
+		ServerTick: tick.Number(),
+		ZoneID:     tick.ZoneID(),
+		TargetID:   entityID,
+	})
+}
+
+// PlayerResurrectionSickness returns the active authored revive-buff window.
+func (module *Module) PlayerResurrectionSickness(entityID uint64) (bool, uint64, error) {
+	var active bool
+	var until uint64
+	err := module.zone.GameCommand(func(tick gametypes.Tick) error {
+		state, ok := module.players[entityID]
+		if !ok {
+			return fmt.Errorf("player lifecycle entity %d: %w", entityID, gametypes.ErrUnknownEntity)
+		}
+		until = state.resurrectionSicknessUntil
+		active = until > tick.Number()
+		return nil
+	})
+	return active, until, err
 }
 
 // despawnCorpse is rule 5.9.5, and files the respawn of rule 5.9.6.

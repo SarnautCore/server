@@ -16,6 +16,7 @@ import (
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/pack"
+	"github.com/SarnautCore/server/internal/progression"
 	"github.com/SarnautCore/server/internal/quests"
 	"github.com/SarnautCore/server/internal/session"
 	"github.com/SarnautCore/server/internal/transport"
@@ -263,6 +264,11 @@ func newQuestFixture(t *testing.T) *questFixture {
 	if err != nil {
 		t.Fatalf("inventory.NewService() error = %v", err)
 	}
+	progressionService, err := progression.NewService(repository, questProgressionRules{})
+	if err != nil {
+		t.Fatalf("progression.NewService() error = %v", err)
+	}
+	bags.BindExperienceResolver(progressionService)
 	lootRules, err := loot.RulesFromPack(content)
 	if err != nil {
 		t.Fatalf("loot.RulesFromPack() error = %v", err)
@@ -282,6 +288,9 @@ func newQuestFixture(t *testing.T) *questFixture {
 	binding := session.ZoneBinding{
 		World:  zone,
 		Combat: combatModule,
+		CombatLoadouts: session.CombatLoadouts{"chargen.league.warrior": {
+			AbilityIDs: combatModule.Rules().AbilityIDs(), MaxHealth: combat.MaxHealth(1, 1),
+		}},
 		Loot:   lootModule,
 		Quests: questModule,
 	}
@@ -334,6 +343,25 @@ func newQuestFixture(t *testing.T) *questFixture {
 		serve:         serve,
 		listener:      listener,
 	}
+}
+
+type questProgressionRules struct{}
+
+func (questProgressionRules) MaxLevel() uint32 { return 2 }
+
+func (questProgressionRules) CumulativeExperience(level uint32) (int64, bool) {
+	switch level {
+	case 1:
+		return 0, true
+	case 2:
+		return 100, true
+	default:
+		return 0, false
+	}
+}
+
+func (questProgressionRules) ExperienceForMobs(int64, int64) (int64, error) {
+	return 0, progression.ErrInvalidGrant
 }
 
 func (fixture *questFixture) stop() {

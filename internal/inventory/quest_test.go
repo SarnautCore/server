@@ -82,6 +82,36 @@ func TestQuestGrantCommitsItemsCurrenciesAndTheRowTogether(t *testing.T) {
 	}
 }
 
+func TestQuestGrantRetriesACheckpointSaveSequenceRace(t *testing.T) {
+	base := charstore.NewMemory()
+	characterID := newCharacter(t, base)
+	repository := &staleOnceRepository{
+		Repository: base,
+		injection:  &staleSaveInjection{remaining: 1},
+	}
+	service := newService(t, repository, 8)
+
+	result, err := service.GrantQuestReward(t.Context(), charstore.QuestGrant{
+		CharacterID: characterID,
+		Grants:      []charstore.ItemCount{{ItemID: feather, Count: 1}},
+		Experience:  8,
+		Money:       2,
+		Honor:       3,
+		Quest:       questRow("turned-in"),
+	})
+	if err != nil {
+		t.Fatalf("GrantQuestReward() after stale save error = %v", err)
+	}
+	if repository.injection.remaining != 0 || result.Experience != 8 ||
+		result.Currency != 2 || result.Honor != 3 {
+		t.Fatalf("retried quest grant = %+v, remaining injections %d", result, repository.injection.remaining)
+	}
+	state, err := base.LoadCharacterState(t.Context(), characterID)
+	if err != nil || state.Experience != 8 || state.Currency != 2 || state.Honor != 3 || state.SaveSeq != 2 {
+		t.Fatalf("stored state = %+v, error %v; want one committed quest grant", state, err)
+	}
+}
+
 // TestAQuestGrantThatDoesNotFitWritesNothing is rule 5.7.3 and 5.7.6.
 //
 // The assertion is not "an error came back". It is that after the error the

@@ -105,6 +105,10 @@ type CharacterState struct {
 	Level       int32
 	Experience  int64
 	Health      int32
+	// ResurrectionSicknessMS is the online-time remainder of the authored
+	// revive buff. Persisting a duration, rather than a simulation tick, lets a
+	// restarted zone resume it at a different tick number.
+	ResurrectionSicknessMS int64
 	// Currency is the character's purse (mechanics/loot.md rule 5.6.1). Money
 	// occupies no bag slot and has no stack limit, so it is a scalar here
 	// rather than a row in shard.character_inventory.
@@ -193,7 +197,36 @@ type CharacterStates interface {
 	// SaveCharacterState upserts, rejecting a state whose SaveSeq does not
 	// advance past the stored one with [ErrStaleSave].
 	SaveCharacterState(ctx context.Context, state CharacterState) error
+	// SaveCharacterCheckpoint advances only the simulation-owned portion of an
+	// already materialized state: location, heading, health and resurrection
+	// sickness. It deliberately preserves progression and reward fields, so a
+	// delayed asynchronous checkpoint cannot overwrite a newer irreversible
+	// transaction merely because the session issued it a higher SaveSeq.
+	// Missing states and non-advancing sequences return [ErrStaleSave].
+	SaveCharacterCheckpoint(ctx context.Context, state CharacterState) error
 	LoadCharacterState(ctx context.Context, characterID uuid.UUID) (CharacterState, error)
+}
+
+// ProgressionGrant records one irreversible experience command. ExecutionKey
+// is the script evaluator's stable evaluation-and-node key, or an equivalent
+// stable key from another reward authority. Keeping it next to the state write
+// makes a retry after a crash an idempotent replay instead of a second grant.
+type ProgressionGrant struct {
+	CharacterID  uuid.UUID
+	ExecutionKey string
+	Amount       int64
+	CreatedAt    time.Time
+}
+
+// ProgressionGrants owns the durable idempotency ledger for experience gains.
+type ProgressionGrants interface {
+	// RecordProgressionGrant inserts grant when its execution key is new. On a
+	// replay it returns the already stored row and inserted=false, allowing the
+	// caller to reject a changed payload rather than treating it as equivalent.
+	RecordProgressionGrant(
+		ctx context.Context,
+		grant ProgressionGrant,
+	) (stored ProgressionGrant, inserted bool, err error)
 }
 
 // Inventory owns shard.character_inventory.
@@ -229,6 +262,7 @@ type Repository interface {
 	Characters
 	NameReservations
 	CharacterStates
+	ProgressionGrants
 	Inventory
 	Quests
 
