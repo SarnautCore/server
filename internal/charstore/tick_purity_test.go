@@ -155,6 +155,23 @@ func (repository *failingRepository) ReplaceInventoryAndHUD(
 	return nil
 }
 
+func (repository *failingRepository) LoadInventoryExecutionReceipt(
+	context.Context,
+	uuid.UUID,
+	string,
+) (charstore.InventoryExecutionReceipt, error) {
+	repository.fail("LoadInventoryExecutionReceipt")
+	return charstore.InventoryExecutionReceipt{}, nil
+}
+
+func (repository *failingRepository) PutInventoryExecutionReceipt(
+	context.Context,
+	charstore.InventoryExecutionReceipt,
+) error {
+	repository.fail("PutInventoryExecutionReceipt")
+	return nil
+}
+
 func (repository *failingRepository) RunInTx(context.Context, func(context.Context, charstore.Repository) error) error {
 	repository.fail("RunInTx")
 	return nil

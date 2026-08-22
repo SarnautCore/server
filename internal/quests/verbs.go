@@ -3,6 +3,7 @@ package quests
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -171,8 +172,9 @@ func (module *Module) Accept(
 		return Result{Update: Update{QuestID: questID, Refusal: RefusalInternal}}, err
 	}
 	granted, err := module.granter.GrantQuestReward(ctx, Grant{
-		CharacterID: characterID,
-		Quest:       row,
+		CharacterID:  characterID,
+		ExecutionKey: questGrantExecutionKey("accept", questID, created.acceptedAtTick),
+		Quest:        row,
 	})
 	if err != nil {
 		module.rollBackAccept(characterID, questID)
@@ -300,13 +302,14 @@ func (module *Module) TurnInWithChoice(
 				}
 				held.inFlight = true
 				grant = Grant{
-					CharacterID: characterID,
-					Consume:     consumedItems(definition, log),
-					Grants:      rewards,
-					Experience:  definition.Rewards.Experience,
-					Money:       definition.Rewards.Money,
-					Honor:       definition.Rewards.Honor,
-					Quest:       row,
+					CharacterID:  characterID,
+					ExecutionKey: questGrantExecutionKey("turn-in", questID, held.acceptedAtTick),
+					Consume:      consumedItems(definition, log),
+					Grants:       rewards,
+					Experience:   definition.Rewards.Experience,
+					Money:        definition.Rewards.Money,
+					Honor:        definition.Rewards.Honor,
+					Quest:        row,
 				}
 			}
 		}
@@ -418,7 +421,8 @@ func (module *Module) Abandon(ctx context.Context, actorEntityID uint64, questID
 			}
 			held.inFlight = true
 			grant = Grant{
-				CharacterID: characterID,
+				CharacterID:  characterID,
+				ExecutionKey: questGrantExecutionKey("abandon", questID, held.acceptedAtTick),
 				// Rule 5.5.5: an item objective the definition marks as removed
 				// on abandon takes its items with it.
 				Consume: abandonedItems(definition, log),
@@ -462,6 +466,10 @@ func (module *Module) Abandon(ctx context.Context, actorEntityID uint64, questID
 		SaveSeq:   granted.SaveSeq,
 		Committed: true,
 	}, nil
+}
+
+func questGrantExecutionKey(operation, questID string, acceptedAtTick uint64) string {
+	return fmt.Sprintf("quest:v1:%s:%s:%d", operation, questID, acceptedAtTick)
 }
 
 func (module *Module) clearFlight(characterID uuid.UUID, questID string) {

@@ -15,42 +15,50 @@ import (
 // copied, which is what gives the in-memory [Repository] real rollback instead
 // of a comment claiming rollback.
 type memoryState struct {
-	accounts     map[uuid.UUID]Account
-	emails       map[string]uuid.UUID
-	characters   map[uuid.UUID]Character
-	names        map[string]uuid.UUID
-	reservations map[string]NameReservation
-	states       map[uuid.UUID]CharacterState
-	inventory    map[uuid.UUID]map[int32]InventoryItem
-	quests       map[uuid.UUID]map[string]QuestState
-	huds         map[uuid.UUID]CharacterHUDState
+	accounts          map[uuid.UUID]Account
+	emails            map[string]uuid.UUID
+	characters        map[uuid.UUID]Character
+	names             map[string]uuid.UUID
+	reservations      map[string]NameReservation
+	states            map[uuid.UUID]CharacterState
+	inventory         map[uuid.UUID]map[int32]InventoryItem
+	quests            map[uuid.UUID]map[string]QuestState
+	huds              map[uuid.UUID]CharacterHUDState
+	inventoryReceipts map[inventoryReceiptKey]InventoryExecutionReceipt
+}
+
+type inventoryReceiptKey struct {
+	characterID  uuid.UUID
+	executionKey string
 }
 
 func newMemoryState() *memoryState {
 	return &memoryState{
-		accounts:     make(map[uuid.UUID]Account),
-		emails:       make(map[string]uuid.UUID),
-		characters:   make(map[uuid.UUID]Character),
-		names:        make(map[string]uuid.UUID),
-		reservations: make(map[string]NameReservation),
-		states:       make(map[uuid.UUID]CharacterState),
-		inventory:    make(map[uuid.UUID]map[int32]InventoryItem),
-		quests:       make(map[uuid.UUID]map[string]QuestState),
-		huds:         make(map[uuid.UUID]CharacterHUDState),
+		accounts:          make(map[uuid.UUID]Account),
+		emails:            make(map[string]uuid.UUID),
+		characters:        make(map[uuid.UUID]Character),
+		names:             make(map[string]uuid.UUID),
+		reservations:      make(map[string]NameReservation),
+		states:            make(map[uuid.UUID]CharacterState),
+		inventory:         make(map[uuid.UUID]map[int32]InventoryItem),
+		quests:            make(map[uuid.UUID]map[string]QuestState),
+		huds:              make(map[uuid.UUID]CharacterHUDState),
+		inventoryReceipts: make(map[inventoryReceiptKey]InventoryExecutionReceipt),
 	}
 }
 
 func (state *memoryState) clone() *memoryState {
 	copied := &memoryState{
-		accounts:     copyMap(state.accounts),
-		emails:       copyMap(state.emails),
-		characters:   copyMap(state.characters),
-		names:        copyMap(state.names),
-		reservations: copyMap(state.reservations),
-		states:       copyMap(state.states),
-		inventory:    make(map[uuid.UUID]map[int32]InventoryItem, len(state.inventory)),
-		quests:       make(map[uuid.UUID]map[string]QuestState, len(state.quests)),
-		huds:         make(map[uuid.UUID]CharacterHUDState, len(state.huds)),
+		accounts:          copyMap(state.accounts),
+		emails:            copyMap(state.emails),
+		characters:        copyMap(state.characters),
+		names:             copyMap(state.names),
+		reservations:      copyMap(state.reservations),
+		states:            copyMap(state.states),
+		inventory:         make(map[uuid.UUID]map[int32]InventoryItem, len(state.inventory)),
+		quests:            make(map[uuid.UUID]map[string]QuestState, len(state.quests)),
+		huds:              make(map[uuid.UUID]CharacterHUDState, len(state.huds)),
+		inventoryReceipts: make(map[inventoryReceiptKey]InventoryExecutionReceipt, len(state.inventoryReceipts)),
 	}
 	for characterID, slots := range state.inventory {
 		clonedSlots := make(map[int32]InventoryItem, len(slots))
@@ -69,6 +77,10 @@ func (state *memoryState) clone() *memoryState {
 	}
 	for characterID, hud := range state.huds {
 		copied.huds[characterID] = cloneHUDState(hud)
+	}
+	for key, receipt := range state.inventoryReceipts {
+		receipt.Result = slices.Clone(receipt.Result)
+		copied.inventoryReceipts[key] = receipt
 	}
 	return copied
 }

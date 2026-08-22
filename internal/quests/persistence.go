@@ -25,12 +25,16 @@ type QuestState struct {
 
 type Grant struct {
 	CharacterID uuid.UUID
-	Consume     []ItemCount
-	Grants      []ItemCount
-	Experience  int64
-	Money       int64
-	Honor       int64
-	Quest       QuestState
+	// ExecutionKey makes accept, turn-in and abandon grants replay-safe across
+	// uncertain commit outcomes. The quest module derives it from the durable
+	// quest operation, never from process time.
+	ExecutionKey string
+	Consume      []ItemCount
+	Grants       []ItemCount
+	Experience   int64
+	Money        int64
+	Honor        int64
+	Quest        QuestState
 }
 
 type GrantResult struct {

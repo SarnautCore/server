@@ -3,6 +3,7 @@ package inventory_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -19,6 +20,41 @@ func questRow(state string) charstore.QuestState {
 		QuestID:    "quest.paper-harbor.tide-tally",
 		State:      state,
 		Objectives: []byte(`{"counters":[1]}`),
+	}
+}
+
+func TestQuestGrantExecutionKeyReturnsTheCommittedResultWithoutDuplicating(t *testing.T) {
+	repository := charstore.NewMemory()
+	characterID := newCharacter(t, repository)
+	service := newService(t, repository)
+	grant := charstore.QuestGrant{
+		CharacterID:  characterID,
+		ExecutionKey: "quest:fixture:turn-in:accepted-at-42",
+		Grants:       []charstore.ItemCount{{ItemID: feather, Count: 1}},
+		Experience:   8,
+		Money:        2,
+		Honor:        3,
+		Quest:        questRow("turned-in"),
+	}
+	first, err := service.GrantQuestReward(context.Background(), grant)
+	if err != nil {
+		t.Fatalf("first GrantQuestReward() error = %v", err)
+	}
+	grant.Experience = 800
+	grant.Money = 200
+	replayed, err := service.GrantQuestReward(context.Background(), grant)
+	if err != nil {
+		t.Fatalf("replayed GrantQuestReward() error = %v", err)
+	}
+	if !reflect.DeepEqual(replayed, first) {
+		t.Fatalf("replayed grant = %+v, want first committed result %+v", replayed, first)
+	}
+	state, err := repository.LoadCharacterState(context.Background(), characterID)
+	if err != nil {
+		t.Fatalf("LoadCharacterState() error = %v", err)
+	}
+	if state.Experience != 8 || state.Currency != 2 || state.Honor != 3 || state.SaveSeq != first.SaveSeq {
+		t.Fatalf("state after replay = %+v, want exactly the first grant", state)
 	}
 }
 

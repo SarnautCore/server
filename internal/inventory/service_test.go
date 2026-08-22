@@ -3,6 +3,7 @@ package inventory_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -31,6 +32,39 @@ func newCharacter(t *testing.T, repository charstore.Repository) uuid.UUID {
 		t.Fatalf("seed character: %v", err)
 	}
 	return characterID
+}
+
+func TestAwardExecutionKeyReturnsTheCommittedResultWithoutDuplicating(t *testing.T) {
+	repository := charstore.NewMemory()
+	characterID := newCharacter(t, repository)
+	service := newService(t, repository)
+
+	first, err := service.Award(context.Background(), characterID, inventory.Award{
+		ExecutionKey: "loot:fixture-corpse:all:v1",
+		Money:        17,
+		Grants:       []inventory.Grant{{ItemID: tonic, Count: 2}},
+	})
+	if err != nil {
+		t.Fatalf("first Award() error = %v", err)
+	}
+	replayed, err := service.Award(context.Background(), characterID, inventory.Award{
+		ExecutionKey: "loot:fixture-corpse:all:v1",
+		Money:        999,
+		Grants:       []inventory.Grant{{ItemID: scale, Count: 12}},
+	})
+	if err != nil {
+		t.Fatalf("replayed Award() error = %v", err)
+	}
+	if !reflect.DeepEqual(replayed, first) {
+		t.Fatalf("replayed Award() = %+v, want first committed result %+v", replayed, first)
+	}
+	state, err := repository.LoadCharacterState(context.Background(), characterID)
+	if err != nil {
+		t.Fatalf("LoadCharacterState() error = %v", err)
+	}
+	if state.Currency != 17 || state.SaveSeq != first.SaveSeq {
+		t.Fatalf("state after replay = %+v, want one 17-money commit at sequence %d", state, first.SaveSeq)
+	}
 }
 
 func newService(t *testing.T, repository charstore.Repository) *charstore.InventoryService {

@@ -9,8 +9,13 @@ import (
 // Award is what one loot take asks the inventory to absorb: a purse credit and
 // a list of grants, exactly as `internal/loot` rolled them.
 type Award struct {
-	Money  int64
-	Grants []Grant
+	// ExecutionKey is a stable, caller-owned identity for this award. Reusing
+	// it for the same character returns the first committed result without
+	// applying the money or grants again. Empty preserves compatibility for
+	// setup and arithmetic-only callers that do not cross a retry boundary.
+	ExecutionKey string
+	Money        int64
+	Grants       []Grant
 }
 
 // Result is the character's inventory after an award, as it was committed.

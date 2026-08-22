@@ -2,6 +2,7 @@ package charstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -11,6 +12,11 @@ import (
 
 	"github.com/SarnautCore/server/internal/inventory"
 	"github.com/SarnautCore/server/internal/quests"
+)
+
+const (
+	inventoryAwardOperation = "inventory.award.v1"
+	questGrantOperation     = "quest.grant.v1"
 )
 
 // InventoryService owns the transaction adapter that persists inventory and
@@ -36,6 +42,18 @@ func NewInventoryService(repository Repository, limits inventory.Limits) (*Inven
 func (service *InventoryService) Award(ctx context.Context, characterID uuid.UUID, award inventory.Award) (inventory.Result, error) {
 	var result inventory.Result
 	err := service.repository.RunInTx(ctx, func(ctx context.Context, tx Repository) error {
+		if award.ExecutionKey != "" {
+			replayed, found, err := loadInventoryExecutionResult[inventory.Result](
+				ctx, tx, characterID, award.ExecutionKey, inventoryAwardOperation,
+			)
+			if err != nil {
+				return err
+			}
+			if found {
+				result = replayed
+				return nil
+			}
+		}
 		state, err := tx.LoadCharacterState(ctx, characterID)
 		if err != nil {
 			return fmt.Errorf("load character state: %w", err)
@@ -64,6 +82,13 @@ func (service *InventoryService) Award(ctx context.Context, characterID uuid.UUI
 			return fmt.Errorf("credit purse: %w", err)
 		}
 		result = inventory.Result{Slots: placed, Currency: state.Currency, SaveSeq: state.SaveSeq}
+		if award.ExecutionKey != "" {
+			if err := putInventoryExecutionResult(
+				ctx, tx, characterID, award.ExecutionKey, inventoryAwardOperation, result,
+			); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -75,6 +100,18 @@ func (service *InventoryService) Award(ctx context.Context, characterID uuid.UUI
 func (service *InventoryService) GrantQuestReward(ctx context.Context, grant quests.Grant) (quests.GrantResult, error) {
 	var result quests.GrantResult
 	err := service.repository.RunInTx(ctx, func(ctx context.Context, tx Repository) error {
+		if grant.ExecutionKey != "" {
+			replayed, found, err := loadInventoryExecutionResult[quests.GrantResult](
+				ctx, tx, grant.CharacterID, grant.ExecutionKey, questGrantOperation,
+			)
+			if err != nil {
+				return err
+			}
+			if found {
+				result = replayed
+				return nil
+			}
+		}
 		state, err := tx.LoadCharacterState(ctx, grant.CharacterID)
 		if err != nil {
 			return fmt.Errorf("load character state: %w", err)
@@ -118,12 +155,69 @@ func (service *InventoryService) GrantQuestReward(ctx context.Context, grant que
 			Inventory: inventory.ToStore(placed), Currency: state.Currency,
 			Experience: state.Experience, Honor: state.Honor, SaveSeq: state.SaveSeq,
 		}
+		if grant.ExecutionKey != "" {
+			if err := putInventoryExecutionResult(
+				ctx, tx, grant.CharacterID, grant.ExecutionKey, questGrantOperation, result,
+			); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
 		return quests.GrantResult{}, err
 	}
 	return result, nil
+}
+
+func loadInventoryExecutionResult[T any](
+	ctx context.Context,
+	repository Repository,
+	characterID uuid.UUID,
+	executionKey string,
+	operation string,
+) (T, bool, error) {
+	var result T
+	receipt, err := repository.LoadInventoryExecutionReceipt(ctx, characterID, executionKey)
+	if errors.Is(err, ErrNotFound) {
+		return result, false, nil
+	}
+	if err != nil {
+		return result, false, err
+	}
+	if receipt.Operation != operation {
+		return result, false, fmt.Errorf(
+			"%w: execution key %q belongs to %q, not %q",
+			ErrConstraintViolated, executionKey, receipt.Operation, operation,
+		)
+	}
+	if err := json.Unmarshal(receipt.Result, &result); err != nil {
+		return result, false, fmt.Errorf("decode %s execution receipt %q: %w", operation, executionKey, err)
+	}
+	return result, true, nil
+}
+
+func putInventoryExecutionResult[T any](
+	ctx context.Context,
+	repository Repository,
+	characterID uuid.UUID,
+	executionKey string,
+	operation string,
+	result T,
+) error {
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("encode %s execution receipt %q: %w", operation, executionKey, err)
+	}
+	if err := repository.PutInventoryExecutionReceipt(ctx, InventoryExecutionReceipt{
+		CharacterID:  characterID,
+		ExecutionKey: executionKey,
+		Operation:    operation,
+		Result:       payload,
+	}); err != nil {
+		return fmt.Errorf("write %s execution receipt %q: %w", operation, executionKey, err)
+	}
+	return nil
 }
 
 // UpdateInventory lets [inventory.MoveService] use the same authoritative

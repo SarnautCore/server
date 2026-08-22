@@ -2,6 +2,9 @@ package loot
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 
 	"github.com/google/uuid"
@@ -79,9 +82,10 @@ func (module *Module) take(
 	selection takeSelection,
 ) (Result, error) {
 	var (
-		reserved Drop
-		owner    uuid.UUID
-		refusal  Refusal
+		reserved     Drop
+		owner        uuid.UUID
+		executionKey string
+		refusal      Refusal
 	)
 	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		held, actor := module.corpses[corpseEntityID], module.owners[actorEntityID]
@@ -104,6 +108,7 @@ func (module *Module) take(
 		default:
 			held.inFlight = true
 			reserved, owner = selectedDrop(held.drop, selection), held.owner
+			executionKey = lootAwardExecutionKey(held.seed, selection, reserved)
 		}
 		return nil
 	})
@@ -112,8 +117,9 @@ func (module *Module) take(
 	}
 
 	awarded, err := module.awarder.Award(ctx, owner, inventory.Award{
-		Money:  reserved.Money,
-		Grants: grantsFor(reserved),
+		ExecutionKey: executionKey,
+		Money:        reserved.Money,
+		Grants:       grantsFor(reserved),
 	})
 	if err != nil {
 		module.release(corpseEntityID)
@@ -140,6 +146,20 @@ func (module *Module) take(
 		Currency:       awarded.Currency,
 		SaveSeq:        awarded.SaveSeq,
 	}, nil
+}
+
+func lootAwardExecutionKey(seed string, selection takeSelection, drop Drop) string {
+	payload, err := json.Marshal(struct {
+		Seed      string   `json:"seed"`
+		Kind      takeKind `json:"kind"`
+		ItemIndex int32    `json:"item_index"`
+		Drop      Drop     `json:"drop"`
+	}{Seed: seed, Kind: selection.kind, ItemIndex: selection.itemIndex, Drop: drop})
+	if err != nil {
+		panic("loot execution key payload cannot fail JSON encoding: " + err.Error())
+	}
+	digest := sha256.Sum256(payload)
+	return "loot:v1:" + hex.EncodeToString(digest[:])
 }
 
 func selectedDrop(drop Drop, selection takeSelection) Drop {

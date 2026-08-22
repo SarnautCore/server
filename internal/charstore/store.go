@@ -63,6 +63,11 @@ var (
 	// rules restated in `constraints.go`, which is what keeps the two honest
 	// about each other.
 	ErrConstraintViolated = errors.New("store: constraint violated")
+
+	// ErrExecutionReceiptExists reports a conflicting insert for an execution
+	// key that has already committed. Normal replays load the receipt before
+	// writing; this protects the remaining concurrent-insert race.
+	ErrExecutionReceiptExists = errors.New("store: inventory execution receipt already exists")
 )
 
 // Account is a row of auth.accounts. The password hash is a PHC string
@@ -244,6 +249,23 @@ type HUDStates interface {
 	) error
 }
 
+// InventoryExecutionReceipt is the durable result of one award or quest-grant
+// execution key. Result is operation-specific JSON written and read only by
+// InventoryService; persistence treats it as opaque committed bytes.
+type InventoryExecutionReceipt struct {
+	CharacterID  uuid.UUID
+	ExecutionKey string
+	Operation    string
+	Result       []byte
+}
+
+// InventoryExecutionReceipts makes inventory mutations replay-safe. Receipts
+// are written in the same transaction as the inventory, state and quest rows.
+type InventoryExecutionReceipts interface {
+	LoadInventoryExecutionReceipt(ctx context.Context, characterID uuid.UUID, executionKey string) (InventoryExecutionReceipt, error)
+	PutInventoryExecutionReceipt(ctx context.Context, receipt InventoryExecutionReceipt) error
+}
+
 // Repository is the whole persistence surface. It is one interface rather than
 // five so that [Repository.RunInTx] can hand a caller a transactional view of
 // every table at once — which is what a character save needs.
@@ -255,6 +277,7 @@ type Repository interface {
 	Inventory
 	Quests
 	HUDStates
+	InventoryExecutionReceipts
 
 	// RunInTx runs fn inside one transaction, committing when fn returns nil and
 	// rolling back on any error or panic. The Repository handed to fn is scoped
