@@ -14,6 +14,7 @@ import (
 	"github.com/SarnautCore/server/internal/chat"
 	"github.com/SarnautCore/server/internal/cohort"
 	"github.com/SarnautCore/server/internal/party"
+	"github.com/SarnautCore/server/internal/social"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 )
@@ -49,6 +50,17 @@ func TestChatRequestCrossesTheSessionWithAuthenticatedSenderAndNoServerEcho(t *t
 	}})
 	parties := party.New()
 	cohorts := cohort.NewPresenceRegistry()
+	friendRepository := social.NewMemoryFriendRepository(map[uuid.UUID]string{
+		alice.CharacterID: alice.CharacterName,
+		bob.CharacterID:   bob.CharacterName,
+	})
+	friends, err := social.NewFriends(friendRepository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := friends.Replace(t.Context(), alice.CharacterID, []uuid.UUID{bob.CharacterID}); err != nil {
+		t.Fatal(err)
+	}
 	server := Server{
 		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
 		BuildID:         "chat-integration",
@@ -58,6 +70,7 @@ func TestChatRequestCrossesTheSessionWithAuthenticatedSenderAndNoServerEcho(t *t
 		Chat:            chatModule,
 		Party:           parties,
 		Cohorts:         cohorts,
+		Friends:         friends,
 		Logger:          slog.New(slog.DiscardHandler),
 		sessions:        newSessionRegistry(),
 	}
@@ -68,6 +81,23 @@ func TestChatRequestCrossesTheSessionWithAuthenticatedSenderAndNoServerEcho(t *t
 	defer aliceClient.close()
 	bobClient := admitChatClient(t, ctx, server, zone.ID(), "ticket-bob")
 	defer bobClient.close()
+	aliceFriends := aliceClient.read(t).GetSocialFriendsReplacement()
+	if aliceFriends == nil || aliceFriends.GetRevision() != 1 || len(aliceFriends.GetFriends()) != 1 ||
+		aliceFriends.GetFriends()[0].GetCharacterId() != bob.CharacterID.String() ||
+		aliceFriends.GetFriends()[0].GetDisplayName() != bob.CharacterName {
+		t.Fatalf("Alice friend replacement = %+v, want authoritative Bob", aliceFriends)
+	}
+	bobFriends := bobClient.read(t).GetSocialFriendsReplacement()
+	if bobFriends == nil || bobFriends.GetRevision() != 0 || len(bobFriends.GetFriends()) != 0 {
+		t.Fatalf("Bob friend replacement = %+v, want authoritative empty set", bobFriends)
+	}
+	if _, err := friends.Replace(t.Context(), alice.CharacterID, nil); err != nil {
+		t.Fatal(err)
+	}
+	aliceFriends = aliceClient.read(t).GetSocialFriendsReplacement()
+	if aliceFriends == nil || aliceFriends.GetRevision() != 2 || len(aliceFriends.GetFriends()) != 0 {
+		t.Fatalf("Alice live friend replacement = %+v, want authoritative empty revision 2", aliceFriends)
+	}
 
 	aliceClient.write(t, &sarnautv1.ClientMessage{
 		ClientSeq: 1,
@@ -124,6 +154,56 @@ func TestChatRequestCrossesTheSessionWithAuthenticatedSenderAndNoServerEcho(t *t
 	}
 	if cohorts.Connected(alice.CharacterID) {
 		t.Fatal("closed authenticated cohort presence is still connected")
+	}
+}
+
+func TestFriendsProjectWithoutAChatModule(t *testing.T) {
+	zone, err := world.NewZone(world.ZoneConfig{
+		ID:               "SocialZone",
+		TickInterval:     time.Second,
+		SnapshotInterval: time.Second,
+		MaxMoveSpeed:     6,
+	})
+	if err != nil {
+		t.Fatalf("NewZone() error = %v", err)
+	}
+	owner := Admission{
+		AccountID:       uuid.MustParse("019200f0-0000-7000-8000-00000000a083"),
+		CharacterID:     uuid.MustParse("019200f0-0000-7000-8000-00000000c083"),
+		CharacterName:   "Carol",
+		ChargenOptionID: "chargen.league.warrior",
+	}
+	friendID := uuid.MustParse("019200f0-0000-7000-8000-00000000c084")
+	authority := newFakeAuthority()
+	authority.mint("ticket-carol", owner)
+	repository := social.NewMemoryFriendRepository(map[uuid.UUID]string{friendID: "Dmitri"})
+	friends, err := social.NewFriends(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := friends.Replace(t.Context(), owner.CharacterID, []uuid.UUID{friendID}); err != nil {
+		t.Fatal(err)
+	}
+	server := Server{
+		ProtocolVersion: sarnautv1.ProtocolVersion_PROTOCOL_VERSION_1,
+		BuildID:         "social-integration",
+		Zones:           map[string]ZoneBinding{zone.ID(): {World: zone}},
+		Authority:       authority,
+		Characters:      newFakeCharacters(testTemplate(charstore.Vec3{})),
+		Friends:         friends,
+		Logger:          slog.New(slog.DiscardHandler),
+		sessions:        newSessionRegistry(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client := admitChatClient(t, ctx, server, zone.ID(), "ticket-carol")
+	defer client.close()
+	replacement := client.read(t).GetSocialFriendsReplacement()
+	if replacement == nil || replacement.GetRevision() != 1 || len(replacement.GetFriends()) != 1 ||
+		replacement.GetFriends()[0].GetCharacterId() != friendID.String() ||
+		replacement.GetFriends()[0].GetDisplayName() != "Dmitri" {
+		t.Fatalf("friend replacement = %+v, want authoritative Dmitri", replacement)
 	}
 }
 

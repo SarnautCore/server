@@ -17,6 +17,7 @@ import (
 	"github.com/SarnautCore/server/internal/loot"
 	"github.com/SarnautCore/server/internal/party"
 	"github.com/SarnautCore/server/internal/quests"
+	"github.com/SarnautCore/server/internal/social"
 	"github.com/SarnautCore/server/internal/transport"
 	"github.com/SarnautCore/server/internal/world"
 	"github.com/google/uuid"
@@ -319,6 +320,11 @@ type Server struct {
 	// Chat is the shard-wide authenticated chat router. Nil keeps chat
 	// fail-closed while preserving typed ChatRejection responses.
 	Chat *chat.Module
+
+	// Friends publishes complete authoritative friend identity/name snapshots
+	// used by recipient-local systems such as AntiSpam. It never supplies a
+	// server-side spam score.
+	Friends *social.Friends
 
 	// Party observes authenticated session lifecycles. Group chat consumes the
 	// same authority's audience snapshots, so a connection cannot claim cohort
@@ -680,10 +686,12 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 	if err := zone.Subscribe(entityID, sender); err != nil {
 		return err
 	}
-	var chatSession *chat.Session
 	var chatEvents *chatSender
-	if server.Chat != nil {
+	if server.Chat != nil || server.Friends != nil {
 		chatEvents = newChatSender(connection, writer, span)
+	}
+	var chatSession *chat.Session
+	if server.Chat != nil {
 		chatSession, err = server.Chat.Join(chat.Presence{
 			CharacterID: admission.CharacterID,
 			EntityID:    entityID,
@@ -702,6 +710,14 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 				"the character could not enter chat")
 		}
 		defer chatSession.Close()
+	}
+	if server.Friends != nil {
+		friendSession, err := server.Friends.Join(sessionCtx, admission.CharacterID, socialFriendsSink{events: chatEvents})
+		if err != nil {
+			return server.refuseEnterZone(connection, sarnautv1.ErrorCode_ERROR_CODE_INTERNAL,
+				"the character's friends could not be projected")
+		}
+		defer friendSession.Close()
 	}
 
 	reader := &commandReader{

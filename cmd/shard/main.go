@@ -235,6 +235,14 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 	if err != nil {
 		return fmt.Errorf("construct alternative currency ledger: %w", err)
 	}
+	friendRepository, err := social.NewPostgresFriendRepository(pool)
+	if err != nil {
+		return fmt.Errorf("construct friend repository: %w", err)
+	}
+	friendAuthority, err := social.NewFriends(friendRepository)
+	if err != nil {
+		return fmt.Errorf("construct friend authority: %w", err)
+	}
 	chatModule := chat.New(chat.Options{
 		Directory:       characterDirectory{characters: repository},
 		CurrencySpender: paidChatCurrencies{ledger: currencyLedger},
@@ -320,6 +328,7 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		Authority:           session.NewNATSAuthority(clients.NATS, instanceID, settings.Auth.RequestTimeout),
 		Characters:          characters,
 		Chat:                chatModule,
+		Friends:             friendAuthority,
 		Party:               partyAuthority,
 		Cohorts:             cohortPresence,
 		LocalChat:           localChatSessions,
