@@ -274,15 +274,29 @@ func run(ctx context.Context, dumpSpawnsTo string) error {
 		Loot:           lootModule,
 		Quests:         questModule,
 	}
-	if settings.Content.EnableImpactInterpreter {
-		binding.Scripts = session.NewScriptDriver(
+	if len(content.NativeActions()) > 0 {
+		binding.Actions = session.NewScriptDriver(
 			logger,
 			zone,
 			questModule,
 			session.NewPackQuestScriptSource(content),
 			script.Options{Enabled: true},
 		)
-		binding.Scripts.BindCombat(combatModule)
+		binding.Actions.BindCombat(combatModule)
+		logger.Info("zone native actions wired", "native_actions", len(content.NativeActions()))
+	}
+	if settings.Content.EnableImpactInterpreter {
+		binding.Scripts = binding.Actions
+		if binding.Scripts == nil {
+			binding.Scripts = session.NewScriptDriver(
+				logger,
+				zone,
+				questModule,
+				session.NewPackQuestScriptSource(content),
+				script.Options{Enabled: true},
+			)
+			binding.Scripts.BindCombat(combatModule)
+		}
 		binding.Scripts.BindProgression(progressionWorker)
 		logger.Info("zone quest scripts wired", "quest_scripts", len(content.QuestScriptIDs()))
 	}

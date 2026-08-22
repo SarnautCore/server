@@ -47,6 +47,7 @@ func (module *Module) Summon(
 	})
 	state := module.newMobState(mob, spawn)
 	state.summoned = true
+	module.retireScriptReplays(entity.ID)
 	module.mobs[entity.ID] = state
 	// Later combat and effect paths resolve the entity's content id through the
 	// rules map. A summon row need not have an authored placement, so Populate
@@ -69,6 +70,7 @@ func (module *Module) DismissSummon(tick gametypes.Tick, entityID uint64) error 
 		return fmt.Errorf("combat: summon entity %d is absent or cannot despawn", entityID)
 	}
 	delete(module.mobs, entityID)
+	module.retireScriptReplays(entityID)
 	return nil
 }
 

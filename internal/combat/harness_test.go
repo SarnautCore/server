@@ -119,6 +119,28 @@ func (fixture *harness) joinWith(admission combat.PlayerAdmission) uint64 {
 	return entityID
 }
 
+func (fixture *harness) admitWithActions(entityID uint64, bindings []combat.ActionBinding) error {
+	abilityIDs := make([]string, 0, len(bindings))
+	known := make(map[string]struct{}, len(bindings))
+	for _, binding := range bindings {
+		if _, duplicate := known[binding.AbilityID]; duplicate {
+			continue
+		}
+		known[binding.AbilityID] = struct{}{}
+		abilityIDs = append(abilityIDs, binding.AbilityID)
+	}
+	if len(abilityIDs) == 0 {
+		abilityIDs = []string{baseAbility}
+	}
+	return fixture.module.Admit(entityID, combat.PlayerAdmission{
+		Level:          1,
+		Health:         combat.MaxHealth(1, 1),
+		MaxHealth:      combat.MaxHealth(1, 1),
+		AbilityIDs:     abilityIDs,
+		ActionBindings: bindings,
+	})
+}
+
 // leave is a disconnect: the entity goes, which is what rule 5.8.1 reacts to.
 func (fixture *harness) leave(entityID uint64) {
 	fixture.module.Release(entityID)

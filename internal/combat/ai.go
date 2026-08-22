@@ -238,6 +238,7 @@ func (module *Module) walkToward(
 // kill is rule 5.9: death, the corpse, and the respawn behind it.
 func (module *Module) kill(tick gametypes.Tick, victim *gametypes.EntityData, killerID uint64) {
 	victim.Alive = false
+	module.clearSelectedTarget(victim.ID)
 	victim.Velocity = gametypes.Vec3{}
 	victim.Animation = gametypes.AnimationStateIdle
 
@@ -413,10 +414,12 @@ func (module *Module) despawnCorpse(tick gametypes.Tick, victimID uint64) {
 	if state.summoned {
 		tick.Despawn(victimID)
 		delete(module.mobs, victimID)
+		module.retireScriptReplays(victimID)
 		return
 	}
 	entity.Replicated = false
 	state.phase = phaseDespawned
+	module.retireScriptReplays(victimID)
 
 	delay := module.stream.respawnDelay(state.respawnMin, state.respawnMax)
 	tick.After(ticksIn(delay, tick.Interval()), func(later gametypes.Tick) {

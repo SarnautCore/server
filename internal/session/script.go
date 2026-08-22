@@ -93,14 +93,16 @@ func (driver *ScriptDriver) Census() *script.Census {
 // quest module's logs live under, and it is what lets the driver hold no
 // mutex of its own.
 type ScriptDriver struct {
-	logger      *slog.Logger
-	zone        gametypes.Zone
-	quests      *quests.Module
-	source      QuestScriptSource
-	evaluator   *script.Evaluator
-	effects     *script.EffectRegistry
-	combat      *combat.Module
-	progression ExperienceCommandSink
+	logger              *slog.Logger
+	zone                gametypes.Zone
+	quests              *quests.Module
+	source              QuestScriptSource
+	evaluator           *script.Evaluator
+	effects             *script.EffectRegistry
+	combat              *combat.Module
+	progression         ExperienceCommandSink
+	activeWarriorAction *activeWarriorAction
+	warriorCombatants   map[uint64]WarriorCombatant
 	// applyGuardUpdate is installed with combat. Keeping the host call as a
 	// function makes rejection behavior testable without weakening combat's
 	// public API.
@@ -157,6 +159,7 @@ func NewScriptDriver(
 		detachRetryScheduled: make(map[uint64]bool),
 		tagged:               make(map[uint64]bool),
 		summons:              make(map[string]uint64),
+		warriorCombatants:    make(map[uint64]WarriorCombatant),
 		effects:              script.NewEffectRegistry(),
 	}
 	driver.evaluator = script.New(scriptHost{driver: driver}, options)
@@ -174,6 +177,7 @@ func (driver *ScriptDriver) BindCombat(module *combat.Module) {
 	if module != nil {
 		driver.applyGuardUpdate = module.ApplyGuardUpdate
 		module.SetDamageEffectHost(driver)
+		module.SetScriptActionHost(driver)
 	} else {
 		driver.applyGuardUpdate = nil
 	}
@@ -223,7 +227,7 @@ func (driver *ScriptDriver) ScaleDamage(
 			HasActiveAction:  request.AbilityID != "",
 			// Compiled ability rows do not yet carry the retail action group.
 			// Empty deliberately leaves a grouped output modifier unmatched.
-			ActionGroup: script.Ref{},
+			ActionGroup: script.Ref{ID: request.ActionGroupID, RowType: "action-group"},
 		}, driver.effects.Modifiers(owner, step.direction))
 		if err != nil {
 			return request.Magnitude, fmt.Errorf("session: scale damage for entity %d: %w", step.owner, err)
@@ -298,8 +302,9 @@ func (driver *ScriptDriver) MobKilled(tick gametypes.Tick, kill combat.Kill) {
 	if len(held) == 0 {
 		return
 	}
+	previousTick := driver.tick
 	driver.tick = tick
-	defer func() { driver.tick = nil }()
+	defer func() { driver.tick = previousTick }()
 
 	previous := int64(1)
 	if victim := tick.Entity(kill.VictimEntityID); victim != nil && victim.MaxHealth > 0 {
@@ -483,6 +488,8 @@ func (host scriptHost) Now() time.Time {
 
 func (host scriptHost) Query(_ context.Context, query script.Query) (script.Value, error) {
 	switch query.Kind {
+	case script.QueryPhysicalScale, script.QueryPhysicalRangedScale, script.QueryWeaponSpeedScale:
+		return host.driver.activeScale(query)
 	case script.QueryMaxHealth:
 		entityID, err := parseEntityID(query.EntityID)
 		if err != nil {
@@ -502,6 +509,33 @@ func (host scriptHost) Query(_ context.Context, query script.Query) (script.Valu
 		return script.Value{
 			Kind: script.ValueBool, Bool: entity != nil && entity.Kind == gametypes.EntityKindPlayer,
 		}, nil
+	case script.QueryDistance:
+		entityID, err := parseEntityID(query.EntityID)
+		if err != nil {
+			return script.Value{}, err
+		}
+		otherID, err := parseEntityID(query.OtherEntityID)
+		if err != nil {
+			return script.Value{}, err
+		}
+		entity, other := host.driver.tick.Entity(entityID), host.driver.tick.Entity(otherID)
+		if entity == nil || other == nil {
+			return script.Value{}, gametypes.ErrUnknownEntity
+		}
+		millimetres := math.Round(float64(gametypes.Distance(
+			host.driver.tick.Position(entity), host.driver.tick.Position(other),
+		)) * 1000)
+		if millimetres > math.MaxInt64 {
+			return script.Value{}, fmt.Errorf("session: entity distance exceeds exact script range")
+		}
+		return script.Value{Kind: script.ValueDecimal, Mantissa: int64(millimetres), Scale: 3}, nil
+	case script.QueryEquipped:
+		entityID, err := parseEntityID(query.EntityID)
+		if err != nil {
+			return script.Value{}, err
+		}
+		actor, ok := host.driver.warriorCombatants[entityID]
+		return script.Value{Kind: script.ValueBool, Bool: ok && boolByFold(actor.EquippedDressTypes, query.Slot)}, nil
 	default:
 		// Class, race, quest-status and item queries wait for the quest-tree
 		// callers that need them; answering them wrongly here would be worse
@@ -733,12 +767,57 @@ func (host scriptHost) Apply(ctx context.Context, command script.Command) error 
 		}
 		return nil
 
-	case script.CommandDamage, script.CommandSetTarget:
-		// Neither is reached by the quest trees this adapter serves; both
-		// belong to the spell callers, which are not wired. A documented no-op
-		// with a log line beats a silent one.
-		driver.logger.Warn("script command has no zone wiring yet",
-			"kind", uint8(command.Kind), "entity", command.EntityID)
+	case script.CommandDamage:
+		active := driver.activeWarriorAction
+		if driver.combat == nil || active == nil {
+			return fmt.Errorf("session: damage command has no active Warrior action")
+		}
+		targetID, err := parseEntityID(command.EntityID)
+		if err != nil {
+			return err
+		}
+		damage, err := roundedDamage(command.Magnitude)
+		if err != nil {
+			return fmt.Errorf("session: round Warrior damage: %w", err)
+		}
+		threat, err := decimalFloat64(command.ThreatMultiplier)
+		if err != nil {
+			return fmt.Errorf("session: Warrior threat multiplier: %w", err)
+		}
+		event, err := driver.combat.ApplyScriptDamage(driver.tick, combat.ScriptDamageRequest{
+			CasterID: active.invocation.CasterID, TargetID: targetID,
+			AbilityID: active.invocation.AbilityID, ActionGroupID: active.invocation.ActionGroupID,
+			ActivationOrdinal: active.invocation.ActivationOrdinal,
+			DefinitionDigest:  active.invocation.DefinitionDigest,
+			Damage:            damage, ThreatMultiplier: threat, CanBeAvoided: command.CanBeAvoided,
+			ExecutionKey: command.ExecutionKey,
+		})
+		if err != nil {
+			return err
+		}
+		active.event = event
+		active.damaged = true
+		active.mutated = true
+		return nil
+
+	case script.CommandSetTarget:
+		if driver.combat == nil {
+			return fmt.Errorf("session: target command has no combat host")
+		}
+		actorID, err := parseEntityID(command.EntityID)
+		if err != nil {
+			return err
+		}
+		targetID, err := parseEntityID(command.TargetID)
+		if err != nil {
+			return err
+		}
+		if err := driver.combat.SetScriptTarget(driver.tick, actorID, targetID, command.ExecutionKey); err != nil {
+			return err
+		}
+		if driver.activeWarriorAction != nil {
+			driver.activeWarriorAction.mutated = true
+		}
 		return nil
 
 	case script.CommandAttachGuard, script.CommandDetachGuard,
@@ -873,11 +952,22 @@ func decimalFloat32(value script.Decimal) (float32, error) {
 	return float32(result), nil
 }
 
+func decimalFloat64(value script.Decimal) (float64, error) {
+	if value.Scale < 0 || value.Scale > 18 {
+		return 0, fmt.Errorf("decimal %dE-%d has unsupported scale", value.Mantissa, value.Scale)
+	}
+	result := float64(value.Mantissa) / math.Pow10(int(value.Scale))
+	if math.IsNaN(result) || math.IsInf(result, 0) {
+		return 0, fmt.Errorf("decimal %dE-%d is not representable", value.Mantissa, value.Scale)
+	}
+	return result, nil
+}
+
 func roundedDamage(value script.Decimal) (int32, error) {
 	if value.Mantissa <= 0 {
 		return 0, nil
 	}
-	if value.Scale < 0 || value.Scale > 9 {
+	if value.Scale < 0 || value.Scale > 18 {
 		return 0, fmt.Errorf("session: scaled damage has unsupported decimal scale %d", value.Scale)
 	}
 	divisor := int64(1)

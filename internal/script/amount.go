@@ -21,14 +21,18 @@ type amount struct {
 	scale    int32
 }
 
-// maxScale bounds the scale so that repeated multiplication cannot walk off into
-// an unrepresentable power of ten. Nothing in the content needs more: the widest
-// authored decimal in the Warrior surface is four fractional digits.
-const maxScale = 9
+// maxScale bounds the scale so that repeated multiplication cannot walk off
+// into an unrepresentable power of ten. Compiled rows use at most nine places;
+// a nine-place character scaler multiplied by an authored damage decimal can
+// legitimately produce a wider exact intermediate.
+const maxScale = 18
 
 var powersOfTen = [maxScale + 1]int64{
 	1, 10, 100, 1_000, 10_000, 100_000,
 	1_000_000, 10_000_000, 100_000_000, 1_000_000_000,
+	10_000_000_000, 100_000_000_000, 1_000_000_000_000,
+	10_000_000_000_000, 100_000_000_000_000, 1_000_000_000_000_000,
+	10_000_000_000_000_000, 100_000_000_000_000_000, 1_000_000_000_000_000_000,
 }
 
 func integerAmount(value int64) amount { return amount{mantissa: value} }

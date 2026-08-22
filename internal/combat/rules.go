@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/SarnautCore/server/internal/gametypes"
+	"github.com/SarnautCore/server/internal/pack"
 )
 
 // The invented constants of mechanics/combat.md section 3.
@@ -65,6 +66,7 @@ const (
 type Rules struct {
 	abilities     map[string]gametypes.Ability
 	abilityOrder  []string
+	nativeActions map[string]struct{}
 	factions      map[string]gametypes.Faction
 	mobs          map[string]gametypes.Mob
 	playerFaction string
@@ -78,14 +80,40 @@ type Rules struct {
 func RulesFromPack(content ContentSource) (Rules, error) {
 	abilities := content.Abilities()
 	rules := Rules{
-		abilities:    make(map[string]gametypes.Ability, len(abilities)),
-		abilityOrder: make([]string, 0, len(abilities)),
-		factions:     make(map[string]gametypes.Faction),
-		mobs:         make(map[string]gametypes.Mob),
+		abilities:     make(map[string]gametypes.Ability, len(abilities)),
+		abilityOrder:  make([]string, 0, len(abilities)),
+		nativeActions: make(map[string]struct{}),
+		factions:      make(map[string]gametypes.Faction),
+		mobs:          make(map[string]gametypes.Mob),
 	}
 	for _, ability := range abilities {
 		rules.abilities[ability.ID] = ability
 		rules.abilityOrder = append(rules.abilityOrder, ability.ID)
+	}
+	for _, action := range content.NativeActions() {
+		if _, duplicate := rules.abilities[action.ID]; duplicate {
+			return Rules{}, fmt.Errorf("content pack %s repeats combat id %q as an ability and native action",
+				content.ID(), action.ID)
+		}
+		rangeM, ok := action.RangeM.Float64()
+		if !ok || rangeM < 0 || rangeM > math.MaxFloat32 {
+			return Rules{}, fmt.Errorf("content pack %s native action %q has an invalid range",
+				content.ID(), action.ID)
+		}
+		if action.TargetPolicy != "current-target" {
+			return Rules{}, fmt.Errorf("content pack %s native action %q has unsupported target policy %q",
+				content.ID(), action.ID, action.TargetPolicy)
+		}
+		cooldown := time.Duration(0)
+		if action.Cooldown != nil {
+			cooldown = action.Cooldown.Duration
+		}
+		rules.abilities[action.ID] = gametypes.Ability{
+			ID: action.ID, Target: "enemy", RangeM: float32(rangeM),
+			CastTime: action.CastDuration, Cooldown: cooldown, TriggersGCD: action.TriggersGCD,
+		}
+		rules.abilityOrder = append(rules.abilityOrder, action.ID)
+		rules.nativeActions[action.ID] = struct{}{}
 	}
 
 	for _, spawn := range content.NPCSpawns() {
@@ -138,9 +166,15 @@ func RulesFromPack(content ContentSource) (Rules, error) {
 type ContentSource interface {
 	ID() string
 	Abilities() []gametypes.Ability
+	NativeActions() []pack.NativeAction
 	NPCSpawns() []gametypes.NPCSpawn
 	Mob(string) (gametypes.Mob, bool)
 	Faction(string) (gametypes.Faction, bool)
+}
+
+func (rules Rules) IsNativeAction(id string) bool {
+	_, ok := rules.nativeActions[id]
+	return ok
 }
 
 // PlayerFaction is the faction an entering character belongs to by default.

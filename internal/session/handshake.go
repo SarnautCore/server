@@ -359,6 +359,9 @@ type ZoneBinding struct {
 	// catalog keeps skipping count-special definitions. Wiring it is the
 	// flag-on path that lets those quests progress.
 	Scripts *ScriptDriver
+	// Actions executes native class actions. It is separate from Scripts so a
+	// shard can run authored combat without enabling quest impact callers.
+	Actions *ScriptDriver
 }
 
 // CombatLoadoutSource is the pack-backed starting-action seam. Level,
@@ -376,13 +379,21 @@ type CombatLoadouts map[string]CombatLoadout
 // Current health is durable; maximum health and the initial action identities
 // come from the selected chargen product.
 type CombatLoadout struct {
-	AbilityIDs []string
-	MaxHealth  int32
+	AbilityIDs        []string
+	ActionBindings    []combat.ActionBinding
+	ActionResource    combat.ActionResource
+	Combatant         WarriorCombatant
+	UsesNativeActions bool
+	MaxHealth         int32
 }
 
 func (loadouts CombatLoadouts) StartingCombat(chargenOptionID string) (CombatLoadout, bool) {
 	loadout, ok := loadouts[chargenOptionID]
 	loadout.AbilityIDs = append([]string(nil), loadout.AbilityIDs...)
+	if loadout.ActionBindings != nil {
+		loadout.ActionBindings = append([]combat.ActionBinding{}, loadout.ActionBindings...)
+	}
+	loadout.Combatant = cloneWarriorCombatant(loadout.Combatant)
 	return loadout, ok
 }
 
@@ -586,11 +597,13 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 				admission.ChargenOptionID)
 		}
 		if err := binding.Combat.Admit(entityID, combat.PlayerAdmission{
-			Level:      characterLevel(loaded.State.Level),
-			Experience: loaded.State.Experience,
-			Health:     loaded.State.Health,
-			MaxHealth:  loadout.MaxHealth,
-			AbilityIDs: loadout.AbilityIDs,
+			Level:          characterLevel(loaded.State.Level),
+			Experience:     loaded.State.Experience,
+			Health:         loaded.State.Health,
+			MaxHealth:      loadout.MaxHealth,
+			AbilityIDs:     loadout.AbilityIDs,
+			ActionBindings: loadout.ActionBindings,
+			ActionResource: loadout.ActionResource,
 			ResurrectionSicknessRemaining: time.Duration(
 				loaded.State.ResurrectionSicknessMS,
 			) * time.Millisecond,
@@ -598,6 +611,20 @@ func (server Server) handle(ctx context.Context, connection transport.Connection
 			return err
 		}
 		defer binding.Combat.Release(entityID)
+		if loadout.UsesNativeActions {
+			actions := binding.Actions
+			if actions == nil {
+				actions = binding.Scripts
+			}
+			if actions == nil {
+				return fmt.Errorf("session: native action loadout %q has no action interpreter",
+					admission.ChargenOptionID)
+			}
+			if err := actions.SetWarriorCombatant(entityID, loadout.Combatant); err != nil {
+				return err
+			}
+			defer actions.ReleaseWarriorCombatant(entityID)
+		}
 	}
 	if binding.Progression != nil {
 		if err := binding.Progression.Admit(

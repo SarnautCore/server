@@ -90,15 +90,18 @@ func TestChargenCarriesAuthoredHealthAndActionLoadout(t *testing.T) {
 	slot := uint32(0)
 	row := &contentv1.ChargenOption{
 		Id: "chargen.fixture.native", StartingLevel: 1,
-		Stats: &contentv1.StartingCharacterStats{Health: 146, MaxHealth: 146},
+		Stats: fixtureStartingCombatStats(),
 		StartingActions: []*contentv1.StartingAction{
-			{SlotIndex: &slot, ActionId: "action.auto-attack.melee"},
-			{ActionId: "action.warrior.aimed-shot"},
+			{SlotIndex: &slot, ActionId: fixtureNativeActionID},
 		},
 		PassiveAbilityIds: []string{"passive.warrior.parry"},
 	}
 	replaceCompiledTable(t, directory, tableChargen, contentv1.RowType_ROW_TYPE_CHARGEN_OPTION,
 		[]compiledRow{{id: row.GetId(), message: row}},
+	)
+	action := fixtureNativeAction()
+	replaceCompiledTable(t, directory, tableNativeActions, contentv1.RowType_ROW_TYPE_NATIVE_ACTION,
+		[]compiledRow{{id: action.GetId(), message: action}},
 	)
 	reseal(t, directory)
 
@@ -108,7 +111,7 @@ func TestChargenCarriesAuthoredHealthAndActionLoadout(t *testing.T) {
 	}
 	option := content.ChargenOptions()[0]
 	if option.StartingHealth != 146 || option.StartingMaxHealth != 146 ||
-		len(option.StartingActions) != 2 || option.StartingActions[0].SlotIndex == nil ||
+		len(option.StartingActions) != 1 || option.StartingActions[0].SlotIndex == nil ||
 		*option.StartingActions[0].SlotIndex != 0 || len(option.PassiveAbilityIDs) != 1 {
 		t.Fatalf("native chargen option = %#v", option)
 	}

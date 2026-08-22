@@ -84,6 +84,40 @@ type StartingAction struct {
 	SlotIndex *uint32
 }
 
+type ExactStatValue struct {
+	Stat  string
+	Value Decimal
+}
+
+type StartingResource struct {
+	Kind    string
+	Initial Decimal
+	Maximum Decimal
+}
+
+type WeaponProfile struct {
+	MinimumDamage Decimal
+	MaximumDamage Decimal
+	SpeedMS       Decimal
+}
+
+// StartingCombatStats carries the exact compiled inputs used by the native
+// action interpreter. Presence distinguishes a native chargen row from a
+// legacy fixture that only authors health.
+type StartingCombatStats struct {
+	Resource         StartingResource
+	Innate           []ExactStatValue
+	Armor            Decimal
+	Resistances      []ExactStatValue
+	HitDice          Decimal
+	ManaDice         Decimal
+	BaseStatValue    Decimal
+	WeaponDPSDefault Decimal
+	FairyScaler      Decimal
+	Mainhand         WeaponProfile
+	Ranged           WeaponProfile
+}
+
 // ChargenOption is one selectable character-creation option (ADR 0032).
 //
 // Every field here is a fact the auth service would otherwise have to hold as a
@@ -110,6 +144,7 @@ type ChargenOption struct {
 	StartingLoadout   []LoadoutItem
 	StartingAbility   []string
 	StartingActions   []StartingAction
+	CombatStats       *StartingCombatStats
 	PassiveAbilityIDs []string
 	StartingQuests    []string
 }
@@ -139,6 +174,7 @@ type Pack struct {
 	npcs                 []NPCSpawn
 	abilities            map[string]Ability
 	abilityIDs           []string
+	nativeActions        map[string]NativeAction
 	factions             map[string]Faction
 	mobs                 map[string]Mob
 	chargen              []ChargenOption
@@ -248,6 +284,10 @@ func Load(directory string, options Options) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	nativeActions, err := readNativeActions(tables)
+	if err != nil {
+		return nil, err
+	}
 	factions, err := readFactions(tables)
 	if err != nil {
 		return nil, err
@@ -258,6 +298,9 @@ func Load(directory string, options Options) (*Pack, error) {
 	}
 	chargen, err := readChargen(tables)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateChargenActions(chargen, abilities, nativeActions); err != nil {
 		return nil, err
 	}
 	lootTables, err := readLootTables(tables)
@@ -296,6 +339,7 @@ func Load(directory string, options Options) (*Pack, error) {
 		npcs:                 npcs,
 		abilities:            abilities,
 		abilityIDs:           abilityIDs,
+		nativeActions:        nativeActions,
 		factions:             factions,
 		mobs:                 mobs,
 		chargen:              chargen,
@@ -309,6 +353,32 @@ func Load(directory string, options Options) (*Pack, error) {
 		hasPlayerProgression: hasPlayerProgression,
 		items:                items,
 	}, nil
+}
+
+func validateChargenActions(
+	options []ChargenOption,
+	abilities map[string]Ability,
+	actions map[string]NativeAction,
+) error {
+	for _, option := range options {
+		for _, abilityID := range option.StartingAbility {
+			if _, ok := abilities[abilityID]; !ok {
+				return fmt.Errorf("%w: chargen option %q grants missing ability %q",
+					ErrMalformedTable, option.ID, abilityID)
+			}
+		}
+		for _, grant := range option.StartingActions {
+			if _, ok := actions[grant.ActionID]; !ok {
+				return fmt.Errorf("%w: chargen option %q grants missing native action %q",
+					ErrMalformedTable, option.ID, grant.ActionID)
+			}
+		}
+		if len(option.StartingActions) > 0 && option.CombatStats == nil {
+			return fmt.Errorf("%w: chargen option %q grants native actions without complete combat stats",
+				ErrMalformedTable, option.ID)
+		}
+	}
+	return nil
 }
 
 // ID is the pack's content digest: 64 lowercase hex characters.
@@ -370,6 +440,12 @@ func (p *Pack) ChargenOptions() []ChargenOption {
 				result[index].StartingActions[actionIndex].SlotIndex = &slot
 			}
 		}
+		if option.CombatStats != nil {
+			stats := *option.CombatStats
+			stats.Innate = append([]ExactStatValue(nil), option.CombatStats.Innate...)
+			stats.Resistances = append([]ExactStatValue(nil), option.CombatStats.Resistances...)
+			result[index].CombatStats = &stats
+		}
 		result[index].PassiveAbilityIDs = append([]string(nil), option.PassiveAbilityIDs...)
 		result[index].StartingQuests = append([]string(nil), option.StartingQuests...)
 	}
@@ -415,6 +491,11 @@ func readChargen(tables map[string]*table) ([]ChargenOption, error) {
 					ErrMalformedTable, row.GetId(), stats.GetHealth(), stats.GetMaxHealth(),
 				)
 			}
+			combatStats, err := readStartingCombatStats(row.GetId(), stats)
+			if err != nil {
+				return nil, err
+			}
+			option.CombatStats = combatStats
 		}
 		for _, action := range row.GetStartingActions() {
 			if action.GetActionId() == "" {

@@ -29,6 +29,9 @@ const (
 	// RejectionUnknownAbility means the caster does not know the ability, or
 	// the pack does not carry it.
 	RejectionUnknownAbility
+	// RejectionNoResource means the server-owned action cost exceeds the
+	// caster's current authored resource pool.
+	RejectionNoResource
 )
 
 // The rejections mechanics/combat.md names, as error values.
@@ -39,6 +42,7 @@ var (
 	ErrOutOfRange     error = RejectionOutOfRange
 	ErrOnCooldown     error = RejectionOnCooldown
 	ErrUnknownAbility error = RejectionUnknownAbility
+	ErrNoResource     error = RejectionNoResource
 )
 
 // ErrDuplicateCommand reports a command that is not newer than the last one
@@ -67,6 +71,8 @@ func (rejection Rejection) String() string {
 		return "ability is on cooldown"
 	case RejectionUnknownAbility:
 		return "caster does not know that ability"
+	case RejectionNoResource:
+		return "caster has insufficient resource"
 	default:
 		return "unknown combat rejection"
 	}

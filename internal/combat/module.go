@@ -66,6 +66,8 @@ type PlayerAdmission struct {
 	Health                        int32
 	MaxHealth                     int32
 	AbilityIDs                    []string
+	ActionBindings                []ActionBinding
+	ActionResource                ActionResource
 	ResurrectionSicknessRemaining time.Duration
 }
 
@@ -87,6 +89,12 @@ type Module struct {
 	// damageEffects is the optional session-owned adapter for persistent
 	// script modifiers. It is installed and read only under the zone lock.
 	damageEffects DamageEffectHost
+	// scriptActions is the session-owned adapter that executes extracted
+	// action trees. Combat still owns admission, targets, resource, cooldown,
+	// damage, death, and events.
+	scriptActions          ScriptActionHost
+	scriptDamageEvents     map[uint64]scriptDamageReplay
+	scriptTargetExecutions map[uint64]scriptTargetReplay
 
 	events  chan Event
 	dropped atomic.Uint64
@@ -103,17 +111,19 @@ func New(logger *slog.Logger, zone gametypes.Zone, rules Rules, options Options)
 		faction = rules.PlayerFaction()
 	}
 	module := &Module{
-		logger:    logger,
-		zone:      zone,
-		rules:     rules,
-		faction:   faction,
-		lifecycle: options.PlayerLifecycle,
-		mobs:      make(map[uint64]*mobState),
-		players:   make(map[uint64]*playerState),
-		casters:   make(map[uint64]*casterState),
-		stream:    newSpawnStream(options.Seed),
-		events:    make(chan Event, eventQueueSize),
-		sinks:     make(map[uint64]EventSink),
+		logger:                 logger,
+		zone:                   zone,
+		rules:                  rules,
+		faction:                faction,
+		lifecycle:              options.PlayerLifecycle,
+		mobs:                   make(map[uint64]*mobState),
+		players:                make(map[uint64]*playerState),
+		casters:                make(map[uint64]*casterState),
+		stream:                 newSpawnStream(options.Seed),
+		events:                 make(chan Event, eventQueueSize),
+		sinks:                  make(map[uint64]EventSink),
+		scriptDamageEvents:     make(map[uint64]scriptDamageReplay),
+		scriptTargetExecutions: make(map[uint64]scriptTargetReplay),
 	}
 	zone.GameAddSystem(module)
 	return module
@@ -160,6 +170,7 @@ func (module *Module) Populate(spawns []gametypes.NPCSpawn) error {
 				Position:    gametypes.Vec3{X: spawn.Position.X, Y: spawn.Position.Y, Z: spawn.Position.Z},
 				Heading:     spawn.Heading,
 			}).ID
+			module.retireScriptReplays(entityID)
 			module.mobs[entityID] = module.newMobState(mob, spawn)
 			return nil
 		}); err != nil {
@@ -171,6 +182,58 @@ func (module *Module) Populate(spawns []gametypes.NPCSpawn) error {
 
 // Admit gives a joined player its combat identity, from the pack.
 func (module *Module) Admit(entityID uint64, admission PlayerAdmission) error {
+	bindings := admission.ActionBindings
+	// Nil means the pre-action-bar admission contract and keeps its sequential
+	// fallback. A non-nil empty slice is authored: every granted action is
+	// intentionally unbound, so synthesizing slots would change product data.
+	if bindings == nil {
+		bindings = make([]ActionBinding, 0, min(len(admission.AbilityIDs), ActionBarSlotCount))
+		for index, abilityID := range admission.AbilityIDs {
+			if index == ActionBarSlotCount {
+				break
+			}
+			bindings = append(bindings, ActionBinding{SlotIndex: uint32(index), AbilityID: abilityID})
+		}
+	}
+	_, actionBar, err := module.validateActionBindings(bindings)
+	if err != nil {
+		return err
+	}
+	resource, err := validateActionResource(admission.ActionResource)
+	if err != nil {
+		return err
+	}
+	known := make(map[string]struct{}, len(admission.AbilityIDs))
+	for _, abilityID := range admission.AbilityIDs {
+		known[abilityID] = struct{}{}
+	}
+	for _, binding := range bindings {
+		if _, ok := known[binding.AbilityID]; !ok {
+			return fmt.Errorf(
+				"admit entity %d: slot %d binds ungranted ability %q",
+				entityID, binding.SlotIndex, binding.AbilityID,
+			)
+		}
+	}
+	abilities := make([]string, 0, len(admission.AbilityIDs))
+	ordered := make(map[string]struct{}, len(admission.AbilityIDs))
+	for _, abilityID := range actionBar {
+		if abilityID == "" {
+			continue
+		}
+		if _, duplicate := ordered[abilityID]; duplicate {
+			continue
+		}
+		ordered[abilityID] = struct{}{}
+		abilities = append(abilities, abilityID)
+	}
+	for _, abilityID := range admission.AbilityIDs {
+		if _, duplicate := ordered[abilityID]; duplicate {
+			continue
+		}
+		ordered[abilityID] = struct{}{}
+		abilities = append(abilities, abilityID)
+	}
 	return module.zone.GameCommand(func(tick gametypes.Tick) error {
 		entity := tick.Entity(entityID)
 		if entity == nil || entity.Kind != gametypes.EntityKindPlayer {
@@ -189,7 +252,6 @@ func (module *Module) Admit(entityID uint64, admission PlayerAdmission) error {
 		if len(admission.AbilityIDs) == 0 {
 			return fmt.Errorf("admit entity %d: authored ability loadout is empty", entityID)
 		}
-		abilities := append([]string(nil), admission.AbilityIDs...)
 		for _, abilityID := range abilities {
 			if _, ok := module.rules.Ability(abilityID); !ok {
 				return fmt.Errorf("admit entity %d: authored ability %q is absent", entityID, abilityID)
@@ -204,7 +266,12 @@ func (module *Module) Admit(entityID uint64, admission PlayerAdmission) error {
 		entity.MaxHealth = admission.MaxHealth
 		entity.Health = admission.Health
 		entity.Alive = admission.Health > 0
-		module.casters[entityID] = &casterState{abilities: abilities}
+		module.retireScriptReplays(entityID)
+		module.casters[entityID] = &casterState{
+			abilities: abilities,
+			actionBar: actionBar,
+			resource:  resource,
+		}
 		module.players[entityID] = &playerState{
 			anchor: tick.Position(entity), anchorYaw: entity.Heading,
 			phase: playerAlive,
@@ -224,6 +291,7 @@ func (module *Module) Release(entityID uint64) {
 	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		delete(module.casters, entityID)
 		delete(module.players, entityID)
+		module.retireScriptReplays(entityID)
 		return nil
 	})
 	module.Unsubscribe(entityID)
@@ -336,11 +404,16 @@ func (module *Module) publish(event Event) {
 
 // casterState is one entity's ability bookkeeping, in ticks.
 type casterState struct {
-	abilities    []string
-	gcdReadyTick uint64
-	readyTick    map[string]uint64
-	lastSeq      uint64
-	hasSeq       bool
+	abilities     []string
+	actionBar     [ActionBarSlotCount]string
+	selected      uint64
+	gcdReadyTick  uint64
+	readyTick     map[string]uint64
+	castReadyTick uint64
+	actionOrdinal uint64
+	lastSeq       uint64
+	hasSeq        bool
+	resource      actionResource
 }
 
 func (state *casterState) knows(abilityID string) bool {

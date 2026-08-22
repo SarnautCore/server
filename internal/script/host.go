@@ -65,12 +65,18 @@ const (
 	// QueryIsAvatar answers PredicateIsAvatar. The host decides this from the
 	// entity's runtime kind; the predicate carries no gameplay fields.
 	QueryIsAvatar
+	// QueryDistance answers PredicateRemote with the distance between EntityID
+	// and OtherEntityID in metres.
+	QueryDistance
+	// QueryEquipped answers PredicateEquipped for the authored dress slot.
+	QueryEquipped
 )
 
 type Query struct {
 	Kind QueryKind
 	// EntityID is whom the question is about, normally Frame.Addressee.
-	EntityID string
+	EntityID      string
+	OtherEntityID string
 	// Ref is what the question is about: a class, race, quest or item row.
 	Ref Ref
 	// Slot names an equipment slot for the weapon queries, spelled as the

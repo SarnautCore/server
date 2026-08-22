@@ -100,10 +100,23 @@ func (evaluator *Evaluator) Census() *Census { return evaluator.census }
 // Evaluate runs one node and its children. It is the single entry point for all
 // four callers of ADR 0036.
 func (evaluator *Evaluator) Evaluate(ctx context.Context, node *Node, frame Frame) error {
+	return evaluator.EvaluateAll(ctx, []*Node{node}, frame)
+}
+
+// EvaluateAll runs one authored activation. Its ordinal starts from the
+// persisted frame seed and advances across every root and nested child, so a
+// replay is independent of what any earlier activation evaluated in-process.
+func (evaluator *Evaluator) EvaluateAll(ctx context.Context, nodes []*Node, frame Frame) error {
 	if !evaluator.options.Enabled {
 		return ErrDisabled
 	}
-	return evaluator.eval(ctx, node, frame)
+	evaluator.ordinal = frame.ActivationOrdinal
+	for _, node := range nodes {
+		if err := evaluator.eval(ctx, node, frame); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (evaluator *Evaluator) eval(ctx context.Context, node *Node, frame Frame) error {
@@ -129,6 +142,16 @@ func (evaluator *Evaluator) eval(ctx context.Context, node *Node, frame Frame) e
 		}
 	}
 	return run(ctx, evaluator, node, frame)
+}
+
+func nodeRefusal(node *Node, frame Frame, reason string) error {
+	return &RefusedError{
+		SourceID: frame.SourceID,
+		NodeKey:  node.Key,
+		Family:   node.Family,
+		Opcode:   node.Opcode,
+		Reason:   reason,
+	}
 }
 
 // admit applies ADR 0036's coverage policy to one node and records the census
@@ -263,6 +286,50 @@ func (evaluator *Evaluator) Predicate(ctx context.Context, node *Node, frame Fra
 		}
 		return answer.Bool, nil
 
+	case "PredicateRemote":
+		if toLog, ok := node.Field("toLog"); ok && (toLog.Kind != ValueBool || toLog.Bool) {
+			return false, nodeRefusal(node, frame, "field \"toLog\" must be absent or false")
+		}
+		minimum, err := literalAmount(node, frame, "range")
+		if err != nil {
+			return false, err
+		}
+		answer, err := evaluator.host.Query(ctx, Query{
+			Kind: QueryDistance, EntityID: frame.CasterID, OtherEntityID: frame.TargetID,
+		})
+		if err != nil {
+			return false, fmt.Errorf("query remote distance: %w", err)
+		}
+		distance, ok := amountFromValue(answer)
+		if !ok {
+			return false, nodeRefusal(node, frame, "the host answered distance with a non-number")
+		}
+		distance, minimum, ok = align(distance, minimum)
+		return ok && distance.mantissa >= minimum.mantissa, nil
+
+	case "PredicateEquipped":
+		if toLog, ok := node.Field("toLog"); ok && (toLog.Kind != ValueBool || toLog.Bool) {
+			return false, nodeRefusal(node, frame, "field \"toLog\" must be absent or false")
+		}
+		dressType, ok := node.Field("dressType")
+		if !ok || dressType.Kind != ValueText || dressType.Text == "" {
+			return false, nodeRefusal(node, frame, "field \"dressType\" is missing or not text")
+		}
+		weaponRequired, ok := node.Field("weaponRequired")
+		if !ok || weaponRequired.Kind != ValueBool || !weaponRequired.Bool {
+			return false, nodeRefusal(node, frame, "the League slice requires weaponRequired=true")
+		}
+		answer, err := evaluator.host.Query(ctx, Query{
+			Kind: QueryEquipped, EntityID: frame.CasterID, Slot: dressType.Text,
+		})
+		if err != nil {
+			return false, fmt.Errorf("query equipped slot %s: %w", dressType.Text, err)
+		}
+		if answer.Kind != ValueBool {
+			return false, nodeRefusal(node, frame, "the host answered equipped with a non-boolean value")
+		}
+		return answer.Bool, nil
+
 	default:
 		return false, &RefusedError{
 			SourceID: frame.SourceID, NodeKey: node.Key,
@@ -333,6 +400,7 @@ func m3Handlers() map[string]handler {
 
 		// Warrior kit.
 		"ScaledPhysicalWeaponDamage": evalScaledPhysicalWeaponDamage,
+		"ScaledPhysicalDamage":       evalScaledPhysicalDamage,
 		"ImpactSetTarget":            evalImpactSetTarget,
 
 		// Authored world state used by quest 4-30's Firewall sequence.

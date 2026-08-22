@@ -1,6 +1,10 @@
 package session
 
 import (
+	"math"
+	"strings"
+	"time"
+
 	"github.com/SarnautCore/server/internal/gametypes"
 	"github.com/SarnautCore/server/internal/pack"
 	"github.com/SarnautCore/server/internal/script"
@@ -11,6 +15,93 @@ import (
 type PackQuestScriptSource struct {
 	content  *pack.Pack
 	counters map[string]CounterBinding
+}
+
+// WarriorAction adapts one validated native action row to the script-action
+// host. The row already contains product ids and typed nodes.
+func (source *PackQuestScriptSource) WarriorAction(actionID string) (WarriorAction, bool) {
+	if source == nil || source.content == nil {
+		return WarriorAction{}, false
+	}
+	row, ok := source.content.NativeAction(actionID)
+	if !ok {
+		return WarriorAction{}, false
+	}
+	action := WarriorAction{
+		AbilityID: row.ID, ActionGroupID: row.ActionGroupID,
+		PrepareDuration:        row.PrepareDuration,
+		TriggersGlobalCooldown: row.TriggersGCD,
+		IgnoresGlobalCooldown:  row.IgnoresGCD,
+	}
+	if row.Cooldown != nil {
+		action.CooldownGroupID = row.Cooldown.GroupID
+		switch {
+		case row.Cooldown.Scaler == "":
+			action.Cooldown = row.Cooldown.Duration
+		case strings.EqualFold(row.Cooldown.Scaler, "weapon-speed"):
+			base, ok := exactSecondsDuration(row.Cooldown.Base)
+			if !ok {
+				return WarriorAction{}, false
+			}
+			action.Cooldown = base
+			action.CooldownScalesByWeaponSpeed = true
+			action.CooldownSource = canonicalAttackSource(row.Resource, "Mainhand")
+		default:
+			return WarriorAction{}, false
+		}
+	}
+	if row.Resource != nil {
+		action.ResourceKind = row.Resource.Kind
+		action.ResourceCost = script.Decimal{
+			Mantissa: row.Resource.Cost.Mantissa,
+			Scale:    row.Resource.Cost.Scale,
+		}
+		action.ScaleCostByWeaponSpeed = row.Resource.ScaleByWeaponSpeed
+		action.ResourceSource = canonicalAttackSource(row.Resource, "Mainhand")
+	}
+	for _, node := range row.TargetImpacts {
+		action.TargetImpacts = append(action.TargetImpacts, script.FromPackNode(node))
+	}
+	for _, node := range row.CasterConditions {
+		action.CasterConditions = append(action.CasterConditions, script.FromPackNode(node))
+	}
+	return action, true
+}
+
+func exactSecondsDuration(value pack.Decimal) (time.Duration, bool) {
+	mantissa, scale := value.Mantissa, value.Scale
+	if mantissa < 0 || scale < 0 || scale > 18 {
+		return 0, false
+	}
+	for scale > 9 && mantissa%10 == 0 {
+		mantissa /= 10
+		scale--
+	}
+	if scale > 9 {
+		return 0, false
+	}
+	for scale < 9 {
+		if mantissa > math.MaxInt64/10 {
+			return 0, false
+		}
+		mantissa *= 10
+		scale++
+	}
+	return time.Duration(mantissa), true
+}
+
+func canonicalAttackSource(resource *pack.NativeActionResource, fallback string) string {
+	if resource == nil || resource.Source == "" {
+		return fallback
+	}
+	switch {
+	case strings.EqualFold(resource.Source, "mainhand"):
+		return "Mainhand"
+	case strings.EqualFold(resource.Source, "ranged"):
+		return "Ranged"
+	default:
+		return resource.Source
+	}
 }
 
 // NewPackQuestScriptSource indexes counter bindings once at shard startup.
