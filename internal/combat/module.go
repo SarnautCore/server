@@ -68,8 +68,8 @@ type Module struct {
 	// action trees. Combat still owns admission, targets, resource, cooldown,
 	// damage, death, and events.
 	scriptActions          ScriptActionHost
-	scriptDamageEvents     map[string]Event
-	scriptTargetExecutions map[string]struct{}
+	scriptDamageEvents     map[uint64]scriptDamageReplay
+	scriptTargetExecutions map[uint64]scriptTargetReplay
 
 	events  chan Event
 	dropped atomic.Uint64
@@ -100,8 +100,8 @@ func New(logger *slog.Logger, zone gametypes.Zone, rules Rules, options Options)
 		stream:                 newSpawnStream(options.Seed),
 		events:                 make(chan Event, eventQueueSize),
 		sinks:                  make(map[uint64]EventSink),
-		scriptDamageEvents:     make(map[string]Event),
-		scriptTargetExecutions: make(map[string]struct{}),
+		scriptDamageEvents:     make(map[uint64]scriptDamageReplay),
+		scriptTargetExecutions: make(map[uint64]scriptTargetReplay),
 	}
 	zone.GameAddSystem(module)
 	return module
@@ -148,6 +148,7 @@ func (module *Module) Populate(spawns []gametypes.NPCSpawn) error {
 				Position:    gametypes.Vec3{X: spawn.Position.X, Y: spawn.Position.Y, Z: spawn.Position.Z},
 				Heading:     spawn.Heading,
 			}).ID
+			module.retireScriptReplays(entityID)
 			module.mobs[entityID] = module.newMobState(mob, spawn)
 			return nil
 		}); err != nil {
@@ -220,6 +221,7 @@ func (module *Module) admitValidated(
 		entity.MaxHealth = MaxHealth(module.level, defaultHPMod)
 		entity.Health = entity.MaxHealth
 		entity.Alive = true
+		module.retireScriptReplays(entityID)
 		module.casters[entityID] = &casterState{
 			abilities: append([]string(nil), abilities...),
 			actionBar: actionBar,
@@ -233,6 +235,7 @@ func (module *Module) admitValidated(
 func (module *Module) Release(entityID uint64) {
 	_ = module.zone.GameCommand(func(gametypes.Tick) error {
 		delete(module.casters, entityID)
+		module.retireScriptReplays(entityID)
 		return nil
 	})
 	module.Unsubscribe(entityID)

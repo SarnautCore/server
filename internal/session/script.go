@@ -740,7 +740,9 @@ func (host scriptHost) Apply(ctx context.Context, command script.Command) error 
 		event, err := driver.combat.ApplyScriptDamage(driver.tick, combat.ScriptDamageRequest{
 			CasterID: active.invocation.CasterID, TargetID: targetID,
 			AbilityID: active.invocation.AbilityID, ActionGroupID: active.invocation.ActionGroupID,
-			Damage: damage, ThreatMultiplier: threat, CanBeAvoided: command.CanBeAvoided,
+			ActivationOrdinal: active.invocation.ActivationOrdinal,
+			DefinitionDigest:  active.invocation.DefinitionDigest,
+			Damage:            damage, ThreatMultiplier: threat, CanBeAvoided: command.CanBeAvoided,
 			ExecutionKey: command.ExecutionKey,
 		})
 		if err != nil {

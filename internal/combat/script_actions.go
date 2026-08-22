@@ -66,14 +66,36 @@ type ScriptActionHost interface {
 // ScriptDamageRequest is a typed, already-evaluated damage command. No script
 // opcode or node crosses into combat.
 type ScriptDamageRequest struct {
-	CasterID         uint64
-	TargetID         uint64
-	AbilityID        string
-	ActionGroupID    string
-	Damage           int32
-	ThreatMultiplier float64
-	CanBeAvoided     bool
-	ExecutionKey     string
+	CasterID          uint64
+	TargetID          uint64
+	AbilityID         string
+	ActionGroupID     string
+	ActivationOrdinal uint64
+	DefinitionDigest  string
+	Damage            int32
+	ThreatMultiplier  float64
+	CanBeAvoided      bool
+	ExecutionKey      string
+}
+
+type scriptActivationIdentity struct {
+	targetID          uint64
+	abilityID         string
+	actionGroupID     string
+	activationOrdinal uint64
+	definitionDigest  string
+}
+
+type scriptDamageReplay struct {
+	// One entry per admitted caster, replaced when its activation ordinal advances.
+	activation scriptActivationIdentity
+	events     map[string]Event
+}
+
+type scriptTargetReplay struct {
+	// One entry per live actor. A later target mutation replaces it.
+	executionKey string
+	targetID     uint64
 }
 
 type actionResource struct {
@@ -168,8 +190,11 @@ func (module *Module) ApplyScriptDamage(
 	if request.ExecutionKey == "" {
 		return Event{}, errors.New("combat: script damage has no execution key")
 	}
-	if prior, ok := module.scriptDamageEvents[request.ExecutionKey]; ok {
-		return prior, nil
+	if request.ActivationOrdinal == 0 || request.DefinitionDigest == "" {
+		return Event{}, errors.New("combat: script damage has no activation identity")
+	}
+	if prior, ok, err := module.cachedScriptDamage(request); err != nil || ok {
+		return prior, err
 	}
 	caster := tick.Entity(request.CasterID)
 	target := tick.Entity(request.TargetID)
@@ -201,8 +226,47 @@ func (module *Module) ApplyScriptDamage(
 	event := module.applyDamage(
 		tick, caster, target, ability, damage, request.ActionGroupID, request.ThreatMultiplier,
 	)
-	module.scriptDamageEvents[request.ExecutionKey] = event
+	module.rememberScriptDamage(request, event)
 	return event, nil
+}
+
+func (module *Module) cachedScriptDamage(request ScriptDamageRequest) (Event, bool, error) {
+	activation := scriptActivationIdentity{
+		targetID: request.TargetID, abilityID: request.AbilityID,
+		actionGroupID: request.ActionGroupID, activationOrdinal: request.ActivationOrdinal,
+		definitionDigest: request.DefinitionDigest,
+	}
+	replay, ok := module.scriptDamageEvents[request.CasterID]
+	if !ok {
+		return Event{}, false, nil
+	}
+	if replay.activation == activation {
+		event, found := replay.events[request.ExecutionKey]
+		return event, found, nil
+	}
+	if request.ActivationOrdinal <= replay.activation.activationOrdinal {
+		return Event{}, false, ErrDuplicateCommand
+	}
+	return Event{}, false, nil
+}
+
+func (module *Module) rememberScriptDamage(request ScriptDamageRequest, event Event) {
+	activation := scriptActivationIdentity{
+		targetID: request.TargetID, abilityID: request.AbilityID,
+		actionGroupID: request.ActionGroupID, activationOrdinal: request.ActivationOrdinal,
+		definitionDigest: request.DefinitionDigest,
+	}
+	replay, ok := module.scriptDamageEvents[request.CasterID]
+	if !ok || replay.activation != activation {
+		replay = scriptDamageReplay{activation: activation, events: make(map[string]Event)}
+	}
+	replay.events[request.ExecutionKey] = event
+	module.scriptDamageEvents[request.CasterID] = replay
+}
+
+func (module *Module) retireScriptReplays(entityID uint64) {
+	delete(module.scriptDamageEvents, entityID)
+	delete(module.scriptTargetExecutions, entityID)
 }
 
 // CompleteScriptAction publishes a successfully evaluated action that dealt
@@ -231,12 +295,18 @@ func (module *Module) SetScriptTarget(tick gametypes.Tick, actorID, targetID uin
 	if executionKey == "" {
 		return errors.New("combat: script target change has no execution key")
 	}
-	if _, ok := module.scriptTargetExecutions[executionKey]; ok {
+	actor := tick.Entity(actorID)
+	if actor == nil {
+		return gametypes.ErrUnknownEntity
+	}
+	if replay, ok := module.scriptTargetExecutions[actorID]; ok && replay.executionKey == executionKey {
+		if replay.targetID != targetID {
+			return ErrInvalidTarget
+		}
 		return nil
 	}
-	actor := tick.Entity(actorID)
 	target := tick.Entity(targetID)
-	if actor == nil || target == nil || !actor.Alive || actorID == targetID {
+	if target == nil || !actor.Alive || actorID == targetID {
 		return ErrInvalidTarget
 	}
 	if rejection := module.validateSelection(tick, targetID); rejection != RejectionNone {
@@ -244,16 +314,23 @@ func (module *Module) SetScriptTarget(tick gametypes.Tick, actorID, targetID uin
 	}
 	if state := module.casters[actorID]; state != nil {
 		state.selected = targetID
-		module.scriptTargetExecutions[executionKey] = struct{}{}
+		module.rememberScriptTarget(actorID, targetID, executionKey)
 		return nil
 	}
 	if state := module.mobs[actorID]; state != nil {
 		state.phase = phaseAggro
 		state.aggroTarget = targetID
-		module.scriptTargetExecutions[executionKey] = struct{}{}
+		module.rememberScriptTarget(actorID, targetID, executionKey)
 		return nil
 	}
 	return gametypes.ErrUnknownEntity
+}
+
+func (module *Module) rememberScriptTarget(actorID, targetID uint64, executionKey string) {
+	module.scriptTargetExecutions[actorID] = scriptTargetReplay{
+		executionKey: executionKey,
+		targetID:     targetID,
+	}
 }
 
 // MilliResource converts an extracted decimal resource amount to the combat

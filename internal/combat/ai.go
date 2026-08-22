@@ -285,10 +285,12 @@ func (module *Module) despawnCorpse(tick gametypes.Tick, victimID uint64) {
 	if state.summoned {
 		tick.Despawn(victimID)
 		delete(module.mobs, victimID)
+		module.retireScriptReplays(victimID)
 		return
 	}
 	entity.Replicated = false
 	state.phase = phaseDespawned
+	module.retireScriptReplays(victimID)
 
 	delay := module.stream.respawnDelay(state.respawnMin, state.respawnMax)
 	tick.After(ticksIn(delay, tick.Interval()), func(later gametypes.Tick) {

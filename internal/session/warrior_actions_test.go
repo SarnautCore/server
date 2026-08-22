@@ -316,6 +316,27 @@ func TestWarriorDamageExecutionKeyIsIdempotent(t *testing.T) {
 	if got := fixture.health(t); got != before-18 {
 		t.Fatalf("replayed damage changed health to %d, want one hit %d", got, before-18)
 	}
+
+	fixture.combat.Release(fixture.playerID)
+	if err := fixture.combat.AdmitWithLoadout(fixture.playerID, combat.ActionLoadout{
+		Bindings: []combat.ActionBinding{{SlotIndex: 0, AbilityID: action.AbilityID}},
+	}); err != nil {
+		t.Fatalf("re-admit caster: %v", err)
+	}
+	if _, err := fixture.combat.SelectTarget(fixture.playerID, fixture.mobID); err != nil {
+		t.Fatalf("reselect target: %v", err)
+	}
+	before = fixture.health(t)
+	err = fixture.zone.GameCommand(func(tick gametypes.Tick) error {
+		_, executeErr := driver.ExecuteAction(tick, invocation)
+		return executeErr
+	})
+	if err != nil {
+		t.Fatalf("reused ordinal ExecuteAction() error = %v", err)
+	}
+	if got := fixture.health(t); got != before-18 {
+		t.Fatalf("reused ordinal damage changed health to %d, want one fresh hit %d", got, before-18)
+	}
 }
 
 func TestExtractedWarriorActionOwnsDamageResourceCooldownAndEvent(t *testing.T) {
