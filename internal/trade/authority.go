@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -15,6 +16,7 @@ type Authority struct {
 	mu sync.Mutex
 
 	store Store
+	now   Clock
 
 	presences map[uuid.UUID]Presence
 	active    map[uuid.UUID]*exchange
@@ -22,14 +24,15 @@ type Authority struct {
 }
 
 type exchange struct {
-	id       uuid.UUID
-	revision uint64
-	state    State
-	inviter  uuid.UUID
-	invitee  uuid.UUID
-	end      EndReason
-	first    offer
-	second   offer
+	id                 uuid.UUID
+	revision           uint64
+	state              State
+	invitationDeadline time.Time
+	inviter            uuid.UUID
+	invitee            uuid.UUID
+	end                EndReason
+	first              offer
+	second             offer
 }
 
 type offer struct {
@@ -40,11 +43,22 @@ type offer struct {
 }
 
 func New(store Store) (*Authority, error) {
+	return NewWithClock(store, time.Now)
+}
+
+// NewWithClock constructs an authority with a server-owned clock. The authority
+// reads the clock before taking its mutex, and the clock must support concurrent
+// callers.
+func NewWithClock(store Store, clock Clock) (*Authority, error) {
 	if store == nil {
 		return nil, errors.New("trade: a store is required")
 	}
+	if clock == nil {
+		return nil, errors.New("trade: a clock is required")
+	}
 	return &Authority{
 		store:     store,
+		now:       clock,
 		presences: make(map[uuid.UUID]Presence),
 		active:    make(map[uuid.UUID]*exchange),
 		byPlayer:  make(map[uuid.UUID]uuid.UUID),
@@ -54,10 +68,11 @@ func New(store Store) (*Authority, error) {
 // Connect registers server-owned session presence. Replacing a live session
 // ends its old exchange as LOST before the new presence becomes visible.
 func (authority *Authority) Connect(presence Presence) []Delivery {
+	now := authority.now()
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 
-	var deliveries []Delivery
+	deliveries := authority.expireInvitationsLocked(now)
 	if _, exists := authority.presences[presence.CharacterID]; exists {
 		deliveries = append(deliveries, authority.closePlayerLocked(
 			presence.CharacterID, StateLost, EndReasonSessionEnded,
@@ -71,10 +86,11 @@ func (authority *Authority) Connect(presence Presence) []Delivery {
 // Disconnect removes one authenticated session and closes its exchange as
 // LOST. A later duplicate disconnect is harmless.
 func (authority *Authority) Disconnect(characterID uuid.UUID) []Delivery {
+	now := authority.now()
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 
-	var deliveries []Delivery
+	deliveries := authority.expireInvitationsLocked(now)
 	deliveries = append(deliveries, authority.closePlayerLocked(
 		characterID, StateLost, EndReasonSessionEnded,
 	)...)
@@ -85,10 +101,11 @@ func (authority *Authority) Disconnect(characterID uuid.UUID) []Delivery {
 // UpdatePresence applies a world fact. Death and separation beyond five metres
 // cancel an exchange immediately, matching the retail action handlers.
 func (authority *Authority) UpdatePresence(change PresenceChange) []Delivery {
+	now := authority.now()
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 
-	var deliveries []Delivery
+	deliveries := authority.expireInvitationsLocked(now)
 	presence, exists := authority.presences[change.CharacterID]
 	if !exists {
 		return deliveries
@@ -121,17 +138,19 @@ func (authority *Authority) InventoryChanged(
 	ctx context.Context,
 	characterID uuid.UUID,
 ) []Delivery {
+	now := authority.now()
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 
+	deliveries := authority.expireInvitationsLocked(now)
 	current := authority.exchangeForLocked(characterID)
 	if current == nil || current.state != StateInProgress {
-		return nil
+		return deliveries
 	}
 	own, _ := current.offers(characterID)
 	holdings, err := authority.store.Load(ctx, characterID)
 	if err != nil {
-		return []Delivery{refusal(characterID, RefusalInternal)}
+		return append(deliveries, refusal(characterID, RefusalInternal))
 	}
 	changed := false
 	for index, offered := range own.items {
@@ -146,11 +165,11 @@ func (authority *Authority) InventoryChanged(
 		changed = true
 	}
 	if !changed {
-		return nil
+		return deliveries
 	}
 	current.resetConfirmations()
 	current.bump()
-	return authority.broadcastLocked(current, nil, nil)
+	return append(deliveries, authority.broadcastLocked(current, nil, nil)...)
 }
 
 // InventoryMoved retargets offered source slots when storage proves the exact
@@ -161,17 +180,19 @@ func (authority *Authority) InventoryMoved(
 	characterID uuid.UUID,
 	moves []SlotMove,
 ) []Delivery {
+	now := authority.now()
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 
+	deliveries := authority.expireInvitationsLocked(now)
 	current := authority.exchangeForLocked(characterID)
 	if current == nil || current.state != StateInProgress {
-		return nil
+		return deliveries
 	}
 	own, _ := current.offers(characterID)
 	holdings, err := authority.store.Load(ctx, characterID)
 	if err != nil {
-		return []Delivery{refusal(characterID, RefusalInternal)}
+		return append(deliveries, refusal(characterID, RefusalInternal))
 	}
 	bySource := make(map[int32]int32, len(moves))
 	for _, move := range moves {
@@ -202,9 +223,9 @@ func (authority *Authority) InventoryMoved(
 		// Bag slots are server-only in the retail replica. A pure retarget keeps
 		// the offer and confirmations exactly as they were, so there is no client
 		// replacement to send.
-		return nil
+		return deliveries
 	}
-	return authority.broadcastLocked(current, nil, nil)
+	return append(deliveries, authority.broadcastLocked(current, nil, nil)...)
 }
 
 // MoneyChanged applies the retail wallet listener. A purse decrease clamps an
@@ -214,25 +235,27 @@ func (authority *Authority) MoneyChanged(
 	ctx context.Context,
 	characterID uuid.UUID,
 ) []Delivery {
+	now := authority.now()
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 
+	deliveries := authority.expireInvitationsLocked(now)
 	current := authority.exchangeForLocked(characterID)
 	if current == nil || current.state != StateInProgress {
-		return nil
+		return deliveries
 	}
 	own, _ := current.offers(characterID)
 	holdings, err := authority.store.Load(ctx, characterID)
 	if err != nil {
-		return []Delivery{refusal(characterID, RefusalInternal)}
+		return append(deliveries, refusal(characterID, RefusalInternal))
 	}
 	if own.money <= holdings.Money {
-		return nil
+		return deliveries
 	}
 	own.money = holdings.Money
 	current.resetConfirmations()
 	current.bump()
-	return authority.broadcastLocked(current, nil, nil)
+	return append(deliveries, authority.broadcastLocked(current, nil, nil)...)
 }
 
 // Execute applies one typed command for the authenticated actor.
@@ -241,10 +264,11 @@ func (authority *Authority) Execute(
 	actor uuid.UUID,
 	command Command,
 ) []Delivery {
+	now := authority.now()
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 
-	var deliveries []Delivery
+	deliveries := authority.expireInvitationsLocked(now)
 	if command == nil {
 		return append(deliveries, refusal(actor, RefusalInvalidState))
 	}
@@ -252,7 +276,7 @@ func (authority *Authority) Execute(
 	var result []Delivery
 	switch command := command.(type) {
 	case Invite:
-		result = authority.inviteLocked(actor, command)
+		result = authority.inviteLocked(actor, command, now)
 	case Respond:
 		result = authority.respondLocked(actor, command)
 	case SetOfferItem:
@@ -273,7 +297,7 @@ func (authority *Authority) Execute(
 	return append(deliveries, result...)
 }
 
-func (authority *Authority) inviteLocked(actor uuid.UUID, command Invite) []Delivery {
+func (authority *Authority) inviteLocked(actor uuid.UUID, command Invite, now time.Time) []Delivery {
 	actorPresence, actorPresent := authority.presences[actor]
 	targetPresence, targetPresent := authority.presences[command.TargetCharacterID]
 	switch {
@@ -305,11 +329,12 @@ func (authority *Authority) inviteLocked(actor uuid.UUID, command Invite) []Deli
 	}
 
 	current := &exchange{
-		id:       uuid.New(),
-		revision: 1,
-		state:    StateInvitation,
-		inviter:  actor,
-		invitee:  command.TargetCharacterID,
+		id:                 uuid.New(),
+		revision:           1,
+		state:              StateInvitation,
+		invitationDeadline: now.Add(ClientInvitationWindow),
+		inviter:            actor,
+		invitee:            command.TargetCharacterID,
 	}
 	authority.active[current.id] = current
 	authority.byPlayer[current.inviter] = current.id
@@ -434,6 +459,9 @@ func (authority *Authority) setPrimaryLocked(
 	if own == nil {
 		return []Delivery{refusal(actor, RefusalNotParticipant)}
 	}
+	if own.primary == command.Confirmed {
+		return nil
+	}
 	if !command.Confirmed {
 		current.resetConfirmations()
 	} else {
@@ -459,6 +487,9 @@ func (authority *Authority) setFinalLocked(
 	if own == nil {
 		return []Delivery{refusal(actor, RefusalNotParticipant)}
 	}
+	if own.final == command.Confirmed {
+		return nil
+	}
 	if !current.first.primary || !current.second.primary {
 		return []Delivery{refusal(actor, RefusalPrimaryConfirmationRequired)}
 	}
@@ -468,6 +499,33 @@ func (authority *Authority) setFinalLocked(
 		return authority.broadcastLocked(current, nil, nil)
 	}
 	return authority.commitLocked(ctx, current)
+}
+
+// ExpireInvitations closes every invitation whose server deadline has elapsed.
+// Shard ticks call this even when no player sends a command. Public operations
+// also sweep first, so an expired invitation cannot keep either participant
+// busy while new activity is being processed.
+func (authority *Authority) ExpireInvitations() []Delivery {
+	now := authority.now()
+	authority.mu.Lock()
+	defer authority.mu.Unlock()
+	return authority.expireInvitationsLocked(now)
+}
+
+func (authority *Authority) expireInvitationsLocked(now time.Time) []Delivery {
+	var expired []*exchange
+	for _, current := range authority.active {
+		if current.state == StateInvitation && !now.Before(current.invitationDeadline) {
+			expired = append(expired, current)
+		}
+	}
+	var deliveries []Delivery
+	for _, current := range expired {
+		deliveries = append(deliveries, authority.closeLocked(
+			current, StateCanceled, EndReasonInvitationExpired,
+		)...)
+	}
+	return deliveries
 }
 
 func (authority *Authority) cancelLocked(actor uuid.UUID, command Cancel) []Delivery {

@@ -76,7 +76,12 @@ const (
 	EndReasonCommitFailed
 	EndReasonNoBagSpace
 	EndReasonCompleted
+	EndReasonInvitationExpired
 )
+
+// Clock supplies server time to the exchange authority. Tests use a manual
+// clock so invitation deadlines do not depend on wall-clock sleeps.
+type Clock func() time.Time
 
 type Vec3 struct {
 	X float32

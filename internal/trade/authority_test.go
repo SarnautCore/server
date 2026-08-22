@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -53,6 +54,14 @@ type fixture struct {
 }
 
 func newFixture(t *testing.T, firstCapacity, secondCapacity int32) *fixture {
+	return newFixtureWithClock(t, firstCapacity, secondCapacity, time.Now)
+}
+
+func newFixtureWithClock(
+	t *testing.T,
+	firstCapacity, secondCapacity int32,
+	clock trade.Clock,
+) *fixture {
 	t.Helper()
 	repository := charstore.NewMemory()
 	first := uuid.New()
@@ -71,7 +80,7 @@ func newFixture(t *testing.T, firstCapacity, secondCapacity int32) *fixture {
 	if err != nil {
 		t.Fatalf("NewRepositoryStore() error = %v", err)
 	}
-	authority, err := trade.New(store)
+	authority, err := trade.NewWithClock(store, clock)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -89,6 +98,23 @@ func newFixture(t *testing.T, firstCapacity, secondCapacity int32) *fixture {
 	result.connect(first, 11, "First", trade.Vec3{}, "league")
 	result.connect(second, 22, "Second", trade.Vec3{X: 5}, "league")
 	return result
+}
+
+type manualClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (clock *manualClock) Now() time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	return clock.now
+}
+
+func (clock *manualClock) Advance(elapsed time.Duration) {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	clock.now = clock.now.Add(elapsed)
 }
 
 func (fixture *fixture) seed(
@@ -325,6 +351,164 @@ func TestStateReplacementRevisionAdvancesOnlyOnVisibleMutation(t *testing.T) {
 	view = requireView(t, fixture.offer(fixture.first, exchangeID, 0, 0), fixture.first)
 	if view.Revision != 3 {
 		t.Fatalf("first visible mutation revision = %d, want 3", view.Revision)
+	}
+}
+
+func TestInvitationExpiresAuthoritativelyAndReleasesBothPlayers(t *testing.T) {
+	clock := &manualClock{now: time.Unix(1_800_000_000, 0)}
+	fixture := newFixtureWithClock(t, 8, 8, clock.Now)
+	exchangeID := fixture.invite()
+
+	clock.Advance(trade.ClientInvitationWindow - time.Nanosecond)
+	if deliveries := fixture.authority.ExpireInvitations(); len(deliveries) != 0 {
+		t.Fatalf("invitation expired before deadline: %+v", deliveries)
+	}
+	clock.Advance(time.Nanosecond)
+	deliveries := fixture.authority.ExpireInvitations()
+	for _, recipient := range []uuid.UUID{fixture.first, fixture.second} {
+		view := requireView(t, deliveries, recipient)
+		if view.ExchangeID != exchangeID || view.State != trade.StateCanceled ||
+			view.EndReason != trade.EndReasonInvitationExpired || view.Revision != 2 {
+			t.Fatalf("expired view for %s = %+v", recipient, view)
+		}
+	}
+	if deliveries := fixture.authority.ExpireInvitations(); len(deliveries) != 0 {
+		t.Fatalf("second expiration delivered %+v", deliveries)
+	}
+
+	newExchangeID := fixture.invite()
+	if newExchangeID == exchangeID {
+		t.Fatal("expiration did not release players for a new exchange")
+	}
+}
+
+func TestExpiredInvitationIsSweptBeforeAnotherCommand(t *testing.T) {
+	clock := &manualClock{now: time.Unix(1_800_000_000, 0)}
+	fixture := newFixtureWithClock(t, 8, 8, clock.Now)
+	oldExchangeID := fixture.invite()
+	clock.Advance(trade.ClientInvitationWindow)
+
+	deliveries := fixture.authority.Execute(
+		fixture.ctx, fixture.first, trade.Invite{TargetCharacterID: fixture.second},
+	)
+	var oldCanceled, replacement bool
+	for _, delivery := range deliveries {
+		if delivery.Recipient != fixture.first || delivery.Event.View == nil {
+			continue
+		}
+		view := delivery.Event.View
+		switch {
+		case view.ExchangeID == oldExchangeID:
+			oldCanceled = view.State == trade.StateCanceled &&
+				view.EndReason == trade.EndReasonInvitationExpired
+		case view.ExchangeID != uuid.Nil:
+			replacement = view.State == trade.StateInvitation
+		}
+	}
+	if !oldCanceled || !replacement {
+		t.Fatalf("expiry sweep/replacement deliveries = %+v", deliveries)
+	}
+}
+
+func TestConcurrentExpirationClosesInvitationOnce(t *testing.T) {
+	clock := &manualClock{now: time.Unix(1_800_000_000, 0)}
+	fixture := newFixtureWithClock(t, 8, 8, clock.Now)
+	exchangeID := fixture.invite()
+	clock.Advance(trade.ClientInvitationWindow)
+
+	results := make(chan []trade.Delivery, 16)
+	var wait sync.WaitGroup
+	for range 16 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			results <- fixture.authority.ExpireInvitations()
+		}()
+	}
+	wait.Wait()
+	close(results)
+
+	terminalViews := 0
+	for deliveries := range results {
+		for _, delivery := range deliveries {
+			if delivery.Event.View != nil && delivery.Event.View.ExchangeID == exchangeID &&
+				delivery.Event.View.State == trade.StateCanceled {
+				terminalViews++
+			}
+		}
+	}
+	if terminalViews != 2 {
+		t.Fatalf("expiration terminal views = %d, want one broadcast to two players", terminalViews)
+	}
+}
+
+func TestSameValueConfirmationsAreNoOps(t *testing.T) {
+	fixture := newFixture(t, 8, 8)
+	exchangeID := fixture.invite()
+	fixture.accept(exchangeID)
+
+	primary := fixture.authority.Execute(
+		fixture.ctx, fixture.first,
+		trade.SetPrimaryConfirmation{ExchangeID: exchangeID, Confirmed: true},
+	)
+	primaryRevision := requireView(t, primary, fixture.first).Revision
+	if deliveries := fixture.authority.Execute(
+		fixture.ctx, fixture.first,
+		trade.SetPrimaryConfirmation{ExchangeID: exchangeID, Confirmed: true},
+	); len(deliveries) != 0 {
+		t.Fatalf("same primary confirmation delivered %+v", deliveries)
+	}
+	if deliveries := fixture.authority.Execute(
+		fixture.ctx, fixture.second,
+		trade.SetPrimaryConfirmation{ExchangeID: exchangeID, Confirmed: false},
+	); len(deliveries) != 0 {
+		t.Fatalf("default primary confirmation delivered %+v", deliveries)
+	}
+	if deliveries := fixture.authority.Execute(
+		fixture.ctx, fixture.second,
+		trade.SetFinalConfirmation{ExchangeID: exchangeID, Confirmed: false},
+	); len(deliveries) != 0 {
+		t.Fatalf("default final confirmation delivered %+v", deliveries)
+	}
+
+	fixture.authority.Execute(
+		fixture.ctx, fixture.second,
+		trade.SetPrimaryConfirmation{ExchangeID: exchangeID, Confirmed: true},
+	)
+	final := fixture.authority.Execute(
+		fixture.ctx, fixture.first,
+		trade.SetFinalConfirmation{ExchangeID: exchangeID, Confirmed: true},
+	)
+	finalRevision := requireView(t, final, fixture.first).Revision
+	if finalRevision <= primaryRevision {
+		t.Fatalf("final revision = %d, want greater than primary revision %d", finalRevision, primaryRevision)
+	}
+	if deliveries := fixture.authority.Execute(
+		fixture.ctx, fixture.first,
+		trade.SetFinalConfirmation{ExchangeID: exchangeID, Confirmed: true},
+	); len(deliveries) != 0 {
+		t.Fatalf("same final confirmation delivered %+v", deliveries)
+	}
+	unfinal := fixture.authority.Execute(
+		fixture.ctx, fixture.first,
+		trade.SetFinalConfirmation{ExchangeID: exchangeID, Confirmed: false},
+	)
+	if view := requireView(t, unfinal, fixture.first); view.Revision != finalRevision+1 ||
+		view.SelfOffer.FinalConfirmed {
+		t.Fatalf("changed final confirmation view = %+v", view)
+	}
+	if deliveries := fixture.authority.Execute(
+		fixture.ctx, fixture.first,
+		trade.SetFinalConfirmation{ExchangeID: exchangeID, Confirmed: false},
+	); len(deliveries) != 0 {
+		t.Fatalf("same cleared final confirmation delivered %+v", deliveries)
+	}
+}
+
+func TestAuthorityRejectsNilClock(t *testing.T) {
+	fixture := newFixture(t, 8, 8)
+	if _, err := trade.NewWithClock(mustRepositoryStore(t, fixture), nil); err == nil {
+		t.Fatal("NewWithClock() accepted nil clock")
 	}
 }
 
@@ -591,7 +775,7 @@ func TestConcurrentFinalConfirmationsCommitOnce(t *testing.T) {
 	}
 }
 
-func TestDeclineAndClientTimeoutUseOrdinaryCancelState(t *testing.T) {
+func TestDeclineUsesOrdinaryCancelState(t *testing.T) {
 	fixture := newFixture(t, 8, 8)
 	exchangeID := fixture.invite()
 	deliveries := fixture.authority.Execute(
